@@ -1,0 +1,1181 @@
+"""Module G: Stay Timer & Legal Notification Engine + Dead Man's Switch."""
+import logging
+from datetime import date, timedelta, datetime, timezone
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger("uvicorn.error")
+from app.database import SessionLocal
+from app.models.stay import Stay
+from app.models.invitation import Invitation
+from app.models.user import User
+from app.models.region_rule import RegionRule
+from app.models.audit_log import AuditLog
+from app.models.owner import OwnerProfile, Property, USAT_TOKEN_STAGED, USAT_TOKEN_RELEASED, OccupancyStatus
+from app.models.property_manager_assignment import PropertyManagerAssignment
+from app.services.notifications import (
+    send_stay_legal_warning,
+    send_overstay_alert,
+    send_dead_mans_switch_48h_before_to_owner_and_managers,
+    send_dead_mans_switch_urgent_today_to_owner_and_managers,
+    send_shield_mode_turned_on_notification,
+    send_shield_mode_turned_off_notification,
+    send_vacant_monitoring_prompt,
+    send_vacant_monitoring_flipped,
+    send_dms_triggered_set_status_notification,
+    send_dms_turned_off_notification,
+    send_status_confirmation_daily_reminder_email,
+    send_tenant_guest_authorization_ending_notice,
+    send_guest_authorization_dates_only_email,
+)
+from app.services.privacy_lanes import is_tenant_lane_stay
+from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE, CATEGORY_SHIELD_MODE, CATEGORY_DEAD_MANS_SWITCH
+from app.services.event_ledger import (
+    create_ledger_event,
+    ACTION_OVERSTAY_OCCURRED,
+    ACTION_SHIELD_MODE_ON,
+    ACTION_VACANT_MONITORING_NO_RESPONSE,
+)
+from app.services.billing import sync_subscription_quantities
+from app.services.dashboard_alerts import (
+    create_alert_for_owner_and_managers,
+    create_alert_for_user,
+    create_alert_for_property_managers_or_owner,
+)
+from app.config import get_settings
+
+settings = get_settings()
+
+# Status Confirmation audit titles (for idempotency; internal category remains dead_mans_switch)
+DMS_TITLE_48H_BEFORE = "Status Confirmation: 48h before lease end"
+DMS_TITLE_URGENT_TODAY = "Status Confirmation: lease ends today"
+DMS_TITLE_NO_RESPONSE_UNKNOWN = "Status Confirmation: no response by deadline – occupancy unknown"
+# Legacy idempotency (before rename)
+_LEGACY_DMS_AUTO_EXECUTED_TITLE = "Dead Man's Switch: auto-executed"
+SHIELD_ACTIVATED_LAST_DAY = "Shield Mode activated (last day of stay)"
+# Test mode: effective "lease end" = stay created_at + this duration (invite acceptance = stay creation)
+DMS_TEST_MODE_MINUTES_AFTER_CREATE = 2
+
+# Tenant-invited guest authorization ending (separate from property Status Confirmation)
+TENANT_NOTICE_GUEST_AUTH_48H = "Tenant notice: guest authorization ends in 2 days"
+TENANT_NOTICE_GUEST_AUTH_TODAY = "Tenant notice: guest authorization ends today"
+GUEST_NOTICE_AUTH_48H = "Guest notice: authorization ends in 2 days"
+GUEST_NOTICE_AUTH_TODAY = "Guest notice: authorization ends today"
+
+
+def _status_confirmation_eligible_stay(db: Session, stay: Stay) -> bool:
+    """Property Status Confirmation applies only to property/management-lane stays (tenant lease), not tenant-invited guests."""
+    return not is_tenant_lane_stay(db, stay)
+
+
+def _deadline_no_response_already_logged(db: Session, stay_id: int) -> bool:
+    return _dms_already_logged(db, DMS_TITLE_NO_RESPONSE_UNKNOWN, stay_id=stay_id) or _dms_already_logged(
+        db, _LEGACY_DMS_AUTO_EXECUTED_TITLE, stay_id=stay_id
+    )
+
+
+def get_overstays(db: Session) -> list[Stay]:
+    """Stays whose end date has passed and guest has not checked out or cancelled (overstay). Only includes stays that have been checked into."""
+    today = date.today()
+    return db.query(Stay).filter(
+        Stay.checked_in_at.isnot(None),
+        Stay.stay_end_date < today,
+        Stay.checked_out_at.is_(None),
+        Stay.cancelled_at.is_(None),
+    ).all()
+
+
+def send_overstay_alerts_and_log(db: Session) -> None:
+    """For each overstay not yet logged: email owner and guest, then append audit log."""
+    from app.services.display_names import label_for_stay
+
+    overstays = get_overstays(db)
+    for stay in overstays:
+        # Only act once per stay: skip if we already logged this overstay
+        existing = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.stay_id == stay.id,
+                AuditLog.title == "Overstay occurred",
+            )
+            .first()
+        )
+        if existing:
+            continue
+
+        owner = db.query(User).filter(User.id == stay.owner_id).first()
+        guest = db.query(User).filter(User.id == stay.guest_id).first()
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        if not owner or not guest:
+            continue
+
+        guest_name = label_for_stay(db, stay)
+        property_name = "Property"
+        if prop:
+            property_name = (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property")
+        end_str = stay.stay_end_date.isoformat()
+
+        try:
+            send_overstay_alert(
+                owner.email,
+                guest_name=guest_name,
+                stay_end_date=end_str,
+                region_code=stay.region_code or "",
+                is_owner=True,
+                property_name=property_name,
+            )
+            send_overstay_alert(
+                guest.email,
+                guest_name=guest_name,
+                stay_end_date=end_str,
+                region_code=stay.region_code or "",
+                is_owner=False,
+                property_name=property_name,
+            )
+        except Exception:
+            pass
+
+        create_log(
+            db,
+            CATEGORY_STATUS_CHANGE,
+            "Overstay occurred",
+            f"Overstay detected: stay {stay.id}, property {stay.property_id}, guest {guest_name}, end date was {end_str}. Emails sent to owner and guest.",
+            property_id=stay.property_id,
+            stay_id=stay.id,
+            actor_email=None,
+            meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id, "stay_end_date": end_str},
+        )
+        create_ledger_event(
+            db,
+            ACTION_OVERSTAY_OCCURRED,
+            target_object_type="Stay",
+            target_object_id=stay.id,
+            property_id=stay.property_id,
+            stay_id=stay.id,
+            meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id, "stay_end_date": end_str},
+        )
+        create_alert_for_owner_and_managers(
+            db, stay.property_id, "overstay",
+            "Overstay occurred",
+            f"Stay end date ({end_str}) has passed. Guest {guest_name} has not checked out. Emails sent to owner and guest.",
+            severity="urgent", stay_id=stay.id, meta={"stay_end_date": end_str, "guest_name": guest_name},
+        )
+        create_alert_for_user(
+            db, stay.guest_id, "overstay",
+            "Overstay at " + property_name,
+            f"Your stay end date ({end_str}) has passed. Please coordinate with the property owner to check out or extend.",
+            severity="urgent", property_id=stay.property_id, stay_id=stay.id, meta={"stay_end_date": end_str},
+        )
+        db.commit()
+
+
+def get_stays_approaching_limit(db: Session, days_before: int | None = None) -> list[Stay]:
+    """Stays whose end date is within days_before (default from config) or on final day."""
+    days = days_before if days_before is not None else settings.notification_days_before_limit
+    threshold = date.today() + timedelta(days=days)
+    return db.query(Stay).filter(
+        Stay.stay_end_date >= date.today(),
+        Stay.stay_end_date <= threshold,
+    ).all()
+
+
+def send_legal_warnings_for_stay(stay: Stay, db: Session, statute_ref: str) -> None:
+    """Send email to owner and guest with legal warning (Module G). Also create dashboard alerts."""
+    from app.services.display_names import label_for_stay
+
+    owner = db.query(User).filter(User.id == stay.owner_id).first()
+    guest = db.query(User).filter(User.id == stay.guest_id).first()
+    if not owner or not guest:
+        return
+    guest_name = label_for_stay(db, stay)
+
+    end_str = stay.stay_end_date.isoformat()
+    send_stay_legal_warning(
+        owner.email,
+        guest_name=guest_name,
+        stay_end_date=end_str,
+        region_code=stay.region_code,
+        statute_ref=statute_ref,
+        is_owner=True,
+    )
+    send_stay_legal_warning(
+        guest.email,
+        guest_name=guest_name,
+        stay_end_date=end_str,
+        region_code=stay.region_code,
+        statute_ref=statute_ref,
+        is_owner=False,
+    )
+    prop = db.query(Property).filter(Property.id == stay.property_id).first()
+    property_name = _get_property_name(db, prop)
+    create_alert_for_owner_and_managers(
+        db, stay.property_id, "nearing_expiration",
+        "Stay nearing end date – legal notice",
+        f"Stay for {guest_name} at {property_name} ends {end_str}. Regional limits apply ({statute_ref}). Email sent to you and guest.",
+        severity="warning", stay_id=stay.id, meta={"stay_end_date": end_str, "statute_ref": statute_ref},
+    )
+    create_alert_for_user(
+        db, stay.guest_id, "nearing_expiration",
+        "Stay nearing end date",
+        f"Your stay at {property_name} ends {end_str}. Regional limits apply. Please coordinate with the property owner.",
+        severity="warning", property_id=stay.property_id, stay_id=stay.id, meta={"stay_end_date": end_str},
+    )
+    db.commit()
+
+
+def _dms_already_logged(
+    db: Session,
+    title: str,
+    stay_id: int | None = None,
+    property_id: int | None = None,
+    since_date: date | None = None,
+) -> bool:
+    """Return True if we already logged this event (for this stay or this property, optionally since date)."""
+    q = db.query(AuditLog).filter(AuditLog.title == title)
+    if stay_id is not None:
+        q = q.filter(AuditLog.stay_id == stay_id)
+    if property_id is not None:
+        q = q.filter(AuditLog.property_id == property_id)
+    if since_date is not None:
+        from datetime import time as dt_time
+        start_of_day = datetime.combine(since_date, dt_time.min).replace(tzinfo=timezone.utc)
+        q = q.filter(AuditLog.created_at >= start_of_day)
+    return q.first() is not None
+
+
+def _get_guest_name(db: Session, stay: Stay) -> str:
+    from app.services.display_names import label_for_stay
+
+    return label_for_stay(db, stay)
+
+
+def _get_property_name(db: Session, prop: Property | None) -> str:
+    if not prop:
+        return "Property"
+    return (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property")
+
+
+def _get_owner_and_manager_emails(db: Session, prop: Property | None) -> tuple[str, list[str]]:
+    """Return (owner_email, manager_emails) for a property."""
+    if not prop:
+        return ("", [])
+    owner_user = None
+    if getattr(prop, "owner_profile_id", None):
+        profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop.owner_profile_id).first()
+        owner_user = db.query(User).filter(User.id == profile.user_id).first() if profile else None
+    owner_email = (owner_user.email or "").strip() if owner_user else ""
+    manager_emails = [
+        (u.email or "").strip()
+        for a in db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.property_id == prop.id).all()
+        for u in [db.query(User).filter(User.id == a.user_id).first()]
+        if u and (u.email or "").strip()
+    ]
+    return (owner_email, manager_emails)
+
+
+def _ensure_utc(dt: datetime | None) -> datetime | None:
+    """Return datetime with UTC tzinfo; if naive, assume UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _run_dead_mans_switch_job_test_mode(db: Session) -> None:
+    """DMS test mode: effective lease end = checked_in_at + 2 min (if set), else created_at + 2 min. 48h before / urgent / auto-execute use that window."""
+    now = datetime.now(timezone.utc)
+    effective_end_delta = timedelta(minutes=DMS_TEST_MODE_MINUTES_AFTER_CREATE)
+    urgent_window_before_end = timedelta(minutes=1)  # "urgent" = last 1 min before effective end
+
+    def dms_enabled(s: Stay) -> bool:
+        return getattr(s, "dead_mans_switch_enabled", 0) == 1
+
+    def alert_email(s: Stay) -> bool:
+        return getattr(s, "dead_mans_switch_alert_email", 1) == 1
+
+    stays = (
+        db.query(Stay)
+        .filter(
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .all()
+    )
+    dms_stays = [s for s in stays if dms_enabled(s)]
+    logger.info("DMS job (test mode): started, %d total stays, %d with DMS on", len(stays), len(dms_stays))
+    for stay in stays:
+        if not dms_enabled(stay):
+            continue
+        if not _status_confirmation_eligible_stay(db, stay):
+            continue
+        # Prefer checked_in_at + 2 min (when testing via check-in flow); else created_at + 2 min (accept-invite flow)
+        checked_in_at = getattr(stay, "checked_in_at", None)
+        if checked_in_at:
+            base_dt = _ensure_utc(checked_in_at)
+        else:
+            created_at = getattr(stay, "created_at", None)
+            if not created_at:
+                continue
+            base_dt = _ensure_utc(created_at)
+        effective_end_dt = base_dt + effective_end_delta
+        effective_end_date_str = effective_end_dt.date().isoformat()
+
+        # 1) 48h before (test: before effective end, send once)
+        if now < effective_end_dt and not _dms_already_logged(db, DMS_TITLE_48H_BEFORE, stay_id=stay.id):
+            owner = db.query(User).filter(User.id == stay.owner_id).first()
+            prop = db.query(Property).filter(Property.id == stay.property_id).first()
+            if owner and alert_email(stay):
+                owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+                try:
+                    send_dead_mans_switch_48h_before_to_owner_and_managers(
+                        owner_email,
+                        manager_emails,
+                        _get_guest_name(db, stay),
+                        _get_property_name(db, prop),
+                        effective_end_date_str,
+                    )
+                except Exception:
+                    pass
+                create_log(
+                    db,
+                    CATEGORY_DEAD_MANS_SWITCH,
+                    DMS_TITLE_48H_BEFORE,
+                    f"Stay {stay.id}: 48h before (test mode, effective end {effective_end_date_str}) alert sent to owner.",
+                    property_id=stay.property_id,
+                    stay_id=stay.id,
+                    meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id, "dms_test_mode": True},
+                )
+                db.commit()
+
+        # 2) Urgent today (test: last minute before effective end)
+        if (
+            effective_end_dt - urgent_window_before_end <= now < effective_end_dt
+            and not _dms_already_logged(db, DMS_TITLE_URGENT_TODAY, stay_id=stay.id)
+        ):
+            owner = db.query(User).filter(User.id == stay.owner_id).first()
+            prop = db.query(Property).filter(Property.id == stay.property_id).first()
+            if owner and alert_email(stay):
+                owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+                try:
+                    send_dead_mans_switch_urgent_today_to_owner_and_managers(
+                        owner_email,
+                        manager_emails,
+                        _get_guest_name(db, stay),
+                        _get_property_name(db, prop),
+                        effective_end_date_str,
+                    )
+                except Exception:
+                    pass
+                create_log(
+                    db,
+                    CATEGORY_DEAD_MANS_SWITCH,
+                    DMS_TITLE_URGENT_TODAY,
+                    f"Stay {stay.id}: urgent (test mode, effective end {effective_end_date_str}) alert sent to owner.",
+                    property_id=stay.property_id,
+                    stay_id=stay.id,
+                    meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id, "dms_test_mode": True},
+                )
+                db.commit()
+
+        # 3) Auto-execute after effective end (test: 2 min after create)
+        if now < effective_end_dt:
+            continue
+        if getattr(stay, "occupancy_confirmation_response", None) is not None:
+            continue
+        if getattr(stay, "dead_mans_switch_triggered_at", None) is not None:
+            continue
+        if _deadline_no_response_already_logged(db, stay.id):
+            continue
+
+        owner = db.query(User).filter(User.id == stay.owner_id).first()
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        guest_name = _get_guest_name(db, stay)
+        property_name = _get_property_name(db, prop)
+
+        stay.dead_mans_switch_triggered_at = now
+        db.add(stay)
+
+        prev_status = "unknown"
+        if prop:
+            prev_status = getattr(prop, "occupancy_status", None) or "unknown"
+            prop.occupancy_status = OccupancyStatus.unknown.value
+            db.add(prop)
+
+        create_log(
+            db,
+            CATEGORY_DEAD_MANS_SWITCH,
+            DMS_TITLE_NO_RESPONSE_UNKNOWN,
+            f"Stay {stay.id}: No confirmation by deadline (test mode, effective end {effective_end_date_str}). Occupancy set to Unknown; reminders continue. No Shield or vacancy changes.",
+            property_id=stay.property_id,
+            stay_id=stay.id,
+            meta={
+                "guest_id": stay.guest_id,
+                "owner_id": stay.owner_id,
+                "stay_end_date": effective_end_date_str,
+                "occupancy_status_previous": prev_status,
+                "occupancy_status_new": OccupancyStatus.unknown.value,
+                "dms_test_mode": True,
+            },
+        )
+        db.commit()
+        if owner and alert_email(stay):
+            owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+            try:
+                send_dms_triggered_set_status_notification(
+                    owner_email,
+                    manager_emails,
+                    property_name,
+                    stay.property_id,
+                    guest_name,
+                    effective_end_date_str,
+                )
+            except Exception:
+                pass
+
+    # Shield activation (test mode): skip last-day Shield activation tied to real stay_end_date to avoid side effects
+    logger.info("DMS job (test mode): finished")
+    return
+
+
+def run_dms_test_mode_catchup_job() -> None:
+    """DMS test mode only: find stays that checked in >2 min ago but still have DMS off, turn DMS on and run DMS job. Handles missed one-off job (e.g. server restart)."""
+    if not getattr(settings, "dms_test_mode", False):
+        logger.debug("DMS test-mode catchup job: skipped (dms_test_mode=False)")
+        return
+    logger.info("DMS test-mode catchup job: started")
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=DMS_TEST_MODE_MINUTES_AFTER_CREATE)
+        stays = (
+            db.query(Stay)
+            .filter(
+                Stay.checked_in_at.isnot(None),
+                Stay.checked_in_at < cutoff,
+                Stay.checked_out_at.is_(None),
+                Stay.cancelled_at.is_(None),
+            )
+            .all()
+        )
+        to_turn_on = [
+            s for s in stays
+            if getattr(s, "dead_mans_switch_enabled", 0) == 0 and _status_confirmation_eligible_stay(db, s)
+        ]
+        logger.info(
+            "DMS test-mode catchup job: found %d stay(s) checked in >2min ago, %d with DMS off",
+            len(stays),
+            len(to_turn_on),
+        )
+        changed = False
+        for stay in to_turn_on:
+            stay.dead_mans_switch_enabled = 1
+            db.add(stay)
+            changed = True
+        if changed:
+            db.commit()
+            logger.info("DMS test-mode catchup job: turned DMS on for %d stay(s), running run_dead_mans_switch_job", len(to_turn_on))
+            run_dead_mans_switch_job(db)
+        else:
+            logger.info("DMS test-mode catchup job: no stays needed DMS on, done")
+    except Exception as e:
+        logger.exception("DMS test-mode catchup job: failed: %s", e)
+    finally:
+        db.close()
+        logger.info("DMS test-mode catchup job: finished")
+
+
+def run_dead_mans_switch_job(db: Session) -> None:
+    """Dead Man's Switch: 48h before alert, today alert, 48h after auto-execute. When DMS_TEST_MODE=true, uses 2 min after stay creation."""
+    if settings.dms_test_mode:
+        logger.info("DMS job: running test-mode path (effective end = 2 min after check-in/create)")
+        _run_dead_mans_switch_job_test_mode(db)
+        return
+
+    today = date.today()
+    two_days_later = today + timedelta(days=2)
+    two_days_ago = today - timedelta(days=2)
+
+    # Stays with DMS enabled (integer 1)
+    def dms_enabled(s: Stay) -> bool:
+        return getattr(s, "dead_mans_switch_enabled", 0) == 1
+
+    def alert_email(s: Stay) -> bool:
+        return getattr(s, "dead_mans_switch_alert_email", 1) == 1
+
+    # 1) 48 hours before lease end: turn DMS on for this stay (prod: DMS is not on from creation) and send alert
+    for stay in (
+        db.query(Stay)
+        .filter(
+            Stay.checked_in_at.isnot(None),
+            Stay.stay_end_date == two_days_later,
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .all()
+    ):
+        if not _status_confirmation_eligible_stay(db, stay):
+            continue
+        # In prod, DMS turns on here (48h before lease end), not at creation or check-in
+        if not dms_enabled(stay):
+            stay.dead_mans_switch_enabled = 1
+            db.add(stay)
+            db.commit()
+        if _dms_already_logged(db, DMS_TITLE_48H_BEFORE, stay_id=stay.id):
+            continue
+        owner = db.query(User).filter(User.id == stay.owner_id).first()
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        if not owner or not alert_email(stay):
+            continue
+        owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+        try:
+            send_dead_mans_switch_48h_before_to_owner_and_managers(
+                owner_email,
+                manager_emails,
+                _get_guest_name(db, stay),
+                _get_property_name(db, prop),
+                stay.stay_end_date.isoformat(),
+            )
+        except Exception:
+            pass
+        create_log(
+            db,
+            CATEGORY_DEAD_MANS_SWITCH,
+            DMS_TITLE_48H_BEFORE,
+            f"Stay {stay.id}: 48h before lease end alert sent to owner.",
+            property_id=stay.property_id,
+            stay_id=stay.id,
+            meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id},
+        )
+        create_alert_for_property_managers_or_owner(
+            db, stay.property_id, "dms_48h",
+            "Status Confirmation: lease ends in 2 days",
+            f"Tenant lease for {_get_guest_name(db, stay)} at {_get_property_name(db, prop)} ends {stay.stay_end_date.isoformat()}. Please confirm vacated, renewed, or holdover in DocuStay.",
+            severity="warning", stay_id=stay.id, meta={"stay_end_date": stay.stay_end_date.isoformat()},
+        )
+        db.commit()
+
+    # 1.5) Last day of guest's stay: activate Shield Mode for the property (any checked-in stay ending today)
+    stays_ending_today = [
+        s
+        for s in db.query(Stay)
+        .filter(
+            Stay.checked_in_at.isnot(None),
+            Stay.stay_end_date == today,
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .all()
+        if _status_confirmation_eligible_stay(db, s)
+    ]
+    property_ids_ending_today = {s.property_id for s in stays_ending_today}
+    for prop_id in property_ids_ending_today:
+        prop = db.query(Property).filter(Property.id == prop_id).first()
+        if not prop or getattr(prop, "shield_mode_enabled", 0) == 1:
+            continue
+        if _dms_already_logged(db, SHIELD_ACTIVATED_LAST_DAY, property_id=prop_id, since_date=today):
+            continue
+        stay_for_prop = next((s for s in stays_ending_today if s.property_id == prop_id), None)
+        if not stay_for_prop:
+            continue
+        owner = db.query(User).filter(User.id == stay_for_prop.owner_id).first()
+        prop.shield_mode_enabled = 1
+        db.add(prop)
+        create_log(
+            db,
+            CATEGORY_SHIELD_MODE,
+            SHIELD_ACTIVATED_LAST_DAY,
+            f"Shield Mode activated for property {prop_id} (last day of stay {stay_for_prop.id}).",
+            property_id=prop_id,
+            stay_id=stay_for_prop.id,
+            meta={"owner_id": stay_for_prop.owner_id},
+        )
+        pn = _get_property_name(db, prop)
+        create_ledger_event(
+            db,
+            ACTION_SHIELD_MODE_ON,
+            target_object_type="Property",
+            target_object_id=prop_id,
+            property_id=prop_id,
+            stay_id=stay_for_prop.id,
+            actor_user_id=None,
+            meta={
+                "property_name": pn,
+                "message": f"Shield Mode turned on for {pn} (last day of stay).",
+                "reason": "last_day_of_stay",
+            },
+        )
+        db.commit()
+        try:
+            profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop.owner_profile_id).first()
+            if profile:
+                sync_subscription_quantities(db, profile)
+        except Exception:
+            pass
+        if owner:
+            owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+            try:
+                send_shield_mode_turned_on_notification(
+                    owner_email,
+                    manager_emails,
+                    _get_property_name(db, prop),
+                    turned_on_by="system (last day of stay)",
+                )
+            except Exception:
+                pass
+        create_alert_for_owner_and_managers(
+            db, prop_id, "shield_on",
+            "Shield Mode activated (last day of stay)",
+            f"Shield Mode was turned on for {_get_property_name(db, prop)} (last day of stay).",
+            severity="info", stay_id=stay_for_prop.id, meta={},
+        )
+        db.commit()
+
+    # 2) Lease end date = today (urgent; only for checked-in stays)
+    for stay in (
+        db.query(Stay)
+        .filter(
+            Stay.checked_in_at.isnot(None),
+            Stay.stay_end_date == today,
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .all()
+    ):
+        if not _status_confirmation_eligible_stay(db, stay):
+            continue
+        if not dms_enabled(stay) or _dms_already_logged(db, DMS_TITLE_URGENT_TODAY, stay_id=stay.id):
+            continue
+        owner = db.query(User).filter(User.id == stay.owner_id).first()
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        if not owner or not alert_email(stay):
+            continue
+        owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+        try:
+            send_dead_mans_switch_urgent_today_to_owner_and_managers(
+                owner_email,
+                manager_emails,
+                _get_guest_name(db, stay),
+                _get_property_name(db, prop),
+                stay.stay_end_date.isoformat(),
+            )
+        except Exception:
+            pass
+        create_log(
+            db,
+            CATEGORY_DEAD_MANS_SWITCH,
+            DMS_TITLE_URGENT_TODAY,
+            f"Stay {stay.id}: urgent lease-ends-today alert sent to owner.",
+            property_id=stay.property_id,
+            stay_id=stay.id,
+            meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id},
+        )
+        create_alert_for_property_managers_or_owner(
+            db, stay.property_id, "dms_urgent",
+            "Status Confirmation: lease ends today",
+            f"Tenant lease for {_get_guest_name(db, stay)} at {_get_property_name(db, prop)} ends today ({stay.stay_end_date.isoformat()}). Please confirm in DocuStay.",
+            severity="urgent", stay_id=stay.id, meta={"stay_end_date": stay.stay_end_date.isoformat()},
+        )
+        db.commit()
+
+    # 3) 48 hours after lease end – occupancy Unknown until PM/owner confirms (no auto-checkout; no Shield; no USAT staging)
+    for stay in (
+        db.query(Stay)
+        .filter(
+            Stay.checked_in_at.isnot(None),
+            Stay.stay_end_date <= two_days_ago,
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .all()
+    ):
+        if not _status_confirmation_eligible_stay(db, stay):
+            continue
+        if not dms_enabled(stay):
+            continue
+        if getattr(stay, "occupancy_confirmation_response", None) is not None:
+            continue
+        if getattr(stay, "dead_mans_switch_triggered_at", None) is not None:
+            continue
+        if _deadline_no_response_already_logged(db, stay.id):
+            continue
+
+        owner = db.query(User).filter(User.id == stay.owner_id).first()
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        guest_name = _get_guest_name(db, stay)
+        property_name = _get_property_name(db, prop)
+        now = datetime.now(timezone.utc)
+
+        stay.dead_mans_switch_triggered_at = now
+        db.add(stay)
+
+        prev_status = "unknown"
+        if prop:
+            prev_status = getattr(prop, "occupancy_status", None) or "unknown"
+            prop.occupancy_status = OccupancyStatus.unknown.value
+            db.add(prop)
+
+        create_log(
+            db,
+            CATEGORY_DEAD_MANS_SWITCH,
+            DMS_TITLE_NO_RESPONSE_UNKNOWN,
+            f"Stay {stay.id}: No confirmation by 48h after lease end. Occupancy set to Unknown; reminders continue. No Shield or vacancy changes.",
+            property_id=stay.property_id,
+            stay_id=stay.id,
+            meta={
+                "guest_id": stay.guest_id,
+                "owner_id": stay.owner_id,
+                "stay_end_date": stay.stay_end_date.isoformat(),
+                "occupancy_status_previous": prev_status,
+                "occupancy_status_new": OccupancyStatus.unknown.value,
+            },
+        )
+        db.commit()
+
+        if owner and alert_email(stay):
+            owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+            try:
+                send_dms_triggered_set_status_notification(
+                    owner_email,
+                    manager_emails,
+                    property_name,
+                    stay.property_id,
+                    guest_name,
+                    stay.stay_end_date.isoformat(),
+                )
+            except Exception:
+                pass
+        create_alert_for_property_managers_or_owner(
+            db, stay.property_id, "dms_executed",
+            "Status Confirmation: response needed",
+            f"No confirmation within 48h after lease end. Occupancy set to Unknown for {_get_property_name(db, prop)}. Tenant on file: {guest_name}. Please confirm Vacated / Renewed / Holdover in DocuStay. Reminders will continue.",
+            severity="urgent", stay_id=stay.id, meta={"stay_end_date": stay.stay_end_date.isoformat(), "guest_name": guest_name},
+        )
+        db.commit()
+
+    # Vacant monitoring audit title (idempotency)
+VACANT_MONITORING_FLIPPED = "Vacant monitoring: no response – status UNCONFIRMED"
+
+
+def run_vacant_monitoring_job(db: Session) -> None:
+    """Vacant-unit monitoring: prompt at defined intervals; no response by deadline → flip to UNCONFIRMED, Shield on."""
+    interval_days = getattr(settings, "vacant_monitoring_interval_days", 7) or 7
+    response_days = getattr(settings, "vacant_monitoring_response_days", 7) or 7
+    now = datetime.now(timezone.utc)
+    today = now.date()
+
+    vacant_with_monitoring = (
+        db.query(Property)
+        .filter(
+            Property.occupancy_status == OccupancyStatus.vacant.value,
+            Property.deleted_at.is_(None),
+        )
+        .all()
+    )
+    # Filter by vacant_monitoring_enabled (attribute may not exist on older DBs)
+    monitored = [p for p in vacant_with_monitoring if getattr(p, "vacant_monitoring_enabled", 0) == 1]
+
+    for prop in monitored:
+        last_prompted = getattr(prop, "vacant_monitoring_last_prompted_at", None)
+        response_due = getattr(prop, "vacant_monitoring_response_due_at", None)
+        confirmed_at = getattr(prop, "vacant_monitoring_confirmed_at", None)
+
+        # 1) Send prompt if due (never prompted, or interval has elapsed since last prompt)
+        due_for_prompt = last_prompted is None or (
+            (now - last_prompted).total_seconds() >= interval_days * 24 * 3600
+        )
+        if due_for_prompt:
+            prop.vacant_monitoring_last_prompted_at = now
+            prop.vacant_monitoring_response_due_at = now + timedelta(days=response_days)
+            db.add(prop)
+            db.commit()
+            profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop.owner_profile_id).first()
+            owner = db.query(User).filter(User.id == profile.user_id).first() if profile else None
+            if owner and owner.email:
+                property_name = (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property")
+                response_due_date = (now + timedelta(days=response_days)).strftime("%Y-%m-%d")
+                try:
+                    send_vacant_monitoring_prompt(owner.email, property_name, response_due_date)
+                except Exception:
+                    pass
+            continue  # do not also flip in same run for this property
+
+        # 2) Flip to UNCONFIRMED if response_due_at has passed and no confirmation since last prompt
+        if response_due is None:
+            continue
+        if response_due.tzinfo is None:
+            response_due = response_due.replace(tzinfo=timezone.utc)
+        if response_due > now:
+            continue
+        if confirmed_at is not None and last_prompted is not None and confirmed_at >= last_prompted:
+            continue
+        if _dms_already_logged(db, VACANT_MONITORING_FLIPPED, property_id=prop.id):
+            continue
+
+        prev_status = getattr(prop, "occupancy_status", None) or "vacant"
+        prop.occupancy_status = OccupancyStatus.unconfirmed.value
+        prop.shield_mode_enabled = 1
+        prop.vacant_monitoring_response_due_at = None
+        db.add(prop)
+        create_log(
+            db,
+            CATEGORY_STATUS_CHANGE,
+            VACANT_MONITORING_FLIPPED,
+            f"Vacant monitoring: no response by deadline. Property {prop.id} status {prev_status} -> unconfirmed; Shield Mode on.",
+            property_id=prop.id,
+            meta={"occupancy_status_previous": prev_status, "occupancy_status_new": OccupancyStatus.unconfirmed.value},
+        )
+        pn = (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else f"Property {prop.id}")
+        create_ledger_event(
+            db,
+            ACTION_SHIELD_MODE_ON,
+            target_object_type="Property",
+            target_object_id=prop.id,
+            property_id=prop.id,
+            actor_user_id=None,
+            meta={
+                "property_name": pn,
+                "message": f"Shield Mode turned on for {pn} (vacant monitoring — no response by deadline).",
+                "reason": "vacant_monitoring",
+            },
+        )
+        db.commit()
+        profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop.owner_profile_id).first()
+        try:
+            if profile:
+                sync_subscription_quantities(db, profile)
+        except Exception:
+            pass
+        owner = db.query(User).filter(User.id == profile.user_id).first() if profile else None
+        if owner and owner.email:
+            property_name = (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property")
+            owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+            try:
+                send_vacant_monitoring_flipped(owner.email, property_name)
+                send_shield_mode_turned_on_notification(
+                    owner_email,
+                    manager_emails,
+                    property_name,
+                    turned_on_by="system (vacant monitoring)",
+                )
+            except Exception:
+                pass
+        create_alert_for_owner_and_managers(
+            db, prop.id, "vacant_monitoring",
+            "Vacant monitoring: no response – status set to Unconfirmed",
+            f"No response by deadline. Property status set to Unconfirmed; Shield Mode turned on.",
+            severity="warning", meta={"occupancy_status_previous": prev_status},
+        )
+        db.commit()
+
+
+DMS_24H_UNCONFIRMED_TO_UNKNOWN = "DMS: 24h no response – status set to Unknown"
+
+
+def run_tenant_lane_guest_stay_ending_notifications(db: Session) -> None:
+    """Tenant-invited guest stays only: alert tenant; informational email to guest (dates only). Not Status Confirmation.
+
+    Runs with real calendar dates even when DMS_TEST_MODE is true (Status Confirmation uses a short test window; guest-ending notices do not).
+    """
+    today_utc = datetime.now(timezone.utc).date()
+    two_days_later = today_utc + timedelta(days=2)
+    candidates = (
+        db.query(Stay)
+        .filter(
+            Stay.checked_in_at.isnot(None),
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+            Stay.stay_end_date.in_([two_days_later, today_utc]),
+        )
+        .all()
+    )
+    for stay in candidates:
+        if not is_tenant_lane_stay(db, stay):
+            continue
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        property_name = _get_property_name(db, prop)
+        guest_user = db.query(User).filter(User.id == stay.guest_id).first()
+        guest_email = (guest_user.email or "").strip() if guest_user else ""
+        inv = (
+            db.query(Invitation).filter(Invitation.id == stay.invitation_id).first()
+            if getattr(stay, "invitation_id", None)
+            else None
+        )
+        tenant_uid = getattr(stay, "invited_by_user_id", None) or (
+            getattr(inv, "invited_by_user_id", None) if inv else None
+        )
+        tenant = db.query(User).filter(User.id == tenant_uid).first() if tenant_uid else None
+        tenant_email = (tenant.email or "").strip() if tenant else ""
+        guest_name = _get_guest_name(db, stay)
+        start_s = stay.stay_start_date.isoformat()
+        end_s = stay.stay_end_date.isoformat()
+        ends_today = stay.stay_end_date == today_utc
+
+        if stay.stay_end_date == two_days_later:
+            if not _dms_already_logged(db, TENANT_NOTICE_GUEST_AUTH_48H, stay_id=stay.id):
+                if tenant_email:
+                    try:
+                        send_tenant_guest_authorization_ending_notice(
+                            tenant_email, guest_name, property_name, start_s, end_s, ends_today=False
+                        )
+                    except Exception:
+                        pass
+                if tenant_uid:
+                    create_alert_for_user(
+                        db,
+                        tenant_uid,
+                        "guest_stay_ending",
+                        "Guest authorization ends in 2 days",
+                        f"Your guest {guest_name} at {property_name} is scheduled to end on {end_s}.",
+                        severity="warning",
+                        property_id=stay.property_id,
+                        stay_id=stay.id,
+                        meta={"stay_end_date": end_s},
+                    )
+                create_log(
+                    db,
+                    CATEGORY_STATUS_CHANGE,
+                    TENANT_NOTICE_GUEST_AUTH_48H,
+                    f"Stay {stay.id}: tenant-lane guest authorization ends in 2 days; tenant notified.",
+                    property_id=stay.property_id,
+                    stay_id=stay.id,
+                    meta={"guest_id": stay.guest_id, "tenant_user_id": tenant_uid},
+                )
+                db.commit()
+            if guest_email and not _dms_already_logged(db, GUEST_NOTICE_AUTH_48H, stay_id=stay.id):
+                try:
+                    send_guest_authorization_dates_only_email(
+                        guest_email, start_s, end_s, ends_today=False
+                    )
+                except Exception:
+                    pass
+                create_log(
+                    db,
+                    CATEGORY_STATUS_CHANGE,
+                    GUEST_NOTICE_AUTH_48H,
+                    f"Stay {stay.id}: guest notified (dates only) – authorization ends in 2 days.",
+                    property_id=stay.property_id,
+                    stay_id=stay.id,
+                    meta={"guest_id": stay.guest_id},
+                )
+                db.commit()
+        elif ends_today:
+            if not _dms_already_logged(db, TENANT_NOTICE_GUEST_AUTH_TODAY, stay_id=stay.id):
+                if tenant_email:
+                    try:
+                        send_tenant_guest_authorization_ending_notice(
+                            tenant_email, guest_name, property_name, start_s, end_s, ends_today=True
+                        )
+                    except Exception:
+                        pass
+                if tenant_uid:
+                    create_alert_for_user(
+                        db,
+                        tenant_uid,
+                        "guest_stay_ending",
+                        "Guest authorization ends today",
+                        f"Your guest {guest_name} at {property_name} ends today ({end_s}).",
+                        severity="urgent",
+                        property_id=stay.property_id,
+                        stay_id=stay.id,
+                        meta={"stay_end_date": end_s},
+                    )
+                create_log(
+                    db,
+                    CATEGORY_STATUS_CHANGE,
+                    TENANT_NOTICE_GUEST_AUTH_TODAY,
+                    f"Stay {stay.id}: tenant-lane guest authorization ends today; tenant notified.",
+                    property_id=stay.property_id,
+                    stay_id=stay.id,
+                    meta={"guest_id": stay.guest_id, "tenant_user_id": tenant_uid},
+                )
+                db.commit()
+            if guest_email and not _dms_already_logged(db, GUEST_NOTICE_AUTH_TODAY, stay_id=stay.id):
+                try:
+                    send_guest_authorization_dates_only_email(
+                        guest_email, start_s, end_s, ends_today=True
+                    )
+                except Exception:
+                    pass
+                create_log(
+                    db,
+                    CATEGORY_STATUS_CHANGE,
+                    GUEST_NOTICE_AUTH_TODAY,
+                    f"Stay {stay.id}: guest notified (dates only) – authorization ends today.",
+                    property_id=stay.property_id,
+                    stay_id=stay.id,
+                    meta={"guest_id": stay.guest_id},
+                )
+                db.commit()
+
+
+def run_status_confirmation_daily_reminder_job(db: Session) -> None:
+    """After initial 'unknown' outcome, remind PM/owner daily until they confirm."""
+    today_utc = datetime.now(timezone.utc).date()
+    reminder_title = f"Status Confirmation: daily reminder – {today_utc.isoformat()}"
+    stays = (
+        db.query(Stay)
+        .filter(
+            Stay.dead_mans_switch_triggered_at.isnot(None),
+            Stay.occupancy_confirmation_response.is_(None),
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .all()
+    )
+    for stay in stays:
+        if not _status_confirmation_eligible_stay(db, stay):
+            continue
+        if not getattr(stay, "dead_mans_switch_enabled", 0):
+            continue
+        trig = _ensure_utc(stay.dead_mans_switch_triggered_at)
+        if trig is not None and trig.astimezone(timezone.utc).date() >= today_utc:
+            continue
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        if not prop:
+            continue
+        if (getattr(prop, "occupancy_status", None) or "").lower() != OccupancyStatus.unknown.value:
+            continue
+        if _dms_already_logged(db, reminder_title, stay_id=stay.id):
+            continue
+        if getattr(stay, "dead_mans_switch_alert_email", 1) != 1:
+            continue
+        guest_name = _get_guest_name(db, stay)
+        property_name = _get_property_name(db, prop)
+        owner_email, manager_emails = _get_owner_and_manager_emails(db, prop)
+        try:
+            send_status_confirmation_daily_reminder_email(
+                owner_email,
+                manager_emails,
+                property_name,
+                stay.property_id,
+                guest_name,
+                stay.stay_end_date.isoformat(),
+            )
+        except Exception:
+            pass
+        create_log(
+            db,
+            CATEGORY_DEAD_MANS_SWITCH,
+            reminder_title,
+            f"Stay {stay.id}: daily Status Confirmation reminder (occupancy unknown until confirmed).",
+            property_id=stay.property_id,
+            stay_id=stay.id,
+        )
+        create_alert_for_property_managers_or_owner(
+            db,
+            stay.property_id,
+            "dms_reminder",
+            "Reminder: Confirm property status",
+            f"Occupancy is still Unknown for {property_name}. Please confirm Vacated / Renewed / Holdover for the tenant stay ({guest_name}).",
+            severity="warning",
+            stay_id=stay.id,
+            meta={"stay_end_date": stay.stay_end_date.isoformat()},
+        )
+        db.commit()
+
+
+def run_dms_24h_unconfirmed_to_unknown_job(db: Session) -> None:
+    """24h after DMS trigger: if owner/manager has not confirmed (vacated/renewed/holdover), set property status to Unknown."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    stays = (
+        db.query(Stay)
+        .filter(
+            Stay.dead_mans_switch_triggered_at.isnot(None),
+            Stay.dead_mans_switch_triggered_at <= cutoff,
+            Stay.occupancy_confirmation_response.is_(None),
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .all()
+    )
+    for stay in stays:
+        prop = db.query(Property).filter(Property.id == stay.property_id).first()
+        if not prop:
+            continue
+        if (getattr(prop, "occupancy_status", None) or "").lower() != OccupancyStatus.unconfirmed.value:
+            continue
+        if _dms_already_logged(db, DMS_24H_UNCONFIRMED_TO_UNKNOWN, stay_id=stay.id):
+            continue
+        prev_status = getattr(prop, "occupancy_status", None) or "unconfirmed"
+        prop.occupancy_status = OccupancyStatus.unknown.value
+        db.add(prop)
+        create_log(
+            db,
+            CATEGORY_DEAD_MANS_SWITCH,
+            DMS_24H_UNCONFIRMED_TO_UNKNOWN,
+            f"Stay {stay.id}: No response within 24h of DMS trigger. Property {prop.id} status {prev_status} -> unknown.",
+            property_id=prop.id,
+            stay_id=stay.id,
+            meta={"occupancy_status_previous": prev_status, "occupancy_status_new": OccupancyStatus.unknown.value},
+        )
+        db.commit()
+        logger.info("DMS 24h job: property %s status set to Unknown (stay %s, no response)", prop.id, stay.id)
+
+
+def mark_expired_guest_authorizations(db: Session) -> None:
+    """Find stays that have ended (stay_end_date < today) without check-out, revocation, or cancellation,
+    and create a GuestAuthorizationExpired ledger event for each. Idempotent: only fires once per stay."""
+    from app.services.event_ledger import ACTION_GUEST_AUTHORIZATION_EXPIRED, create_ledger_event
+    today = date.today()
+    expired_stays = db.query(Stay).filter(
+        Stay.stay_end_date < today,
+        Stay.checked_out_at.is_(None),
+        Stay.revoked_at.is_(None),
+        Stay.cancelled_at.is_(None),
+        Stay.checked_in_at.isnot(None),
+    ).all()
+    from app.models.event_ledger import EventLedger
+    for s in expired_stays:
+        already = db.query(EventLedger).filter(
+            EventLedger.action_type == ACTION_GUEST_AUTHORIZATION_EXPIRED,
+            EventLedger.stay_id == s.id,
+        ).first()
+        if already:
+            continue
+        create_ledger_event(
+            db,
+            ACTION_GUEST_AUTHORIZATION_EXPIRED,
+            target_object_type="Stay",
+            target_object_id=s.id,
+            property_id=s.property_id,
+            unit_id=s.unit_id,
+            stay_id=s.id,
+            invitation_id=s.invitation_id,
+            meta={"message": "Guest authorization expired", "stay_end_date": str(s.stay_end_date)},
+        )
+        prop = db.query(Property).filter(Property.id == s.property_id).first()
+        property_name = _get_property_name(db, prop)
+        create_alert_for_owner_and_managers(
+            db, s.property_id, "expired",
+            "Guest authorization expired",
+            f"Stay end date ({s.stay_end_date}) has passed; guest has not checked out. Authorization is now expired.",
+            severity="info", stay_id=s.id, meta={"stay_end_date": str(s.stay_end_date)},
+        )
+        create_alert_for_user(
+            db, s.guest_id, "expired",
+            "Stay authorization expired",
+            f"Your stay at {property_name} ended on {s.stay_end_date}. Your authorization is now expired. Please coordinate with the property owner if you need to extend.",
+            severity="info", property_id=s.property_id, stay_id=s.id, meta={"stay_end_date": str(s.stay_end_date)},
+        )
+    db.commit()
+
+
+def run_stay_notification_job() -> None:
+    """Run once per day (or on demand): find stays approaching limit, send emails; then detect overstays, email owner+guest and log; then Dead Man's Switch; then 24h DMS follow-up."""
+    if not settings.notification_cron_enabled:
+        return
+    db = SessionLocal()
+    try:
+        stays = get_stays_approaching_limit(db)
+        for stay in stays:
+            rule = db.query(RegionRule).filter(RegionRule.region_code == stay.region_code).first()
+            statute_ref = rule.statute_reference if rule else stay.region_code
+            send_legal_warnings_for_stay(stay, db, statute_ref or stay.region_code)
+        send_overstay_alerts_and_log(db)
+        mark_expired_guest_authorizations(db)
+        run_dead_mans_switch_job(db)
+        run_tenant_lane_guest_stay_ending_notifications(db)
+        run_status_confirmation_daily_reminder_job(db)
+        run_vacant_monitoring_job(db)
+        run_dms_24h_unconfirmed_to_unknown_job(db)
+    finally:
+        db.close()

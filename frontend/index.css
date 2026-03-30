@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* Base styles (no longer depend on CDN) */
+html {
+  font-size: 80%;
+}
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 35%, #e0f2fe 70%, #f0f9ff 100%);
+  color: #374151;
+  min-height: 100vh;
+}
+::selection {
+  background-color: rgba(29, 78, 216, 0.25);
+  color: #111827;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

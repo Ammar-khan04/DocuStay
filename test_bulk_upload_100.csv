@@ -1,0 +1,103 @@
+Address,City,State,Zip,Occupied,Tenant Name,Lease Start,Lease End
+100 Broadway,New York,NY,10001,NO,,,
+200 Fifth Ave,New York,NY,10002,YES,Alice Johnson,2026-01-01,2027-01-01
+300 Park Ave,New York,NY,10003,NO,,,
+400 Lexington Ave,New York,NY,10001,YES,Bob Martinez,2026-03-01,2027-03-01
+500 Madison Ave,New York,NY,10002,NO,,,
+15 Ocean Dr,Miami,FL,33139,YES,Clara Davis,2026-02-15,2027-02-15
+25 Collins Ave,Miami,FL,33139,NO,,,
+35 Biscayne Blvd,Miami,FL,33101,YES,Daniel Kim,2026-04-01,2027-04-01
+45 Flagler St,Miami,FL,33101,NO,,,
+55 Brickell Ave,Miami,FL,33101,YES,Emily Chen,2026-06-01,2027-06-01
+100 Sunset Blvd,Los Angeles,CA,90210,NO,,,
+200 Wilshire Blvd,Los Angeles,CA,90210,YES,Frank Lee,2026-01-15,2027-01-15
+300 Hollywood Blvd,Los Angeles,CA,90001,NO,,,
+400 Venice Blvd,Los Angeles,CA,90001,YES,Grace Park,2026-05-01,2027-05-01
+500 Melrose Ave,Los Angeles,CA,90001,NO,,,
+10 Main St,Houston,TX,77001,YES,Henry Wilson,2026-03-15,2027-03-15
+20 Travis St,Houston,TX,77001,NO,,,
+30 Westheimer Rd,Houston,TX,77001,YES,Irene Brown,2026-07-01,2027-07-01
+40 Richmond Ave,Houston,TX,77001,NO,,,
+50 Montrose Blvd,Houston,TX,77001,NO,,,
+100 Pike St,Seattle,WA,98101,YES,Jack Taylor,2026-02-01,2027-02-01
+200 Pine St,Seattle,WA,98101,NO,,,
+300 Cherry St,Seattle,WA,98102,YES,Karen White,2026-04-15,2027-04-15
+400 Spring St,Seattle,WA,98102,NO,,,
+500 Marion St,Seattle,WA,98104,NO,,,
+10 Camelback Rd,Phoenix,AZ,85001,YES,Leo Garcia,2026-01-01,2027-01-01
+20 Indian School Rd,Phoenix,AZ,85001,NO,,,
+30 Thomas Rd,Phoenix,AZ,85281,YES,Maria Lopez,2026-06-15,2027-06-15
+40 McDowell Rd,Phoenix,AZ,85281,NO,,,
+50 Van Buren St,Phoenix,AZ,85001,NO,,,
+100 Last Chance Gulch,Helena,MT,59601,YES,Nathan Scott,2026-03-01,2027-03-01
+200 Main St,Billings,MT,59101,NO,,,
+300 Broadway,Billings,MT,59101,YES,Olivia Reed,2026-05-01,2027-05-01
+10 Pearl St,Denver,CO,80202,NO,,,
+20 Colfax Ave,Denver,CO,80202,YES,Paul Adams,2026-02-15,2027-02-15
+30 Broadway,Denver,CO,80202,NO,,,
+40 Larimer St,Denver,CO,80202,YES,Quinn Baker,2026-08-01,2027-08-01
+50 Market St,Denver,CO,80202,NO,,,
+10 Main St,Hartford,CT,06101,YES,Rachel Clark,2026-01-01,2027-01-01
+20 Asylum St,Hartford,CT,06101,NO,,,
+30 Trumbull St,Hartford,CT,06101,NO,,,
+10 Congress St,Portland,ME,04101,YES,Sam Evans,2026-04-01,2027-04-01
+20 Free St,Portland,ME,04101,NO,,,
+10 Market St,St Louis,MO,63101,YES,Tina Foster,2026-06-01,2027-06-01
+20 Olive St,St Louis,MO,63101,NO,,,
+10 Fayetteville St,Raleigh,NC,27601,YES,Uma Green,2026-03-01,2027-03-01
+20 Hillsborough St,Raleigh,NC,27601,NO,,,
+10 Dexter Ave,Montgomery,AL,35203,YES,Victor Hall,2026-01-15,2027-01-15
+20 Commerce St,Montgomery,AL,35203,NO,,,
+10 Meridian St,Indianapolis,IN,46204,YES,Wendy Irwin,2026-05-15,2027-05-15
+20 Washington St,Indianapolis,IN,46204,NO,,,
+10 Kansas Ave,Topeka,KS,66101,YES,Xavier Jones,2026-02-01,2027-02-01
+20 Topeka Blvd,Topeka,KS,66101,NO,,,
+10 Main St,Louisville,KY,40202,YES,Yolanda King,2026-07-01,2027-07-01
+20 Fourth St,Louisville,KY,40202,NO,,,
+10 High St,Columbus,OH,43215,YES,Zack Miller,2026-04-01,2027-04-01
+20 Broad St,Columbus,OH,43215,NO,,,
+10 Market St,Philadelphia,PA,19101,YES,Amy Nelson,2026-01-01,2027-01-01
+20 Chestnut St,Philadelphia,PA,19101,NO,,,
+10 Peachtree St,Atlanta,GA,30301,YES,Brian Owens,2026-06-01,2027-06-01
+20 Spring St,Atlanta,GA,30301,NO,,,
+30 Ponce de Leon Ave,Atlanta,GA,30301,YES,Carla Price,2026-09-01,2027-09-01
+10 State St,Chicago,IL,60601,YES,Derek Quinn,2026-03-15,2027-03-15
+20 Michigan Ave,Chicago,IL,60601,NO,,,
+30 Wacker Dr,Chicago,IL,60601,NO,,,
+10 Charles St,Baltimore,MD,21201,YES,Elena Ross,2026-05-01,2027-05-01
+20 Pratt St,Baltimore,MD,21201,NO,,,
+10 Nicollet Mall,Minneapolis,MN,55401,YES,Fred Stone,2026-02-15,2027-02-15
+20 Hennepin Ave,Minneapolis,MN,55401,NO,,,
+10 Capitol St,Jackson,MS,39201,YES,Gina Turner,2026-04-01,2027-04-01
+20 State St,Jackson,MS,39201,NO,,,
+10 Broadway,Nashville,TN,37201,YES,Hank Upton,2026-07-15,2027-07-15
+20 Church St,Nashville,TN,37201,NO,,,
+30 West End Ave,Nashville,TN,37201,YES,Iris Vance,2026-10-01,2027-10-01
+10 C St,Anchorage,AK,99501,NO,,,
+20 Northern Lights Blvd,Anchorage,AK,99501,YES,Jay Walker,2026-01-01,2027-01-01
+10 Main St,Little Rock,AR,72201,NO,,,
+20 Capitol Ave,Little Rock,AR,72201,YES,Kate Xavier,2026-06-01,2027-06-01
+10 Market St,Wilmington,DE,19901,NO,,,
+20 King St,Wilmington,DE,19901,YES,Liam Young,2026-03-01,2027-03-01
+10 Ala Moana Blvd,Honolulu,HI,96801,NO,,,
+20 Kalakaua Ave,Honolulu,HI,96801,YES,Mia Zhang,2026-08-01,2027-08-01
+10 Main St,Boise,ID,83701,NO,,,
+20 Capitol Blvd,Boise,ID,83701,YES,Noah Adams,2026-05-15,2027-05-15
+10 Grand Ave,Des Moines,IA,50301,NO,,,
+20 Locust St,Des Moines,IA,50301,YES,Olive Bell,2026-02-01,2027-02-01
+10 Canal St,New Orleans,LA,70112,NO,,,
+20 Bourbon St,New Orleans,LA,70112,YES,Pete Carter,2026-09-01,2027-09-01
+10 Tremont St,Boston,MA,02101,NO,,,
+20 Boylston St,Boston,MA,02101,YES,Rosa Diaz,2026-04-15,2027-04-15
+10 Woodward Ave,Detroit,MI,48201,NO,,,
+20 Michigan Ave,Detroit,MI,48201,YES,Steve Ellis,2026-07-01,2027-07-01
+10 Dodge St,Omaha,NE,68101,NO,,,
+20 Farnam St,Omaha,NE,68101,YES,Tara Flynn,2026-01-15,2027-01-15
+10 Las Vegas Blvd,Las Vegas,NV,89101,NO,,,
+20 Fremont St,Las Vegas,NV,89101,YES,Uri Grant,2026-06-15,2027-06-15
+10 Elm St,Manchester,NH,03101,NO,,,
+20 Main St,Manchester,NH,03101,YES,Vera Hart,2026-03-15,2027-03-15
+10 Broad St,Newark,NJ,07101,NO,,,
+20 Market St,Newark,NJ,07101,YES,Will Irwin,2026-08-15,2027-08-15
+10 Central Ave,Albuquerque,NM,87101,NO,,,
+20 Rio Grande Blvd,Albuquerque,NM,87101,YES,Xena James,2026-05-01,2027-05-01
