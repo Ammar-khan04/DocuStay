@@ -56,6 +56,12 @@ class LiveOwnerInfo(BaseModel):
     phone: str | None
 
 
+class LivePropertyManagerInfo(BaseModel):
+    """Assigned property manager for authority chain (live page)."""
+    full_name: str | None
+    email: str
+
+
 class LiveCurrentGuestInfo(BaseModel):
     """Current guest and stay for live page (active authorization only; historical PDFs via ledger / verify)."""
     stay_id: int
@@ -134,6 +140,7 @@ class LivePropertyPagePayload(BaseModel):
     has_current_guest: bool
     property: LivePropertyInfo
     owner: LiveOwnerInfo
+    property_managers: list[LivePropertyManagerInfo] = []
     current_guest: LiveCurrentGuestInfo | None = None  # first of current_guests (backward compatible)
     current_guests: list[LiveCurrentGuestInfo] = []  # all active guest authorizations for this property
     last_stay: LiveStaySummary | None = None

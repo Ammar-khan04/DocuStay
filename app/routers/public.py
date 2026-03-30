@@ -18,6 +18,7 @@ from app.models.invitation import Invitation
 from app.models.tenant_assignment import TenantAssignment
 from app.models.owner_poa_signature import OwnerPOASignature
 from app.models.agreement_signature import AgreementSignature
+from app.models.property_manager_assignment import PropertyManagerAssignment
 from app.services.agreements import agreement_content_to_pdf, fill_guest_signature_in_content, poa_content_with_signature
 from app.services.dropbox_sign import get_signed_pdf
 from app.services.invitation_agreement_ledger import emit_invitation_agreement_signed_if_dropbox_complete
@@ -40,6 +41,7 @@ from app.schemas.public import (
     LivePropertyPagePayload,
     LivePropertyInfo,
     LiveOwnerInfo,
+    LivePropertyManagerInfo,
     LiveCurrentGuestInfo,
     LiveStaySummary,
     LiveInvitationSummary,
@@ -381,6 +383,24 @@ def get_live_property_page(
     owner_phone = getattr(owner_user, "phone", None) if owner_user else None
     owner_info = LiveOwnerInfo(full_name=owner_name, email=owner_email, phone=owner_phone)
 
+    mgr_assignments = db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.property_id == prop.id).all()
+    mgr_user_ids = [a.user_id for a in mgr_assignments]
+    mgr_users = (
+        db.query(User)
+        .filter(User.id.in_(mgr_user_ids), User.role == UserRole.property_manager)
+        .all()
+        if mgr_user_ids
+        else []
+    )
+    property_managers = [
+        LivePropertyManagerInfo(
+            full_name=(u.full_name or "").strip() or None,
+            email=(u.email or "").strip(),
+        )
+        for u in mgr_users
+        if (u.email or "").strip()
+    ]
+
     token_state = getattr(prop, "usat_token_state", None) or "staged"
     prop_info = LivePropertyInfo(
         name=prop.name,
@@ -451,6 +471,15 @@ def get_live_property_page(
         .order_by(Invitation.created_at.desc())
         .limit(50)
     ).all()
+    # Tenants on the live page only see guest invitations they created (same scope as GET /dashboard/tenant/invitations);
+    # tenant-lease invitations for the property remain visible so verification context is preserved.
+    if viewer is not None and getattr(viewer, "role", None) == UserRole.tenant:
+        inv_rows = [
+            inv
+            for inv in inv_rows
+            if (getattr(inv, "invitation_kind", None) or "guest").strip().lower() != "guest"
+            or getattr(inv, "invited_by_user_id", None) == viewer.id
+        ]
     invitations = []
     for inv in inv_rows:
         guest_label = label_from_invitation(db, inv)
@@ -492,6 +521,7 @@ def get_live_property_page(
             has_current_guest=True,
             property=prop_info,
             owner=owner_info,
+            property_managers=property_managers,
             current_guest=cg_rows[0] if cg_rows else None,
             current_guests=cg_rows,
             last_stay=None,
@@ -541,15 +571,16 @@ def get_live_property_page(
             )
     upcoming.sort(key=lambda x: x.stay_start_date)
 
-    occ = getattr(prop, "occupancy_status", None) or "unknown"
-    authorization_state = "NONE"
-    if occ in ("occupied", "unknown", "unconfirmed") or last_stay:
-        authorization_state = "EXPIRED"
+    # Guest authorization on this page is about stays. Do not infer EXPIRED from property
+    # occupancy alone — a new listing can be marked occupied or unknown while the tenant
+    # invite is still pending and there are no guest stays yet.
+    authorization_state = "EXPIRED" if last_stay else "NONE"
 
     return LivePropertyPagePayload(
         has_current_guest=False,
         property=prop_info,
         owner=owner_info,
+        property_managers=property_managers,
         current_guest=None,
         current_guests=[],
         last_stay=last_stay,

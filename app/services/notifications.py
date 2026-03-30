@@ -628,9 +628,9 @@ def send_dead_mans_switch_48h_before(
     subject = f"[DocuStay] Confirm property status – lease ends in 2 days – {property_name}"
     html = f"""
     <p>Hello,</p>
-    <p><strong>Status Confirmation:</strong> The documented tenant lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends in 2 days.</p>
+    <p><strong>Status Confirmation:</strong> The documented stay/lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends in 2 days.</p>
     <p><strong>Lease end date:</strong> {stay_end_date}</p>
-    <p>Please sign in to DocuStay and confirm whether the unit was vacated, the lease was renewed, or the guest is in holdover. Only a property manager or owner can set this. If we do not hear from you by 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond; we will keep sending reminders. DocuStay does not change Shield Mode or set the unit to vacant on your behalf.</p>
+    <p><strong>Is the property currently occupied or vacant?</strong> Please sign in to DocuStay and confirm Vacated, Renewed, or Holdover. Only an assigned property manager or the owner can respond. If we do not hear from you within 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond; we will keep sending reminders. DocuStay does not change Shield Mode or set the unit to vacant on your behalf.</p>
     <p>— DocuStay</p>
     """
     return send_email(owner_email, subject, html)
@@ -647,9 +647,9 @@ def send_dead_mans_switch_48h_before_to_owner_and_managers(
     subject = f"[DocuStay] Confirm property status – lease ends in 2 days – {property_name}"
     html = f"""
     <p>Hello,</p>
-    <p><strong>Status Confirmation:</strong> The documented tenant lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends in 2 days.</p>
+    <p><strong>Status Confirmation:</strong> The documented stay/lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends in 2 days.</p>
     <p><strong>Lease end date:</strong> {stay_end_date}</p>
-    <p>Please sign in to DocuStay and confirm whether the unit was vacated, the lease was renewed, or the guest is in holdover. Only a property manager or owner can set this. If we do not hear from you by 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond; we will keep sending reminders. DocuStay does not change Shield Mode or set the unit to vacant on your behalf.</p>
+    <p><strong>Is the property currently occupied or vacant?</strong> Please sign in to DocuStay and confirm Vacated, Renewed, or Holdover. Only an assigned property manager or the owner can respond. If we do not hear from you within 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond; we will keep sending reminders. DocuStay does not change Shield Mode or set the unit to vacant on your behalf.</p>
     <p>— DocuStay</p>
     """
     _send_email_to_pm_or_owner(owner_email, manager_emails, subject, html)
@@ -665,8 +665,8 @@ def send_dead_mans_switch_urgent_today(
     subject = f"[DocuStay] URGENT – Confirm property status – lease ends today – {property_name}"
     html = f"""
     <p>Hello,</p>
-    <p><strong>Status Confirmation – urgent:</strong> The documented tenant lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends <strong>today</strong> ({stay_end_date}).</p>
-    <p>Please update DocuStay: confirm vacated, renewed, or holdover. If we do not hear from you within 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond, and reminders will continue. DocuStay does not enable Shield Mode or set vacancy automatically.</p>
+    <p><strong>Status Confirmation – urgent:</strong> The documented stay/lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends <strong>today</strong> ({stay_end_date}).</p>
+    <p><strong>Is the property currently occupied or vacant?</strong> Please update DocuStay now (Vacated, Renewed, or Holdover). If we do not hear from you within 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond, and reminders will continue. DocuStay does not enable Shield Mode or set vacancy automatically.</p>
     <p>— DocuStay</p>
     """
     return send_email(owner_email, subject, html)
@@ -683,8 +683,8 @@ def send_dead_mans_switch_urgent_today_to_owner_and_managers(
     subject = f"[DocuStay] URGENT – Confirm property status – lease ends today – {property_name}"
     html = f"""
     <p>Hello,</p>
-    <p><strong>Status Confirmation – urgent:</strong> The documented tenant lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends <strong>today</strong> ({stay_end_date}).</p>
-    <p>Please update DocuStay: confirm vacated, renewed, or holdover. If we do not hear from you within 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond, and reminders will continue. DocuStay does not enable Shield Mode or set vacancy automatically.</p>
+    <p><strong>Status Confirmation – urgent:</strong> The documented stay/lease for <strong>{guest_name}</strong> at <strong>{property_name}</strong> ends <strong>today</strong> ({stay_end_date}).</p>
+    <p><strong>Is the property currently occupied or vacant?</strong> Please update DocuStay now (Vacated, Renewed, or Holdover). If we do not hear from you within 48 hours after the lease end date, occupancy will be marked <strong>Unknown</strong> until you respond, and reminders will continue. DocuStay does not enable Shield Mode or set vacancy automatically.</p>
     <p>— DocuStay</p>
     """
     _send_email_to_pm_or_owner(owner_email, manager_emails, subject, html)
@@ -830,7 +830,7 @@ def send_dms_triggered_set_status_notification(
     html = f"""
     <p>Hello,</p>
     <p><strong>Status Confirmation:</strong> No response was received within 48 hours after the lease end date ({stay_end_date}) for <strong>{guest_name}</strong> at <strong>{property_name}</strong>.</p>
-    <p>Occupancy is <strong>Unknown</strong> until you confirm in DocuStay (Unit Vacated, Lease Renewed, or Holdover). We will keep sending reminders until you respond. Shield Mode is not turned on by this step.</p>
+    <p><strong>Is the property currently occupied or vacant?</strong> Occupancy is <strong>Unknown</strong> until you confirm in DocuStay (Vacated, Renewed, or Holdover). We will keep sending reminders until you respond. Shield Mode is not turned on by this step.</p>
     <p><strong>Property owners:</strong> <a href="{owner_url}">Open property page</a></p>
     <p><strong>Property managers:</strong> <a href="{manager_url}">Open property page</a></p>
     <p>— DocuStay</p>
@@ -852,8 +852,8 @@ def send_status_confirmation_daily_reminder_email(
     subject = f"[DocuStay] Reminder: confirm property status – {property_name}"
     html = f"""
     <p>Hello,</p>
-    <p>This is a reminder to confirm occupancy for <strong>{property_name}</strong> (tenant / guest on file: <strong>{guest_name}</strong>, lease ended {stay_end_date}).</p>
-    <p>Occupancy remains <strong>Unknown</strong> until you choose Vacated, Renewed, or Holdover in DocuStay. We will continue sending reminders until you respond.</p>
+    <p>This is a reminder to confirm occupancy for <strong>{property_name}</strong> (guest/tenant on file: <strong>{guest_name}</strong>, stay/lease ended {stay_end_date}).</p>
+    <p><strong>Is the property currently occupied or vacant?</strong> Occupancy remains <strong>Unknown</strong> until you choose Vacated, Renewed, or Holdover in DocuStay. We will continue sending reminders until you respond.</p>
     <p><strong>Property owners:</strong> <a href="{owner_url}">Open property page</a></p>
     <p><strong>Property managers:</strong> <a href="{manager_url}">Open property page</a></p>
     <p>— DocuStay</p>
@@ -892,6 +892,23 @@ def send_tenant_guest_authorization_ending_notice(
     return send_email(tenant_email, subject, html)
 
 
+def send_tenant_guest_jurisdiction_threshold_approaching_notice(
+    tenant_email: str,
+    property_name: str,
+    stay_end_date: str,
+) -> bool:
+    """Tenant who invited the guest: alert that the stay is approaching the jurisdiction threshold (2-day buffer rule)."""
+    subject = f"[DocuStay] Your guest's stay is approaching the jurisdiction threshold – {property_name}"
+    html = f"""
+<p>Hello,</p>
+<p><strong>Your guest's stay is approaching the threshold.</strong></p>
+<p>Based on the documented stay end date ({stay_end_date}) for <strong>{property_name}</strong>, this stay is within the final 2-day buffer before the jurisdiction threshold.</p>
+<p>You can let it expire naturally, or sign in to DocuStay and issue a <strong>new guest invitation</strong>. When your guest accepts a new invitation, it replaces the previous authorization.</p>
+<p>— DocuStay</p>
+"""
+    return send_email(tenant_email, subject, html)
+
+
 def send_guest_authorization_dates_only_email(
     guest_email: str,
     stay_start_date: str,
@@ -902,17 +919,13 @@ def send_guest_authorization_dates_only_email(
     """Guest: informational only—authorized stay period. No property status or owner/manager prompts."""
     if ends_today:
         subject = "[DocuStay] Reminder: your authorized stay ends today"
-        core = f"""    <p>This is a courtesy reminder that your <strong>authorized stay period</strong> ends today (<strong>{stay_end_date}</strong>).</p>
-    <p>Your DocuStay authorization covers <strong>{stay_start_date}</strong> through <strong>{stay_end_date}</strong>.</p>"""
+        core = f"""    <p>Your stay runs from <strong>{stay_start_date}</strong> to <strong>{stay_end_date}</strong>.</p>"""
     else:
         subject = "[DocuStay] Reminder: your authorized stay is ending soon"
-        core = f"""    <p>This message is for your records. Under your current guest authorization, your <strong>stay period</strong> runs from <strong>{stay_start_date}</strong> to <strong>{stay_end_date}</strong> (the end date is in two days).</p>
-    <p>We are only sharing the dates tied to your stay—not asking you to confirm property occupancy or status with the property owner or manager.</p>"""
+        core = f"""    <p>Your stay runs from <strong>{stay_start_date}</strong> to <strong>{stay_end_date}</strong>.</p>"""
     body = f"""
     <p>Hello,</p>
 {core}
-    <p>If you need different dates, please coordinate with the person who invited you (for example, your tenant host). DocuStay does not change property status based on this email.</p>
-    <p>Thank you for using DocuStay.</p>
     <p>— DocuStay</p>
     """
     return send_email(guest_email, subject, body)

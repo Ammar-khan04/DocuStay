@@ -1674,7 +1674,11 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <h3 className="text-lg font-semibold text-slate-900 mb-1">Invite Property Manager</h3>
-            <p className="text-slate-500 text-sm mb-4">Enter the manager&apos;s email. They will receive an invitation to sign up and manage this property.</p>
+            <p className="text-slate-500 text-sm mb-4">
+              Enter the manager&apos;s email. They will receive an invitation to sign up and manage this property.
+              The same email can be used for different account types (guest/tenant/manager) across DocuStay, but a
+              manager can never manage a property they are a tenant or guest of.
+            </p>
             <Input
               label="Manager email"
               name="invite_manager_email"

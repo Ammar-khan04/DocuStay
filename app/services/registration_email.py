@@ -1,8 +1,8 @@
-"""Enforce one email address = one account type (UserRole) for new signups.
+"""Registration helpers for normalized email and pending-signup checks.
 
-Existing DB rows may still have the same email under multiple roles (legacy uq_users_email_role);
-new registrations are rejected at the API when the email is already used for a different role
-or has an in-progress pending registration for a different role.
+The ``users`` table enforces ``UniqueConstraint("email", "role")``: the same mailbox may register
+once per ``UserRole`` (e.g. same person as guest and as tenant). Callers must disambiguate login,
+password reset, and similar flows by role where needed.
 """
 from __future__ import annotations
 
@@ -52,28 +52,6 @@ def _role_labels(role: UserRole) -> tuple[str, str]:
     return mapping.get(role, ("user", "correct"))
 
 
-def email_registered_other_role_message(existing_role: UserRole, attempting_role: UserRole) -> str:
-    """User-visible error when an account already exists under this email for another role."""
-    ex_label, ex_page = _role_labels(existing_role)
-    att_label, _ = _role_labels(attempting_role)
-    return (
-        f"This email is already registered as a {ex_label}. "
-        f"Each email can only be used for one account type on DocuStay. "
-        f"Sign in using the {ex_page} login page, or use a different email if you need to register as a {att_label}."
-    )
-
-
-def pending_other_role_message(pending_role: UserRole, attempting_role: UserRole) -> str:
-    """Another signup flow is in progress for this email."""
-    pend_label, _ = _role_labels(pending_role)
-    att_label, _ = _role_labels(attempting_role)
-    return (
-        f"A registration is already in progress for this email as a {pend_label}. "
-        f"Complete email verification for that signup, wait until the code expires, or use a different email. "
-        f"You cannot start a {att_label} registration with the same email at the same time."
-    )
-
-
 def enforce_email_available_for_intended_role(
     db: Session,
     email_norm: str,
@@ -82,27 +60,24 @@ def enforce_email_available_for_intended_role(
     allow_same_role_pending: bool = True,
 ) -> None:
     """
-    Raise HTTPException 400 if email is taken by another role or has a non-expired pending registration
-    for another role.
+    Reserved for same-role pending collisions. Cross-role reuse of the same email is allowed
+    (enforced only by ``UniqueConstraint(email, role)`` on ``User``).
 
-    If allow_same_role_pending is True, pending rows with the same role are ignored (callers may replace them).
+    If ``allow_same_role_pending`` is False, raises when a non-expired ``PendingRegistration``
+    exists for the same email and role.
     """
-    if not email_norm:
+    if not email_norm or allow_same_role_pending:
         return
-    for u in users_with_normalized_email(db, email_norm):
-        if u.role != intended_role:
-            raise HTTPException(
-                status_code=400,
-                detail=email_registered_other_role_message(u.role, intended_role),
-            )
     now = datetime.now(timezone.utc)
     for p in pending_registrations_with_normalized_email(db, email_norm):
-        if p.role == intended_role and allow_same_role_pending:
-            continue
-        if p.role != intended_role and p.expires_at >= now:
+        if p.role == intended_role and p.expires_at >= now:
+            pend_label, _ = _role_labels(intended_role)
             raise HTTPException(
                 status_code=400,
-                detail=pending_other_role_message(p.role, intended_role),
+                detail=(
+                    f"A registration is already in progress for this email as a {pend_label}. "
+                    "Complete email verification, wait until the code expires, or use a different email."
+                ),
             )
 
 
@@ -116,14 +91,17 @@ def same_role_already_registered_message(existing_role: UserRole) -> str:
 
 
 def enforce_no_conflicting_user_before_pending_completion(db: Session, email_norm: str, pending_role: UserRole) -> None:
-    """Before creating a User from PendingRegistration: email must not already have a user row."""
-    for u in users_with_normalized_email(db, email_norm):
-        if u.role != pending_role:
-            raise HTTPException(
-                status_code=400,
-                detail=email_registered_other_role_message(u.role, pending_role),
-            )
+    """Before creating a User from PendingRegistration: same email + role must not already exist as a User."""
+    existing_same_role = (
+        db.query(User)
+        .filter(func.lower(func.trim(User.email)) == email_norm, User.role == pending_role)
+        .first()
+    )
+    if existing_same_role:
         raise HTTPException(
             status_code=400,
-            detail=f"This email is already registered as a {_role_labels(pending_role)[0]}. Please log in instead of verifying again.",
+            detail=(
+                f"This email is already registered as a {_role_labels(pending_role)[0]}. "
+                "Please log in instead of verifying again."
+            ),
         )

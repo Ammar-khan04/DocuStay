@@ -62,7 +62,10 @@ from app.services.event_ledger import (
     ACTION_MANAGER_ONSITE_RESIDENT_REMOVED,
     ACTION_MANAGER_REMOVED_FROM_PROPERTY,
 )
-from app.services.invitation_guest_completion import guest_invite_awaiting_account_after_sign
+from app.services.invitation_guest_completion import (
+    guest_invite_awaiting_account_after_sign,
+    guest_invitation_signing_started,
+)
 from app.services.smarty import verify_address
 from app.services.utility_lookup import lookup_utility_providers, generate_authority_letters, _provider_to_raw
 from app.services.utility_lookup import UtilityProvider
@@ -1895,10 +1898,15 @@ def invite_property_manager(
     email = (data.email or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Valid email is required")
-    from app.services.permissions import validate_invite_email_role
+    from app.services.permissions import validate_invite_email_role, email_conflicts_with_property_as_tenant_or_guest
     role_err = validate_invite_email_role(db, email, UserRole.property_manager)
     if role_err:
         raise HTTPException(status_code=409, detail=role_err)
+    if email_conflicts_with_property_as_tenant_or_guest(db, email=email, property_id=property_id):
+        raise HTTPException(
+            status_code=409,
+            detail="This email is currently associated with a tenant or guest presence on this property and cannot be invited as a property manager for this property.",
+        )
     existing_user = db.query(User).filter(User.email == email, User.role == UserRole.property_manager).first()
     if existing_user:
         existing_assignment = db.query(PropertyManagerAssignment).filter(
@@ -3636,22 +3644,36 @@ def get_invitation_details(
         return {"valid": False, "cancelled": True, "reason": "cancelled"}
     if token == "EXPIRED" or inv.status == "expired":
         return {"valid": False, "expired": True, "reason": "expired"}
-    # Guest stays: past end date means expired. Tenant signup links stay valid until accepted (not time-limited by lease end).
-    if not is_tenant and inv.stay_end_date and inv.stay_end_date < date.today():
+    # Stay created for this invite: flow is complete; avoid false "expired" from calendar/72h rules.
+    if db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None:
+        return {"valid": False, "used": True, "already_accepted": True, "reason": "already_accepted"}
+    # Guest: past stay end date — only expire if they never started signing (calendar is not the invite clock once signing began).
+    if (
+        not is_tenant
+        and inv.stay_end_date
+        and inv.stay_end_date < date.today()
+        and not awaiting_account
+        and not guest_invitation_signing_started(db, code)
+    ):
         return {"valid": False, "expired": True, "reason": "expired"}
-    
-    # Check for expiration after 72 hours (or 5 min in test mode)
+
+    # Pending-window expiry (72h / test mode): skip if Dropbox in flight or any signature progress exists.
     if not is_tenant:
         from app.services.invitation_cleanup import get_invitation_expire_cutoff
+
         threshold = get_invitation_expire_cutoff()
         if inv.status == "pending" and inv.created_at is not None and inv.created_at < threshold:
-            # Check if there is a pending dropbox sign request before failing
-            has_pending_dropbox = db.query(AgreementSignature).filter(
-                AgreementSignature.invitation_code == code,
-                AgreementSignature.dropbox_sign_request_id.isnot(None),
-                AgreementSignature.signed_pdf_bytes.is_(None)
-            ).first() is not None
-            if not has_pending_dropbox:
+            has_pending_dropbox = (
+                db.query(AgreementSignature)
+                .filter(
+                    AgreementSignature.invitation_code == code,
+                    AgreementSignature.dropbox_sign_request_id.isnot(None),
+                    AgreementSignature.signed_pdf_bytes.is_(None),
+                )
+                .first()
+                is not None
+            )
+            if not has_pending_dropbox and not guest_invitation_signing_started(db, code):
                 return {"valid": False, "expired": True, "reason": "expired"}
 
     if inv.status not in ("pending", "ongoing") and not (inv.status == "accepted" and awaiting_account):

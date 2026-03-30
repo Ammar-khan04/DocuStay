@@ -1,11 +1,12 @@
 """Module F: Legal restrictions & law display (Owner and Guest views)."""
 import logging
 import secrets
+import time
 from datetime import date, datetime, timezone, timedelta, time as dt_time
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Body
+from fastapi import APIRouter, Depends, HTTPException, Request, Body, Header
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, case
@@ -92,6 +93,7 @@ from app.services.event_ledger import (
     ACTION_SHIELD_MODE_OFF,
 )
 from app.services.invitation_cleanup import get_invitation_expire_cutoff
+from app.services.invitation_guest_completion import guest_invitation_signing_started
 from app.services.billing import _count_properties_and_shield, sync_subscription_quantities, stripe_subscription_status_and_trial
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON
 from app.services.notifications import (
@@ -809,6 +811,7 @@ def _invitations_to_owner_views(invs: list, db: Session, get_invitation_expire_c
                 and inv.created_at is not None
                 and inv.created_at < threshold
                 and not has_pending_dropbox
+                and not guest_invitation_signing_started(db, inv.invitation_code)
             )
         )
         has_stay = db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None
@@ -2118,14 +2121,103 @@ def _guest_agreement_archive_stay_views(db: Session, current_user: User, stay_ro
     return out
 
 
+# Guest approaching-end ledger rows are normally created by the daily stay-notification job.
+# Materialize them when guests load the app so dev / no-cron environments still get in-app notifications (idempotent).
+_guest_end_ledger_last_sync_mono: dict[tuple[int, str], float] = {}
+_GUEST_END_LEDGER_SYNC_INTERVAL_SEC = 35.0
+
+
+def _parse_guest_client_calendar_date_header(raw: str | None) -> date | None:
+    """``X-Client-Calendar-Date: YYYY-MM-DD`` — local calendar day from the browser; eligibility uses dates only."""
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        return None
+
+
+def _guest_invitation_ids_for_ledger(db: Session, guest_user: User) -> set[int]:
+    """Stay-linked invitation IDs plus archive-only rows (signed agreement, no ``Stay``) so ledger events with ``stay_id`` NULL still appear."""
+    if guest_user.role != UserRole.guest:
+        return set()
+    out: set[int] = set()
+    for s in db.query(Stay).filter(Stay.guest_id == guest_user.id).all():
+        if getattr(s, "invitation_id", None):
+            out.add(int(s.invitation_id))
+    guest_email = (guest_user.email or "").strip().lower()
+    if not guest_email:
+        return out
+    inv_ids_with_stay = set(out)
+    candidates = (
+        db.query(AgreementSignature)
+        .filter(
+            or_(
+                func.lower(AgreementSignature.guest_email) == guest_email,
+                AgreementSignature.used_by_user_id == guest_user.id,
+            )
+        )
+        .order_by(AgreementSignature.id.desc())
+        .all()
+    )
+    picked: dict[str, AgreementSignature] = {}
+    for sig in candidates:
+        code = (sig.invitation_code or "").strip().upper()
+        if code and code not in picked:
+            picked[code] = sig
+    for sig in picked.values():
+        inv = db.query(Invitation).filter(Invitation.invitation_code == sig.invitation_code).first()
+        if not inv or inv.id in inv_ids_with_stay:
+            continue
+        if (getattr(inv, "invitation_kind", None) or "").strip().lower() != "guest":
+            continue
+        if (
+            db.query(Stay)
+            .filter(Stay.guest_id == guest_user.id, Stay.invitation_id == inv.id)
+            .first()
+        ):
+            continue
+        out.add(inv.id)
+    return out
+
+
+def _maybe_materialize_guest_approaching_end_ledger(
+    db: Session,
+    guest_user_id: int,
+    client_calendar_date: date | None = None,
+) -> None:
+    global _guest_end_ledger_last_sync_mono
+    ck = client_calendar_date.isoformat() if client_calendar_date else "default"
+    key = (guest_user_id, ck)
+    now = time.monotonic()
+    last = _guest_end_ledger_last_sync_mono.get(key, 0.0)
+    if now - last < _GUEST_END_LEDGER_SYNC_INTERVAL_SEC:
+        return
+    _guest_end_ledger_last_sync_mono[key] = now
+    from app.services.stay_timer import run_tenant_lane_guest_stay_ending_notifications
+
+    run_tenant_lane_guest_stay_ending_notifications(
+        db,
+        only_guest_user_id=guest_user_id,
+        client_calendar_date=client_calendar_date,
+    )
+
+
 @router.get("/guest/stays", response_model=list[GuestStayView])
 def guest_stays(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_guest_or_tenant),
+    x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
     """Guest view: stays where this user is the guest. Tenants must not use this endpoint — guest stays they host appear under /dashboard/tenant/guest-history."""
     if current_user.role == UserRole.tenant:
         return []
+    if current_user.role == UserRole.guest:
+        _maybe_materialize_guest_approaching_end_ledger(
+            db,
+            current_user.id,
+            _parse_guest_client_calendar_date_header(x_client_calendar_date),
+        )
     stays = db.query(Stay).filter(Stay.guest_id == current_user.id).order_by(Stay.stay_start_date.desc()).limit(_GUEST_STAYS_LIMIT).all()
     out = []
     for s in stays:
@@ -2231,19 +2323,34 @@ def guest_logs(
     category: str | None = None,
     search: str | None = None,
     stay_id: int | None = None,
+    x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
     """Guest lane logs only: events for the guest's own stays. No property management or other users' data."""
     from sqlalchemy import desc, cast, String
 
+    if current_user.role == UserRole.guest:
+        _maybe_materialize_guest_approaching_end_ledger(
+            db,
+            current_user.id,
+            _parse_guest_client_calendar_date_header(x_client_calendar_date),
+        )
     stays = db.query(Stay).filter(Stay.guest_id == current_user.id).all()
     stay_ids = [s.id for s in stays]
-    if not stay_ids:
+    inv_ids = _guest_invitation_ids_for_ledger(db, current_user) if current_user.role == UserRole.guest else set()
+    if not stay_ids and not inv_ids:
         return []
-    if stay_id is not None and stay_id not in stay_ids:
+    if stay_id is not None and stay_id != 0 and stay_id not in stay_ids:
         return []
-    q = db.query(EventLedger).filter(EventLedger.stay_id.in_(stay_ids))
-    q = q.filter(EventLedger.action_type.in_(GUEST_ALLOWED_ACTIONS))
-    if stay_id is not None:
+    q = db.query(EventLedger).filter(EventLedger.action_type.in_(GUEST_ALLOWED_ACTIONS))
+    scope = []
+    if stay_ids:
+        scope.append(EventLedger.stay_id.in_(stay_ids))
+    if inv_ids:
+        scope.append(EventLedger.invitation_id.in_(list(inv_ids)))
+    if not scope:
+        return []
+    q = q.filter(or_(*scope))
+    if stay_id is not None and stay_id != 0:
         q = q.filter(EventLedger.stay_id == stay_id)
     from_dt = _parse_optional_utc(from_ts)
     to_dt = _parse_optional_utc(to_ts)
@@ -3931,12 +4038,19 @@ def tenant_invitations(
     for inv in invs:
         prop = db.query(Property).filter(Property.id == inv.property_id).first()
         property_name = (prop.name if prop else None) or (f"{prop.city}, {prop.state}" if prop else None) or "Property"
+        has_pending_dropbox = db.query(AgreementSignature).filter(
+            AgreementSignature.invitation_code == inv.invitation_code,
+            AgreementSignature.dropbox_sign_request_id.isnot(None),
+            AgreementSignature.signed_pdf_bytes.is_(None),
+        ).first() is not None
         is_expired = (
             inv.status == "expired"
             or (
                 inv.status == "pending"
                 and inv.created_at is not None
                 and inv.created_at < threshold
+                and not has_pending_dropbox
+                and not guest_invitation_signing_started(db, inv.invitation_code)
             )
         )
         has_stay = db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None
@@ -4921,12 +5035,22 @@ def owner_logs(
     category: str | None = None,
     search: str | None = None,
     property_id: int | None = None,
+    x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
     """Business mode: property/management lane logs only (no guest activity).
     Personal mode: same + guest invite/accept/checkout events for owner-occupied properties.
     Event rows are scoped to all owned (non-deleted) properties so bulk-upload and rental
     portfolio activity appears in the ledger regardless of primary-residence mode."""
     from sqlalchemy import or_, desc, cast, String
+
+    try:
+        from app.services.stay_timer import run_status_confirmation_materialize_for_user
+
+        run_status_confirmation_materialize_for_user(
+            db, current_user, client_calendar_date=_parse_guest_client_calendar_date_header(x_client_calendar_date)
+        )
+    except Exception:
+        pass
 
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
@@ -5035,9 +5159,19 @@ def manager_logs(
     category: str | None = None,
     search: str | None = None,
     property_id: int | None = None,
+    x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
     """Property/management lane logs for assigned properties. Same restrictions as owner: no tenant guest activity."""
     from sqlalchemy import desc, cast, String
+
+    try:
+        from app.services.stay_timer import run_status_confirmation_materialize_for_user
+
+        run_status_confirmation_materialize_for_user(
+            db, current_user, client_calendar_date=_parse_guest_client_calendar_date_header(x_client_calendar_date)
+        )
+    except Exception:
+        pass
 
     property_ids = _manager_property_ids(db, current_user.id)
     if not property_ids:
@@ -5096,10 +5230,23 @@ def tenant_logs(
     category: str | None = None,
     search: str | None = None,
     property_id: int | None = None,
+    x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
     """Tenant lane logs only: tenant's own actions, their guest invitations/stays, their presence.
     Excludes billing, property management, shield mode, DMS, and other tenants' data."""
     from sqlalchemy import desc, cast, String, or_
+
+    # Materialize tenant-invited guest threshold alerts on demand (idempotent; helps in no-cron environments).
+    try:
+        from app.services.stay_timer import run_tenant_invited_guest_jurisdiction_threshold_notifications
+
+        run_tenant_invited_guest_jurisdiction_threshold_notifications(
+            db,
+            only_tenant_user_id=current_user.id,
+            client_calendar_date=_parse_guest_client_calendar_date_header(x_client_calendar_date),
+        )
+    except Exception:
+        pass
 
     tenant_property_id = None
     ta = (

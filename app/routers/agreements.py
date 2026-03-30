@@ -8,7 +8,7 @@ from sqlalchemy import or_
 
 from app.database import get_db
 from app.models.invitation import Invitation
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.agreement_signature import AgreementSignature
 from app.models.owner_poa_signature import OwnerPOASignature
 from app.models.property_utility import PropertyAuthorityLetter
@@ -566,7 +566,11 @@ def get_owner_poa_document(
     principal_address: str | None = None
     resolved_title: str | None = principal_title.strip() if principal_title and principal_title.strip() else None
     if owner_email and owner_email.strip():
-        user = db.query(User).filter(User.email == owner_email.strip().lower()).first()
+        user = (
+            db.query(User)
+            .filter(User.email == owner_email.strip().lower(), User.role == UserRole.owner)
+            .first()
+        )
         if user:
             if not principal_name and user.full_name:
                 principal_name = user.full_name
@@ -636,7 +640,14 @@ def sign_owner_poa_with_dropbox(
     principal_address: str | None = None
     resolved_title: str | None = data.principal_title.strip() if data.principal_title and data.principal_title.strip() else None
     if data.owner_email:
-        user = db.query(User).filter(User.email == str(data.owner_email).strip().lower()).first()
+        user = (
+            db.query(User)
+            .filter(
+                User.email == str(data.owner_email).strip().lower(),
+                User.role == UserRole.owner,
+            )
+            .first()
+        )
         if user:
             addr_parts = [p for p in [user.city, user.state, user.country] if p]
             if addr_parts:

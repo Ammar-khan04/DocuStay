@@ -21,8 +21,8 @@ class OwnerType(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
-    # DB allows legacy rows where the same email exists under different roles; new registrations are rejected
-    # in API code (see app.services.registration_email) so one email maps to one account type going forward.
+    # Same email may be used for separate accounts per role (e.g. guest and tenant). Uniqueness is (email, role)
+    # only—duplicate email + duplicate role is rejected by this constraint and by signup flows.
     __table_args__ = (UniqueConstraint("email", "role", name="uq_users_email_role"),)
 
     id = Column(Integer, primary_key=True, index=True)

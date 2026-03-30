@@ -64,6 +64,8 @@ class Settings(BaseSettings):
 
     notification_days_before_limit: int = 5
     notification_cron_enabled: bool = True
+    # Calendar-only rules for guest stay end reminders (stay dates are date fields, no time-of-day). Cron uses this IANA zone when the client does not send X-Client-Calendar-Date. Env: NOTIFICATION_CALENDAR_IANA_TZ
+    notification_calendar_iana_tz: str = "America/Chicago"
     # Dead Man's Switch test mode: when True, DMS uses effective "lease end" = stay created_at + 2 minutes (for testing)
     dms_test_mode: bool = False
     # When True, pending invitation links expire after 5 minutes; otherwise 12 hours. Cleanup job runs every minute in test mode.

@@ -15,6 +15,7 @@ Personal vs Business Mode: Users can switch modes, but privacy rules still apply
 Switching to personal mode does NOT unlock tenant-private information.
 """
 from enum import Enum
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 from app.models.owner import OwnerProfile, Property, OccupancyStatus
@@ -374,15 +375,22 @@ def get_manager_personal_mode_property_ids(db: Session, user_id: int) -> list[in
 
 
 def validate_invite_email_role(db: Session, email: str, expected_role: UserRole) -> str | None:
-    """Check that an email, if it already exists in the system, belongs to the expected role.
-    Returns an error message string if there's a conflict, or None if OK (email doesn't exist or matches role).
-    This prevents inviting an existing owner as a tenant, an existing tenant as a guest, etc."""
+    """If this email already has a user account for ``expected_role``, return a short message (avoid duplicate signup).
+
+    The same email may exist under other roles; that does not block invitations for this role.
+    """
     if not email or not email.strip():
         return None
-    existing = db.query(User).filter(User.email == email.strip().lower()).first()
-    if not existing:
+    # Tenants and guests can legitimately have multiple leases/stays/invitations over time; having an existing
+    # account must NOT block inviting or assigning them again.
+    if expected_role in (UserRole.tenant, UserRole.guest):
         return None
-    if existing.role == expected_role:
+    existing_same_role = (
+        db.query(User)
+        .filter(User.email == email.strip().lower(), User.role == expected_role)
+        .first()
+    )
+    if not existing_same_role:
         return None
     role_labels = {
         UserRole.owner: "property owner",
@@ -391,6 +399,67 @@ def validate_invite_email_role(db: Session, email: str, expected_role: UserRole)
         UserRole.guest: "guest",
         UserRole.admin: "admin",
     }
-    current_label = role_labels.get(existing.role, existing.role.value)
     target_label = role_labels.get(expected_role, expected_role.value)
-    return f"This email is already registered as a {current_label} and cannot be invited as a {target_label}."
+    return (
+        f"This email is already registered as a {target_label}. "
+        "Use login or assign them with their existing account if your workflow supports it."
+    )
+
+
+def email_conflicts_with_property_as_tenant_or_guest(db: Session, *, email: str, property_id: int) -> bool:
+    """True if this email has tenant/guest presence on the given property.
+
+    Rule: A property manager account must never be able to manage a property they are a tenant or guest of.
+    Cross-role reuse of an email is allowed elsewhere, but for *this* property it must be rejected.
+    """
+    email_norm = (email or "").strip().lower()
+    if not email_norm or not property_id:
+        return False
+
+    # Tenant conflict: a tenant user with this email has a tenant assignment on any unit in this property.
+    tenant_user_ids = [
+        r[0]
+        for r in db.query(User.id)
+        .filter(func.lower(func.trim(User.email)) == email_norm, User.role == UserRole.tenant)
+        .all()
+    ]
+    if tenant_user_ids:
+        ta = (
+            db.query(TenantAssignment)
+            .join(Unit, TenantAssignment.unit_id == Unit.id)
+            .filter(TenantAssignment.user_id.in_(tenant_user_ids), Unit.property_id == property_id)
+            .first()
+        )
+        if ta is not None:
+            return True
+
+    # Guest conflict: either a guest user with this email has a stay on this property, or an invitation on this
+    # property targets this email (covers "registered guest elsewhere" and invite-only records).
+    guest_user_ids = [
+        r[0]
+        for r in db.query(User.id)
+        .filter(func.lower(func.trim(User.email)) == email_norm, User.role == UserRole.guest)
+        .all()
+    ]
+    stay_guest_cond = Stay.guest_id.in_(guest_user_ids) if guest_user_ids else False
+    inv_email_cond = func.lower(func.trim(Invitation.guest_email)) == email_norm
+    guest_hit = (
+        db.query(Stay.id)
+        .outerjoin(Invitation, Stay.invitation_id == Invitation.id)
+        .filter(
+            Stay.property_id == property_id,
+            or_(stay_guest_cond, inv_email_cond),
+        )
+        .first()
+        is not None
+    )
+    if guest_hit:
+        return True
+
+    inv_hit = (
+        db.query(Invitation.id)
+        .filter(Invitation.property_id == property_id, inv_email_cond)
+        .first()
+        is not None
+    )
+    return inv_hit

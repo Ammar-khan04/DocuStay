@@ -118,7 +118,7 @@ def admin_list_audit_logs(
 
     out = []
     for r in rows:
-        cat, title, msg = ledger_event_to_display(r)
+        cat, title, msg = ledger_event_to_display(r, db)
         actor_email = get_actor_email(db, r.actor_user_id)
         out.append(
             AdminAuditLogEntry(

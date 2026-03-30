@@ -42,6 +42,16 @@ function getToken(): string | null {
   return localStorage.getItem("docustay_token");
 }
 
+/** Browser local calendar date YYYY-MM-DD — backend uses this for guest stay end notifications (date-only, not clock time). */
+function clientCalendarDateHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return { "X-Client-Calendar-Date": `${y}-${m}-${day}` };
+}
+
 export function setToken(token: string | null) {
   if (typeof window === "undefined") return;
   if (token) localStorage.setItem("docustay_token", token);
@@ -236,6 +246,7 @@ export const authApi = {
     const body = await request<TokenResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password, role: role ?? null }),
+      headers: clientCalendarDateHeaders(),
     });
     setToken(body.access_token);
     return { status: "success", data: toUserSession(body) };
@@ -697,6 +708,11 @@ export interface LiveOwnerInfo {
   phone: string | null;
 }
 
+export interface LivePropertyManagerInfo {
+  full_name: string | null;
+  email: string;
+}
+
 export interface LiveCurrentGuestInfo {
   stay_id: number;
   guest_name: string;
@@ -773,6 +789,7 @@ export interface LivePropertyPagePayload {
   has_current_guest: boolean;
   property: LivePropertyInfo;
   owner: LiveOwnerInfo;
+  property_managers?: LivePropertyManagerInfo[];
   current_guest: LiveCurrentGuestInfo | null;
   current_guests?: LiveCurrentGuestInfo[];
   last_stay: LiveStaySummary | null;
@@ -932,7 +949,9 @@ export const dashboardApi = {
     if (params?.category) sp.set("category", params.category);
     if (params?.search) sp.set("search", params.search);
     const q = sp.toString();
-    return request<OwnerAuditLogEntry[]>(`/dashboard/manager/logs${q ? `?${q}` : ""}`);
+    return request<OwnerAuditLogEntry[]>(`/dashboard/manager/logs${q ? `?${q}` : ""}`, {
+      headers: clientCalendarDateHeaders(),
+    });
   },
   managerBilling: () => request<BillingResponse>("/dashboard/manager/billing"),
   managerProperties: () => request<{ id: number; name: string | null; address: string; occupancy_status: string; unit_count: number; occupied_count: number }[]>("/managers/properties"),
@@ -973,7 +992,9 @@ export const dashboardApi = {
     if (params?.search) sp.set("search", params.search);
     if (params?.property_id != null) sp.set("property_id", String(params.property_id));
     const q = sp.toString();
-    return request<OwnerAuditLogEntry[]>(`/dashboard/owner/logs${q ? `?${q}` : ""}`);
+    return request<OwnerAuditLogEntry[]>(`/dashboard/owner/logs${q ? `?${q}` : ""}`, {
+      headers: clientCalendarDateHeaders(),
+    });
   },
   tenantDebug: () =>
     request<{ tenant_assignments_count: number; stays_count: number }>("/dashboard/tenant/debug"),
@@ -1070,7 +1091,9 @@ export const dashboardApi = {
     if (params?.search) sp.set("search", params.search);
     if (params?.property_id != null) sp.set("property_id", String(params.property_id));
     const q = sp.toString();
-    return request<OwnerAuditLogEntry[]>(`/dashboard/tenant/logs${q ? `?${q}` : ""}`);
+    return request<OwnerAuditLogEntry[]>(`/dashboard/tenant/logs${q ? `?${q}` : ""}`, {
+      headers: clientCalendarDateHeaders(),
+    });
   },
   getPresence: (unitId: number) =>
     request<{ status: string; unit_id: number; away_started_at: string | null; away_ended_at: string | null; guests_authorized_during_away: boolean }>(
@@ -1105,7 +1128,8 @@ export const dashboardApi = {
         }),
       }
     ),
-  guestStays: () => request<GuestStayView[]>("/dashboard/guest/stays"),
+  guestStays: () =>
+    request<GuestStayView[]>("/dashboard/guest/stays", { headers: clientCalendarDateHeaders() }),
   /** Guest profile (full_legal_name, permanent_home_address). Guest only. */
   guestProfile: () =>
     request<{ id: number; full_legal_name: string; permanent_home_address: string; gps_checkin_acknowledgment: boolean } | null>("/guests/profile"),
@@ -1156,7 +1180,9 @@ export const dashboardApi = {
     if (params?.search) sp.set("search", params.search);
     if (params?.stay_id != null) sp.set("stay_id", String(params.stay_id));
     const q = sp.toString();
-    return request<OwnerAuditLogEntry[]>(`/dashboard/guest/logs${q ? `?${q}` : ""}`);
+    return request<OwnerAuditLogEntry[]>(`/dashboard/guest/logs${q ? `?${q}` : ""}`, {
+      headers: clientCalendarDateHeaders(),
+    });
   },
   /** Revoke stay (Kill Switch). Owner only. Guest must vacate in 12 hours; email sent to guest. */
   revokeStay: (stayId: number) =>

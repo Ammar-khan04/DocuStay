@@ -17,9 +17,11 @@ Logs create an auditable record of property activity."""
 from __future__ import annotations
 
 import enum
+import re
 from datetime import date, datetime
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.event_ledger import EventLedger
@@ -61,6 +63,7 @@ ACTION_PRESENCE_STATUS_CHANGED = "PresenceStatusChanged"
 ACTION_SHIELD_MODE_ON = "ShieldModeOn"
 ACTION_SHIELD_MODE_OFF = "ShieldModeOff"
 ACTION_DMS_48H_ALERT = "DMS48hAlert"
+ACTION_DMS_URGENT_TODAY = "DMSUrgentToday"
 ACTION_DMS_AUTO_EXECUTED = "DMSAutoExecuted"
 ACTION_DMS_DISABLED = "DMSDisabled"
 ACTION_OVERSTAY_OCCURRED = "OverstayOccurred"
@@ -94,6 +97,8 @@ ACTION_GUEST_AUTHORIZATION_CREATED = "GuestAuthorizationCreated"
 ACTION_GUEST_AUTHORIZATION_ACTIVE = "GuestAuthorizationActive"
 ACTION_GUEST_AUTHORIZATION_REVOKED = "GuestAuthorizationRevoked"
 ACTION_GUEST_AUTHORIZATION_EXPIRED = "GuestAuthorizationExpired"
+ACTION_GUEST_STAY_APPROACHING_END = "GuestStayApproachingEnd"
+ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING = "TenantGuestJurisdictionThresholdApproaching"
 ACTION_TENANT_ACCESS_ACTIVATED = "TenantAccessActivated"
 ACTION_GUEST_EXTENSION_REQUESTED = "GuestExtensionRequested"
 ACTION_GUEST_EXTENSION_APPROVED = "GuestExtensionApproved"
@@ -156,6 +161,7 @@ _ACTION_DISPLAY: dict[str, tuple[str, str]] = {
     ACTION_SHIELD_MODE_ON: ("shield_mode", "Shield Mode turned on"),
     ACTION_SHIELD_MODE_OFF: ("shield_mode", "Shield Mode turned off"),
     ACTION_DMS_48H_ALERT: ("dead_mans_switch", "Status Confirmation: 48h before lease end"),
+    ACTION_DMS_URGENT_TODAY: ("dead_mans_switch", "Status Confirmation: lease ends today"),
     ACTION_DMS_AUTO_EXECUTED: ("dead_mans_switch", "Status Confirmation: no response – occupancy unknown"),
     ACTION_DMS_DISABLED: ("dead_mans_switch", "Status Confirmation reminders turned off"),
     ACTION_OVERSTAY_OCCURRED: ("status_change", "Overstay occurred"),
@@ -188,6 +194,8 @@ _ACTION_DISPLAY: dict[str, tuple[str, str]] = {
     ACTION_GUEST_AUTHORIZATION_ACTIVE: ("status_change", "Guest authorization active"),
     ACTION_GUEST_AUTHORIZATION_REVOKED: ("status_change", "Guest authorization revoked"),
     ACTION_GUEST_AUTHORIZATION_EXPIRED: ("status_change", "Guest authorization expired"),
+    ACTION_GUEST_STAY_APPROACHING_END: ("status_change", "Stay approaching end date"),
+    ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING: ("status_change", "Guest stay approaching jurisdiction threshold"),
     ACTION_TENANT_ACCESS_ACTIVATED: ("status_change", "Tenant access activated"),
     ACTION_GUEST_EXTENSION_REQUESTED: ("status_change", "Guest requested stay extension"),
     ACTION_GUEST_EXTENSION_APPROVED: ("status_change", "Host approved stay extension request"),
@@ -201,6 +209,59 @@ _CATEGORY_TO_ACTION_TYPES: dict[str, list[str]] = {
     k: [a for a in _ACTION_DISPLAY if _ACTION_DISPLAY[a][0] == k]
     for k in {"status_change", "guest_signature", "failed_attempt", "shield_mode", "dead_mans_switch", "billing", "verify_attempt", "presence", "tenant_assignment"}
 }
+
+# Match email-shaped tokens in ledger copy so timelines can show names instead of raw addresses.
+_EMAIL_IN_TEXT_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+
+
+def _display_name_for_email(
+    db: Session,
+    email: str,
+    *,
+    invitation_id: int | None = None,
+) -> str:
+    """Resolve a mailbox string to a person label for audit display (never returns the email)."""
+    em = (email or "").strip()
+    if not em:
+        return "Guest"
+    from app.models.invitation import Invitation
+    from app.models.user import User
+
+    if invitation_id is not None:
+        inv_row = db.query(Invitation).filter(Invitation.id == invitation_id).first()
+        if inv_row and (inv_row.guest_email or "").strip().lower() == em.lower():
+            gn = (inv_row.guest_name or "").strip()
+            if gn:
+                return gn
+
+    u = db.query(User).filter(func.lower(User.email) == em.lower()).first()
+    if u:
+        fn = (u.full_name or "").strip()
+        if fn:
+            return fn
+    inv = (
+        db.query(Invitation)
+        .filter(func.lower(Invitation.guest_email) == em.lower())
+        .order_by(Invitation.created_at.desc())
+        .first()
+    )
+    if inv:
+        gn = (inv.guest_name or "").strip()
+        if gn:
+            return gn
+    return "Guest"
+
+
+def _scrub_emails_for_timeline_display(db: Session, text: str) -> str:
+    """Replace embedded emails in timeline title/message with display names when resolvable."""
+    if not text:
+        return text
+
+    def repl(m: re.Match[str]) -> str:
+        return _display_name_for_email(db, m.group(0))
+
+    return _EMAIL_IN_TEXT_RE.sub(repl, text)
+
 
 # ---------------------------------------------------------------------------
 # Privacy-lane action type sets
@@ -223,7 +284,10 @@ OWNER_BUSINESS_ACTIONS: set[str] = {
     ACTION_TENANT_INVITED, ACTION_TENANT_ACCEPTED, ACTION_TENANT_ASSIGNMENT_CANCELLED, ACTION_TENANT_ACCESS_ACTIVATED,
     ACTION_TENANT_CHECK_OUT,
     ACTION_SHIELD_MODE_ON, ACTION_SHIELD_MODE_OFF,
-    ACTION_DMS_48H_ALERT, ACTION_DMS_AUTO_EXECUTED, ACTION_DMS_DISABLED,
+    ACTION_DMS_48H_ALERT,
+    ACTION_DMS_URGENT_TODAY,
+    ACTION_DMS_AUTO_EXECUTED,
+    ACTION_DMS_DISABLED,
     ACTION_BILLING_INVOICE_PAID,
     ACTION_BILLING_INVOICE_CREATED,
     ACTION_BILLING_SUBSCRIPTION_STARTED,
@@ -272,6 +336,7 @@ TENANT_ALLOWED_ACTIONS: set[str] = {
     ACTION_GUEST_EXTENSION_REQUESTED,
     ACTION_GUEST_EXTENSION_APPROVED,
     ACTION_GUEST_EXTENSION_DECLINED,
+    ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING,
 }
 
 GUEST_ALLOWED_ACTIONS: set[str] = {
@@ -281,6 +346,7 @@ GUEST_ALLOWED_ACTIONS: set[str] = {
     ACTION_AGREEMENT_SIGNED,
     ACTION_GUEST_AUTHORIZATION_CREATED, ACTION_GUEST_AUTHORIZATION_ACTIVE,
     ACTION_GUEST_AUTHORIZATION_REVOKED, ACTION_GUEST_AUTHORIZATION_EXPIRED,
+    ACTION_GUEST_STAY_APPROACHING_END,
     ACTION_OVERSTAY_OCCURRED,
     ACTION_VERIFY_ATTEMPT_VALID,
     ACTION_AWAY_ACTIVATED, ACTION_AWAY_ENDED,     ACTION_PRESENCE_STATUS_CHANGED,
@@ -300,24 +366,24 @@ def get_actor_email(db: Session, actor_user_id: int | None) -> str | None:
 
 
 def get_actor_display_name(db: Session, actor_user_id: int | None) -> str | None:
-    """Resolve actor full name (or email fallback) from user id for ledger display."""
+    """Resolve actor full name for ledger / timeline display (never falls back to email)."""
     if not actor_user_id:
         return None
     from app.models.user import User
     u = db.query(User).filter(User.id == actor_user_id).first()
     if not u:
         return None
-    return (u.full_name or "").strip() or u.email
+    fn = (u.full_name or "").strip()
+    return fn or "User"
 
 
 def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tuple[str, str, str]:
     """Map ledger entry to (category, title, message) for OwnerAuditLogEntry / LiveLogEntry.
     When db is provided and message is generic, appends ' by <actor name>' for attribution.
-    When meta has a custom 'message' (e.g. 'Property updated: X. Change made: Y'), we do not append
-    so the UI can show 'Title by actor@email' and the message separately.
+    Timelines avoid showing raw email addresses; names are preferred, then neutral labels (Guest / User).
 
     Agreement-signed events often have no actor_user_id (guest signs before account exists); signer is taken
-    from meta guest_full_name / guest_email so notifications show who signed."""
+    from meta guest_full_name / guest_email."""
     action = entry.action_type or ""
     cat, title = _ACTION_DISPLAY.get(
         action,
@@ -329,34 +395,39 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
     if action == ACTION_AGREEMENT_SIGNED:
         name = (meta.get("guest_full_name") or "").strip()
         email = (meta.get("guest_email") or "").strip()
-        if name and email:
-            title = f"{title} — {name}"
-            msg = f"Signed by {name} · {email}"
-        elif name:
+        if name:
             title = f"{title} — {name}"
             msg = f"Signed by {name}"
         elif email:
-            title = f"{title} — {email}"
-            msg = f"Signed by {email}"
+            signer = (
+                _display_name_for_email(db, email, invitation_id=entry.invitation_id)
+                if db
+                else "Guest"
+            )
+            title = f"{title} — {signer}"
+            msg = f"Signed by {signer}"
         elif has_custom_message:
             msg = str(meta["message"])
         elif meta.get("property_name"):
             msg = f"{title} for {meta['property_name']}"
         else:
             msg = title
-        return (cat, title, msg)
-
-    if has_custom_message:
+    elif has_custom_message:
         msg = str(meta["message"])
     elif meta.get("property_name"):
         msg = f"{title} for {meta['property_name']}"
     else:
         msg = title
-    # User attribution: only append to generic messages so notification UI can show "Title by email" + message
-    if not has_custom_message and db and entry.actor_user_id:
+    # User attribution: only append to generic messages so custom body stays separate from actor line
+    if action != ACTION_AGREEMENT_SIGNED and not has_custom_message and db and entry.actor_user_id:
         actor_name = get_actor_display_name(db, entry.actor_user_id)
         if actor_name and f"by {actor_name}" not in msg:
             msg = f"{msg} by {actor_name}"
+
+    if db:
+        title = _scrub_emails_for_timeline_display(db, title)
+        msg = _scrub_emails_for_timeline_display(db, msg)
+
     return (cat, title, msg)
 
 

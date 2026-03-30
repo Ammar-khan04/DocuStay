@@ -3,7 +3,7 @@ import logging
 import random
 import secrets
 import string
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from urllib.parse import unquote
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -22,7 +22,10 @@ from app.models.owner import OwnerProfile, Property, OccupancyStatus
 from app.models.owner_poa_signature import OwnerPOASignature
 from app.models.pending_registration import PendingRegistration
 from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE, CATEGORY_GUEST_SIGNATURE, CATEGORY_FAILED_ATTEMPT
-from app.services.invitation_guest_completion import guest_invite_awaiting_account_after_sign
+from app.services.invitation_guest_completion import (
+    guest_invite_awaiting_account_after_sign,
+    guest_invitation_signing_started,
+)
 from app.services.event_ledger import (
     create_ledger_event,
     ACTION_LOGIN_FAILED,
@@ -122,6 +125,64 @@ def _user_to_response(user: User, db: Session) -> UserResponse:
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 VERIFICATION_CODE_EXPIRE_MINUTES = 10
+
+logger = logging.getLogger(__name__)
+
+
+def _client_calendar_date_from_request(request: Request) -> date | None:
+    """Parse guest app local calendar day from ``X-Client-Calendar-Date: YYYY-MM-DD`` (date only, no time)."""
+    raw = (request.headers.get("X-Client-Calendar-Date") or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def _trigger_guest_approaching_end_notifications_after_auth(
+    db: Session,
+    user: User,
+    request: Request | None = None,
+    *,
+    client_calendar_date: date | None = None,
+) -> None:
+    """After guest, tenant, owner, or property manager obtains a session, materialize notifications (idempotent; does not block auth on failure)."""
+    cal = client_calendar_date
+    if cal is None and request is not None:
+        cal = _client_calendar_date_from_request(request)
+    if user.role == UserRole.guest:
+        try:
+            from app.services.stay_timer import run_guest_stay_approaching_end_notifications_on_login
+
+            run_guest_stay_approaching_end_notifications_on_login(db, user.id, client_calendar_date=cal)
+        except Exception:
+            logger.exception(
+                "Guest approaching-end notification after auth failed (non-fatal); user_id=%s",
+                user.id,
+            )
+    if user.role == UserRole.tenant:
+        try:
+            from app.services.stay_timer import run_tenant_invited_guest_jurisdiction_threshold_notifications
+
+            run_tenant_invited_guest_jurisdiction_threshold_notifications(
+                db, only_tenant_user_id=user.id, client_calendar_date=cal
+            )
+        except Exception:
+            logger.exception(
+                "Tenant jurisdiction-threshold notification after auth failed (non-fatal); user_id=%s",
+                user.id,
+            )
+    if user.role in (UserRole.owner, UserRole.property_manager):
+        try:
+            from app.services.stay_timer import run_status_confirmation_materialize_for_user
+
+            run_status_confirmation_materialize_for_user(db, user, client_calendar_date=cal)
+        except Exception:
+            logger.exception(
+                "Status Confirmation materialization after auth failed (non-fatal); user_id=%s",
+                user.id,
+            )
 
 
 def _mailgun_configured() -> bool:
@@ -304,6 +365,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
                 raise HTTPException(status_code=400, detail=_register_email_taken_message(data.role))
             raise
         db.refresh(user)
+        _trigger_guest_approaching_end_notifications_after_auth(db, user, request)
         token = create_access_token(user.id, user.email, user.role)
         return Token(access_token=token, user=_user_to_response(user, db))
 
@@ -469,6 +531,7 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
         user_agent=(request.headers.get("user-agent") or "").strip() or None,
     )
     db.commit()
+    _trigger_guest_approaching_end_notifications_after_auth(db, user, request)
     token = create_access_token(user.id, user.email, user.role)
     return Token(access_token=token, user=_user_to_response(user, db))
 
@@ -517,6 +580,12 @@ def register_manager(request: Request, data: ManagerRegister, db: Session = Depe
     enforce_email_available_for_intended_role(
         db, inv_email_norm, UserRole.property_manager, allow_same_role_pending=True
     )
+    from app.services.permissions import email_conflicts_with_property_as_tenant_or_guest
+    if email_conflicts_with_property_as_tenant_or_guest(db, email=inv_email_norm, property_id=inv.property_id):
+        raise HTTPException(
+            status_code=409,
+            detail="This email is currently associated with a tenant or guest presence on this property and cannot be used to manage this property.",
+        )
     existing = (
         db.query(User)
         .filter(
@@ -641,6 +710,12 @@ def accept_manager_invite(
         raise HTTPException(status_code=400, detail="Invitation not found or expired.")
     if inv.email.strip().lower() != (current_user.email or "").strip().lower():
         raise HTTPException(status_code=403, detail="This invitation was sent to a different email address.")
+    from app.services.permissions import email_conflicts_with_property_as_tenant_or_guest
+    if email_conflicts_with_property_as_tenant_or_guest(db, email=current_user.email, property_id=inv.property_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Your email is currently associated with a tenant or guest presence on this property and cannot be used to manage this property.",
+        )
     existing_assignment = db.query(PropertyManagerAssignment).filter(
         PropertyManagerAssignment.property_id == inv.property_id,
         PropertyManagerAssignment.user_id == current_user.id,
@@ -1018,6 +1093,7 @@ def verify_email(request: Request, data: VerifyEmailRequest, db: Session = Depen
             user = _complete_pending_tenant(db, pending)
         else:
             user = _complete_pending_guest(request, db, pending)
+        _trigger_guest_approaching_end_notifications_after_auth(db, user, request)
         token = create_access_token(user.id, user.email, user.role)
         return Token(access_token=token, user=_user_to_response(user, db))
 
@@ -1031,6 +1107,7 @@ def verify_email(request: Request, data: VerifyEmailRequest, db: Session = Depen
     # Only skip code check when user is already verified AND no code was provided (re-requesting token).
     # If a code was provided we must validate it so a wrong code never returns success.
     if getattr(user, "email_verified", False) and (not code or len(code) != 6):
+        _trigger_guest_approaching_end_notifications_after_auth(db, user, request)
         token = create_access_token(user.id, user.email, user.role)
         return Token(access_token=token, user=_user_to_response(user, db))
     stored_user_code = _normalize_verification_code(user.email_verification_code)
@@ -1067,6 +1144,7 @@ def verify_email(request: Request, data: VerifyEmailRequest, db: Session = Depen
     db.refresh(user)
     if user.role == UserRole.owner:
         send_owner_welcome_email(user.email, user.full_name)
+    _trigger_guest_approaching_end_notifications_after_auth(db, user, request)
     token = create_access_token(user.id, user.email, user.role)
     return Token(access_token=token, user=_user_to_response(user, db))
 
@@ -1115,14 +1193,14 @@ def resend_verification(data: ResendVerificationRequest, db: Session = Depends(g
 
 @router.post("/forgot-password")
 def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    """
-    Request a password reset email. Each email maps to at most one account; lookup is by email only.
-    The `role` field is accepted for API compatibility but ignored when resolving the user.
-    """
+    """Request a password reset email. ``role`` selects which account when the same email has multiple roles."""
     email_norm = normalize_registration_email(str(data.email) if data.email else "")
     if not email_norm:
         raise HTTPException(status_code=400, detail="Email is required.")
-    user = db.query(User).filter(func.lower(func.trim(User.email)) == email_norm).first()
+    user = db.query(User).filter(
+        func.lower(func.trim(User.email)) == email_norm,
+        User.role == data.role,
+    ).first()
     if not user:
         raise HTTPException(
             status_code=404,
@@ -1657,7 +1735,7 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
                 AgreementSignature.dropbox_sign_request_id.isnot(None),
                 AgreementSignature.signed_pdf_bytes.is_(None)
             ).first() is not None
-            if not has_pending_dropbox:
+            if not has_pending_dropbox and not guest_invitation_signing_started(db, code):
                 raise HTTPException(status_code=400, detail="This invite has expired. Please contact your host to request a new one.")
 
         tok = (inv.token_state or "").upper()
@@ -2030,6 +2108,7 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
     if target_role == UserRole.tenant or not (code and inv and sig):
         send_guest_signup_welcome_email(user.email, user.full_name)
 
+    _trigger_guest_approaching_end_notifications_after_auth(db, user, request)
     token = create_access_token(user.id, user.email, user.role)
     return Token(access_token=token, user=_user_to_response(user, db))
 

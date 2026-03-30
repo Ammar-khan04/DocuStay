@@ -6,8 +6,10 @@ import {
   type LiveCurrentGuestInfo,
   type LiveInvitationSummary,
   type LiveOwnerInfo,
+  type LivePropertyManagerInfo,
   type LivePropertyPagePayload,
   type LiveTenantAssignmentInfo,
+  type UserSession,
 } from '../services/api';
 
 function stayIsTenant(stay: Pick<LiveCurrentGuestInfo, 'stay_kind'>): boolean {
@@ -50,11 +52,43 @@ function tenantLeasePeriodLabel(row: LiveTenantAssignmentInfo): string {
   return `${start} – ${formatDate(row.end_date)}`;
 }
 
+function normalizeEmail(s: string): string {
+  return (s || '').trim().toLowerCase();
+}
+
+function normalizeLooseName(s: string): string {
+  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function tenantRowMatchesViewer(row: LiveTenantAssignmentInfo, viewer: UserSession): boolean {
+  const ve = normalizeEmail(viewer.email);
+  if (row.tenant_email && normalizeEmail(row.tenant_email) === ve) return true;
+  const assignee = (row.tenant_full_name || '').trim();
+  if (assignee && normalizeLooseName(assignee) === normalizeLooseName(viewer.user_name)) return true;
+  return false;
+}
+
+function guestStayMatchesViewer(
+  stay: LiveCurrentGuestInfo,
+  invitations: LiveInvitationSummary[],
+  viewer: UserSession,
+): boolean {
+  const ve = normalizeEmail(viewer.email);
+  const inv = stay.invitation_code
+    ? invitations.find((i) => i.invitation_code === stay.invitation_code)
+    : undefined;
+  const label = (inv?.guest_label || '').trim();
+  if (label && label.includes('@') && normalizeEmail(label) === ve) return true;
+  if (normalizeLooseName(stay.guest_name) === normalizeLooseName(viewer.user_name)) return true;
+  if (label && normalizeLooseName(label) === normalizeLooseName(viewer.user_name)) return true;
+  return false;
+}
+
 export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const [data, setData] = useState<LivePropertyPagePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewerIsGuest, setViewerIsGuest] = useState(false);
+  const [viewerSession, setViewerSession] = useState<UserSession | null>(null);
 
   useEffect(() => {
     if (!slug) {
@@ -73,22 +107,24 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
 
   useEffect(() => {
     if (!authApi.getToken()) {
-      setViewerIsGuest(false);
+      setViewerSession(null);
       return;
     }
     let cancelled = false;
     authApi
       .me()
       .then((s) => {
-        if (!cancelled) setViewerIsGuest(s?.user_type === 'GUEST');
+        if (!cancelled) setViewerSession(s ?? null);
       })
       .catch(() => {
-        if (!cancelled) setViewerIsGuest(false);
+        if (!cancelled) setViewerSession(null);
       });
     return () => {
       cancelled = true;
     };
   }, [slug]);
+
+  const viewerIsGuest = viewerSession?.user_type === 'GUEST';
 
   if (loading) {
     return (
@@ -133,6 +169,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     poa_signed_at,
     poa_signature_id,
     jurisdiction_wrap,
+    property_managers,
     current_tenant_assignments,
     tenant_summary_assignee,
     tenant_summary_assignment_period,
@@ -203,8 +240,45 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     ? invitations.filter((inv) => !inviteIsTenant(inv))
     : invitations;
   const tenantInvitations = invitationsForDisplay.filter(inviteIsTenant);
+  const propertyManagersForAuthority: LivePropertyManagerInfo[] = (property_managers ?? []).filter(
+    (m) => typeof m?.email === 'string' && m.email.trim().length > 0,
+  );
   const currentTenantAssignments: LiveTenantAssignmentInfo[] = current_tenant_assignments ?? [];
   const propertySummaryLine = [prop.name || '', address].filter(Boolean).join(' — ') || address || '—';
+
+  const authorityTenantAssignmentsUnique = (() => {
+    const seen = new Set<string>();
+    const out: LiveTenantAssignmentInfo[] = [];
+    for (const row of currentTenantAssignments) {
+      const key = [
+        (row.unit_label || '').trim(),
+        normalizeEmail(row.tenant_email || ''),
+        normalizeLooseName(row.tenant_full_name || ''),
+        (row.start_date || '').trim(),
+        (row.end_date || '').trim(),
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+    return out;
+  })();
+
+  const sessionAuthorityChainLines: { key: string; prefix: string; name: string; email: string }[] = [];
+  if (viewerSession) {
+    if (viewerSession.user_type === 'GUEST') {
+      activeGuestsOnly
+        .filter((stay) => guestStayMatchesViewer(stay, invitations, viewerSession))
+        .forEach((stay, idx) => {
+          sessionAuthorityChainLines.push({
+            key: `chain-g-${stay.stay_id}-${idx}`,
+            prefix: 'Guest (active authorization)',
+            name: stay.guest_name,
+            email: viewerSession.email.trim() || '—',
+          });
+        });
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-white to-slate-100/60 print:bg-white print:min-h-0">
@@ -464,6 +538,40 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                 {poa_signed_at && (
                   <li>Master POA executed: {formatDate(poa_signed_at)}</li>
                 )}
+                {propertyManagersForAuthority.map((m, idx) => (
+                  <li key={`${m.email}-${idx}`}>
+                    Property manager: {m.full_name ?? '—'}
+                    <span className="text-slate-600 break-all"> · {m.email.trim()}</span>
+                  </li>
+                ))}
+                {authorityTenantAssignmentsUnique.map((row, idx) => (
+                  <li key={`tenant-auth-${row.assignment_id ?? ''}-${row.stay_id ?? ''}-${row.unit_label}-${idx}`}>
+                    {(() => {
+                      return (
+                        <>
+                          Tenant (Unit {row.unit_label}): {tenantAssignmentDisplayName(row)}
+                        </>
+                      );
+                    })()}
+                    {row.tenant_email ? (
+                      <span className="text-slate-600 break-all"> · {row.tenant_email}</span>
+                    ) : null}
+                  </li>
+                ))}
+                {authorityTenantAssignmentsUnique.length === 0 && tenant_summary_assignee ? (
+                  <li>
+                    Tenant: {tenant_summary_assignee.trim() || '—'}
+                    {tenant_summary_assignment_period ? (
+                      <span className="text-slate-600"> · {tenant_summary_assignment_period}</span>
+                    ) : null}
+                  </li>
+                ) : null}
+                {sessionAuthorityChainLines.map((line) => (
+                  <li key={line.key}>
+                    {line.prefix}: {line.name}
+                    <span className="text-slate-600 break-all"> · {line.email}</span>
+                  </li>
+                ))}
               </ul>
             </div>
             {jurisdiction_wrap && (
@@ -492,6 +600,17 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                         ? 'Active guest assignments (current stays).'
                         : 'Active guest assignment (current stay).'}{' '}
                   Signed agreements on this page are only for these active authorizations; prior agreements appear in the audit timeline below.
+                </span>
+              ) : currentTenantAssignments.length > 0 ? (
+                <span>
+                  Active tenant lease assignment(s) on file for this property (see Tenant summary).{' '}
+                  No guest-stay check-in is currently recorded on this live record.{' '}
+                  Prior activity appears in the audit timeline below.
+                </span>
+              ) : sessionAuthorityChainLines.length > 0 ? (
+                <span>
+                  Your role on this property is listed in the authority chain above. See the Quick Decision layer and
+                  Tenant summary for full occupancy context.
                 </span>
               ) : (
                 <span>No active guest or tenant assignments.</span>
@@ -717,6 +836,9 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               </summary>
               <ul className="mt-2 pl-4 space-y-0.5 text-xs text-slate-600 border-l-2 border-teal-200">
                 <li><strong>PENDING</strong> — Invite sent, not yet accepted (no stay).</li>
+                <li>
+                  <strong>ONGOING</strong> — The unit is occupied for the dates shown. This stays in place until those dates pass or the owner updates the record.
+                </li>
                 <li><strong>ACTIVE</strong> — Assignee accepted and signed; stay created (authorization active or past).</li>
                 <li><strong>EXPIRED</strong> — Stay ended or guest checked out; no current authorization. (Guests only; DocuStay does not expire tenants.)</li>
                 <li><strong>REVOKED</strong> — Guest authorization revoked by owner.</li>

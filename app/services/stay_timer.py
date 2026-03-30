@@ -1,13 +1,18 @@
 """Module G: Stay Timer & Legal Notification Engine + Dead Man's Switch."""
 import logging
 from datetime import date, timedelta, datetime, timezone
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from sqlalchemy.sql import func
 
 logger = logging.getLogger("uvicorn.error")
 from app.database import SessionLocal
 from app.models.stay import Stay
 from app.models.invitation import Invitation
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.models.agreement_signature import AgreementSignature
+from app.models.event_ledger import EventLedger
 from app.models.region_rule import RegionRule
 from app.models.audit_log import AuditLog
 from app.models.owner import OwnerProfile, Property, USAT_TOKEN_STAGED, USAT_TOKEN_RELEASED, OccupancyStatus
@@ -25,15 +30,21 @@ from app.services.notifications import (
     send_dms_turned_off_notification,
     send_status_confirmation_daily_reminder_email,
     send_tenant_guest_authorization_ending_notice,
+    send_tenant_guest_jurisdiction_threshold_approaching_notice,
     send_guest_authorization_dates_only_email,
 )
-from app.services.privacy_lanes import is_tenant_lane_stay
+from app.services.privacy_lanes import is_tenant_lane_stay, is_tenant_lane_invitation
 from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE, CATEGORY_SHIELD_MODE, CATEGORY_DEAD_MANS_SWITCH
 from app.services.event_ledger import (
     create_ledger_event,
     ACTION_OVERSTAY_OCCURRED,
     ACTION_SHIELD_MODE_ON,
     ACTION_VACANT_MONITORING_NO_RESPONSE,
+    ACTION_GUEST_STAY_APPROACHING_END,
+    ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING,
+    ACTION_DMS_48H_ALERT,
+    ACTION_DMS_URGENT_TODAY,
+    ACTION_DMS_AUTO_EXECUTED,
 )
 from app.services.billing import sync_subscription_quantities
 from app.services.dashboard_alerts import (
@@ -60,6 +71,11 @@ TENANT_NOTICE_GUEST_AUTH_48H = "Tenant notice: guest authorization ends in 2 day
 TENANT_NOTICE_GUEST_AUTH_TODAY = "Tenant notice: guest authorization ends today"
 GUEST_NOTICE_AUTH_48H = "Guest notice: authorization ends in 2 days"
 GUEST_NOTICE_AUTH_TODAY = "Guest notice: authorization ends today"
+# Unified idempotency for guest date-only notice (see run_tenant_lane_guest_stay_ending_notifications)
+GUEST_NOTICE_AUTH_END_WINDOW = "Guest notice: stay end within 2 days (informational)"
+
+# Tenant invited guest: jurisdiction threshold approaching (2-day buffer)
+TENANT_NOTICE_GUEST_JURISDICTION_THRESHOLD_48H = "Tenant notice: guest stay approaching jurisdiction threshold (2 days)"
 
 
 def _status_confirmation_eligible_stay(db: Session, stay: Stay) -> bool:
@@ -70,6 +86,15 @@ def _status_confirmation_eligible_stay(db: Session, stay: Stay) -> bool:
 def _deadline_no_response_already_logged(db: Session, stay_id: int) -> bool:
     return _dms_already_logged(db, DMS_TITLE_NO_RESPONSE_UNKNOWN, stay_id=stay_id) or _dms_already_logged(
         db, _LEGACY_DMS_AUTO_EXECUTED_TITLE, stay_id=stay_id
+    )
+
+
+def _guest_end_window_notice_already_sent(db: Session, stay_id: int) -> bool:
+    """True if this stay already received the informational guest end-window notice (current or legacy audit title)."""
+    return (
+        _dms_already_logged(db, GUEST_NOTICE_AUTH_END_WINDOW, stay_id=stay_id)
+        or _dms_already_logged(db, GUEST_NOTICE_AUTH_48H, stay_id=stay_id)
+        or _dms_already_logged(db, GUEST_NOTICE_AUTH_TODAY, stay_id=stay_id)
     )
 
 
@@ -240,6 +265,16 @@ def _dms_already_logged(
         start_of_day = datetime.combine(since_date, dt_time.min).replace(tzinfo=timezone.utc)
         q = q.filter(AuditLog.created_at >= start_of_day)
     return q.first() is not None
+
+
+def _dms_ledger_sent(db: Session, action_type: str, stay_id: int) -> bool:
+    """True if an EventLedger row already exists for this Status Confirmation stage and stay."""
+    return (
+        db.query(EventLedger)
+        .filter(EventLedger.action_type == action_type, EventLedger.stay_id == stay_id)
+        .first()
+        is not None
+    )
 
 
 def _get_guest_name(db: Session, stay: Stay) -> str:
@@ -483,14 +518,23 @@ def run_dms_test_mode_catchup_job() -> None:
         logger.info("DMS test-mode catchup job: finished")
 
 
-def run_dead_mans_switch_job(db: Session) -> None:
-    """Dead Man's Switch: 48h before alert, today alert, 48h after auto-execute. When DMS_TEST_MODE=true, uses 2 min after stay creation."""
+def run_dead_mans_switch_job(
+    db: Session,
+    *,
+    reference_date: date | None = None,
+    restrict_property_ids: set[int] | None = None,
+) -> None:
+    """Dead Man's Switch: 48h before alert, today alert, 48h after auto-execute. When DMS_TEST_MODE=true, uses 2 min after stay creation.
+
+    reference_date: calendar \"today\" for eligibility (e.g. browser date on login).
+    restrict_property_ids: when set, only process stays on these properties (owner/manager materialization).
+    """
     if settings.dms_test_mode:
         logger.info("DMS job: running test-mode path (effective end = 2 min after check-in/create)")
         _run_dead_mans_switch_job_test_mode(db)
         return
 
-    today = date.today()
+    today = reference_date if reference_date is not None else date.today()
     two_days_later = today + timedelta(days=2)
     two_days_ago = today - timedelta(days=2)
 
@@ -501,17 +545,24 @@ def run_dead_mans_switch_job(db: Session) -> None:
     def alert_email(s: Stay) -> bool:
         return getattr(s, "dead_mans_switch_alert_email", 1) == 1
 
+    def _stay_scope_filter(q):
+        if restrict_property_ids is not None:
+            return q.filter(Stay.property_id.in_(list(restrict_property_ids)))
+        return q
+
+    occ_prompt_detail = (
+        "Is the property currently occupied or vacant? Confirm Vacated, Renewed, or Holdover in DocuStay."
+    )
+
     # 1) 48 hours before lease end: turn DMS on for this stay (prod: DMS is not on from creation) and send alert
-    for stay in (
-        db.query(Stay)
-        .filter(
+    for stay in _stay_scope_filter(
+        db.query(Stay).filter(
             Stay.checked_in_at.isnot(None),
             Stay.stay_end_date == two_days_later,
             Stay.checked_out_at.is_(None),
             Stay.cancelled_at.is_(None),
         )
-        .all()
-    ):
+    ).all():
         if not _status_confirmation_eligible_stay(db, stay):
             continue
         # In prod, DMS turns on here (48h before lease end), not at creation or check-in
@@ -519,7 +570,26 @@ def run_dead_mans_switch_job(db: Session) -> None:
             stay.dead_mans_switch_enabled = 1
             db.add(stay)
             db.commit()
+        if _dms_ledger_sent(db, ACTION_DMS_48H_ALERT, stay.id):
+            continue
         if _dms_already_logged(db, DMS_TITLE_48H_BEFORE, stay_id=stay.id):
+            create_ledger_event(
+                db,
+                ACTION_DMS_48H_ALERT,
+                target_object_type="Stay",
+                target_object_id=stay.id,
+                property_id=stay.property_id,
+                unit_id=getattr(stay, "unit_id", None),
+                stay_id=stay.id,
+                invitation_id=getattr(stay, "invitation_id", None),
+                actor_user_id=None,
+                meta={
+                    "message": f"Lease or stay ends in 2 days ({stay.stay_end_date.isoformat()}). {occ_prompt_detail}",
+                    "stay_end_date": stay.stay_end_date.isoformat(),
+                    "ledger_backfill": True,
+                },
+            )
+            db.commit()
             continue
         owner = db.query(User).filter(User.id == stay.owner_id).first()
         prop = db.query(Property).filter(Property.id == stay.property_id).first()
@@ -546,28 +616,49 @@ def run_dead_mans_switch_job(db: Session) -> None:
             meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id},
         )
         create_alert_for_property_managers_or_owner(
-            db, stay.property_id, "dms_48h",
+            db,
+            stay.property_id,
+            "dms_48h",
             "Status Confirmation: lease ends in 2 days",
-            f"Tenant lease for {_get_guest_name(db, stay)} at {_get_property_name(db, prop)} ends {stay.stay_end_date.isoformat()}. Please confirm vacated, renewed, or holdover in DocuStay.",
-            severity="warning", stay_id=stay.id, meta={"stay_end_date": stay.stay_end_date.isoformat()},
+            f"Stay/lease for {_get_guest_name(db, stay)} at {_get_property_name(db, prop)} ends {stay.stay_end_date.isoformat()}. {occ_prompt_detail}",
+            severity="warning",
+            stay_id=stay.id,
+            meta={"stay_end_date": stay.stay_end_date.isoformat()},
+        )
+        create_ledger_event(
+            db,
+            ACTION_DMS_48H_ALERT,
+            target_object_type="Stay",
+            target_object_id=stay.id,
+            property_id=stay.property_id,
+            unit_id=getattr(stay, "unit_id", None),
+            stay_id=stay.id,
+            invitation_id=getattr(stay, "invitation_id", None),
+            actor_user_id=None,
+            meta={
+                "message": f"Lease or stay ends in 2 days ({stay.stay_end_date.isoformat()}). {occ_prompt_detail}",
+                "stay_end_date": stay.stay_end_date.isoformat(),
+            },
         )
         db.commit()
 
     # 1.5) Last day of guest's stay: activate Shield Mode for the property (any checked-in stay ending today)
     stays_ending_today = [
         s
-        for s in db.query(Stay)
-        .filter(
-            Stay.checked_in_at.isnot(None),
-            Stay.stay_end_date == today,
-            Stay.checked_out_at.is_(None),
-            Stay.cancelled_at.is_(None),
-        )
-        .all()
+        for s in _stay_scope_filter(
+            db.query(Stay).filter(
+                Stay.checked_in_at.isnot(None),
+                Stay.stay_end_date == today,
+                Stay.checked_out_at.is_(None),
+                Stay.cancelled_at.is_(None),
+            )
+        ).all()
         if _status_confirmation_eligible_stay(db, s)
     ]
     property_ids_ending_today = {s.property_id for s in stays_ending_today}
     for prop_id in property_ids_ending_today:
+        if restrict_property_ids is not None and prop_id not in restrict_property_ids:
+            continue
         prop = db.query(Property).filter(Property.id == prop_id).first()
         if not prop or getattr(prop, "shield_mode_enabled", 0) == 1:
             continue
@@ -630,19 +721,38 @@ def run_dead_mans_switch_job(db: Session) -> None:
         db.commit()
 
     # 2) Lease end date = today (urgent; only for checked-in stays)
-    for stay in (
-        db.query(Stay)
-        .filter(
+    for stay in _stay_scope_filter(
+        db.query(Stay).filter(
             Stay.checked_in_at.isnot(None),
             Stay.stay_end_date == today,
             Stay.checked_out_at.is_(None),
             Stay.cancelled_at.is_(None),
         )
-        .all()
-    ):
+    ).all():
         if not _status_confirmation_eligible_stay(db, stay):
             continue
-        if not dms_enabled(stay) or _dms_already_logged(db, DMS_TITLE_URGENT_TODAY, stay_id=stay.id):
+        if not dms_enabled(stay):
+            continue
+        if _dms_ledger_sent(db, ACTION_DMS_URGENT_TODAY, stay.id):
+            continue
+        if _dms_already_logged(db, DMS_TITLE_URGENT_TODAY, stay_id=stay.id):
+            create_ledger_event(
+                db,
+                ACTION_DMS_URGENT_TODAY,
+                target_object_type="Stay",
+                target_object_id=stay.id,
+                property_id=stay.property_id,
+                unit_id=getattr(stay, "unit_id", None),
+                stay_id=stay.id,
+                invitation_id=getattr(stay, "invitation_id", None),
+                actor_user_id=None,
+                meta={
+                    "message": f"Lease or stay ends today ({stay.stay_end_date.isoformat()}). {occ_prompt_detail}",
+                    "stay_end_date": stay.stay_end_date.isoformat(),
+                    "ledger_backfill": True,
+                },
+            )
+            db.commit()
             continue
         owner = db.query(User).filter(User.id == stay.owner_id).first()
         prop = db.query(Property).filter(Property.id == stay.property_id).first()
@@ -669,24 +779,41 @@ def run_dead_mans_switch_job(db: Session) -> None:
             meta={"guest_id": stay.guest_id, "owner_id": stay.owner_id},
         )
         create_alert_for_property_managers_or_owner(
-            db, stay.property_id, "dms_urgent",
+            db,
+            stay.property_id,
+            "dms_urgent",
             "Status Confirmation: lease ends today",
-            f"Tenant lease for {_get_guest_name(db, stay)} at {_get_property_name(db, prop)} ends today ({stay.stay_end_date.isoformat()}). Please confirm in DocuStay.",
-            severity="urgent", stay_id=stay.id, meta={"stay_end_date": stay.stay_end_date.isoformat()},
+            f"Stay/lease for {_get_guest_name(db, stay)} at {_get_property_name(db, prop)} ends today ({stay.stay_end_date.isoformat()}). {occ_prompt_detail}",
+            severity="urgent",
+            stay_id=stay.id,
+            meta={"stay_end_date": stay.stay_end_date.isoformat()},
+        )
+        create_ledger_event(
+            db,
+            ACTION_DMS_URGENT_TODAY,
+            target_object_type="Stay",
+            target_object_id=stay.id,
+            property_id=stay.property_id,
+            unit_id=getattr(stay, "unit_id", None),
+            stay_id=stay.id,
+            invitation_id=getattr(stay, "invitation_id", None),
+            actor_user_id=None,
+            meta={
+                "message": f"Lease or stay ends today ({stay.stay_end_date.isoformat()}). {occ_prompt_detail}",
+                "stay_end_date": stay.stay_end_date.isoformat(),
+            },
         )
         db.commit()
 
     # 3) 48 hours after lease end – occupancy Unknown until PM/owner confirms (no auto-checkout; no Shield; no USAT staging)
-    for stay in (
-        db.query(Stay)
-        .filter(
+    for stay in _stay_scope_filter(
+        db.query(Stay).filter(
             Stay.checked_in_at.isnot(None),
             Stay.stay_end_date <= two_days_ago,
             Stay.checked_out_at.is_(None),
             Stay.cancelled_at.is_(None),
         )
-        .all()
-    ):
+    ).all():
         if not _status_confirmation_eligible_stay(db, stay):
             continue
         if not dms_enabled(stay):
@@ -728,6 +855,23 @@ def run_dead_mans_switch_job(db: Session) -> None:
                 "occupancy_status_new": OccupancyStatus.unknown.value,
             },
         )
+        create_ledger_event(
+            db,
+            ACTION_DMS_AUTO_EXECUTED,
+            target_object_type="Stay",
+            target_object_id=stay.id,
+            property_id=stay.property_id,
+            unit_id=getattr(stay, "unit_id", None),
+            stay_id=stay.id,
+            invitation_id=getattr(stay, "invitation_id", None),
+            actor_user_id=None,
+            meta={
+                "message": f"No status confirmation after lease end ({stay.stay_end_date.isoformat()}). Occupancy set to Unknown. {occ_prompt_detail}",
+                "stay_end_date": stay.stay_end_date.isoformat(),
+                "occupancy_status_previous": prev_status,
+                "occupancy_status_new": OccupancyStatus.unknown.value,
+            },
+        )
         db.commit()
 
         if owner and alert_email(stay):
@@ -744,15 +888,49 @@ def run_dead_mans_switch_job(db: Session) -> None:
             except Exception:
                 pass
         create_alert_for_property_managers_or_owner(
-            db, stay.property_id, "dms_executed",
+            db,
+            stay.property_id,
+            "dms_executed",
             "Status Confirmation: response needed",
-            f"No confirmation within 48h after lease end. Occupancy set to Unknown for {_get_property_name(db, prop)}. Tenant on file: {guest_name}. Please confirm Vacated / Renewed / Holdover in DocuStay. Reminders will continue.",
-            severity="urgent", stay_id=stay.id, meta={"stay_end_date": stay.stay_end_date.isoformat(), "guest_name": guest_name},
+            f"No confirmation within 48h after lease end. Occupancy is Unknown for {_get_property_name(db, prop)} (guest/tenant on file: {guest_name}). {occ_prompt_detail} Reminders will continue.",
+            severity="urgent",
+            stay_id=stay.id,
+            meta={"stay_end_date": stay.stay_end_date.isoformat(), "guest_name": guest_name},
         )
         db.commit()
 
     # Vacant monitoring audit title (idempotency)
 VACANT_MONITORING_FLIPPED = "Vacant monitoring: no response – status UNCONFIRMED"
+
+
+def run_status_confirmation_materialize_for_user(
+    db: Session,
+    user: User,
+    *,
+    client_calendar_date: date | None = None,
+) -> None:
+    """After owner or property manager authenticates (or opens logs): run Status Confirmation job for their properties only (idempotent)."""
+    if user.role == UserRole.owner:
+        profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == user.id).first()
+        if not profile:
+            return
+        prop_ids = {
+            r[0]
+            for r in db.query(Property.id)
+            .filter(Property.owner_profile_id == profile.id, Property.deleted_at.is_(None))
+            .all()
+        }
+    elif user.role == UserRole.property_manager:
+        prop_ids = {
+            a.property_id
+            for a in db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.user_id == user.id).all()
+        }
+    else:
+        return
+    if not prop_ids:
+        return
+    ref = client_calendar_date or date.today()
+    run_dead_mans_switch_job(db, reference_date=ref, restrict_property_ids=prop_ids)
 
 
 def run_vacant_monitoring_job(db: Session) -> None:
@@ -870,26 +1048,172 @@ def run_vacant_monitoring_job(db: Session) -> None:
 DMS_24H_UNCONFIRMED_TO_UNKNOWN = "DMS: 24h no response – status set to Unknown"
 
 
-def run_tenant_lane_guest_stay_ending_notifications(db: Session) -> None:
+def _coerce_stay_calendar_date(value: date | datetime) -> date:
+    """Stay start/end are stored as dates; some drivers may return datetime — comparisons use calendar date only (no time)."""
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _guest_archive_invitations_for_user(db: Session, guest_user: User) -> list[Invitation]:
+    """Invitations that match _guest_agreement_archive_stay_views: signed agreement, guest lane, no Stay for this user."""
+    if guest_user.role != UserRole.guest:
+        return []
+    guest_email = (guest_user.email or "").strip().lower()
+    if not guest_email:
+        return []
+    stays = db.query(Stay).filter(Stay.guest_id == guest_user.id).all()
+    inv_ids_with_stay = {s.invitation_id for s in stays if getattr(s, "invitation_id", None)}
+    candidates = (
+        db.query(AgreementSignature)
+        .filter(
+            or_(
+                func.lower(AgreementSignature.guest_email) == guest_email,
+                AgreementSignature.used_by_user_id == guest_user.id,
+            )
+        )
+        .order_by(AgreementSignature.id.desc())
+        .all()
+    )
+    picked: dict[str, AgreementSignature] = {}
+    for sig in candidates:
+        code = (sig.invitation_code or "").strip().upper()
+        if code and code not in picked:
+            picked[code] = sig
+    out: list[Invitation] = []
+    for sig in picked.values():
+        inv = db.query(Invitation).filter(Invitation.invitation_code == sig.invitation_code).first()
+        if not inv:
+            continue
+        if (getattr(inv, "invitation_kind", None) or "").strip().lower() != "guest":
+            continue
+        if inv.id in inv_ids_with_stay:
+            continue
+        if (
+            db.query(Stay)
+            .filter(Stay.guest_id == guest_user.id, Stay.invitation_id == inv.id)
+            .first()
+        ) is not None:
+            continue
+        out.append(inv)
+    return out
+
+
+def _materialize_guest_archive_approaching_end_notifications(
+    db: Session, guest_user: User, calendar_refs: list[date]
+) -> None:
+    """Approaching-end notice for guests who only have agreement-on-file (no Stay row). Same date-only window as Stay-based path."""
+    for inv in _guest_archive_invitations_for_user(db, guest_user):
+        end_cal = _coerce_stay_calendar_date(inv.stay_end_date)
+        qualifying_refs = [r for r in calendar_refs if 0 <= (end_cal - r).days <= 2]
+        if not qualifying_refs:
+            continue
+        if (
+            db.query(EventLedger)
+            .filter(
+                EventLedger.action_type == ACTION_GUEST_STAY_APPROACHING_END,
+                EventLedger.invitation_id == inv.id,
+            )
+            .first()
+        ):
+            continue
+        days_left = min((end_cal - r).days for r in qualifying_refs)
+        ends_today = any((end_cal - r).days == 0 for r in calendar_refs)
+        start_cal = _coerce_stay_calendar_date(inv.stay_start_date)
+        start_s = start_cal.isoformat()
+        end_s = end_cal.isoformat()
+        guest_email = (guest_user.email or "").strip()
+        if guest_email:
+            try:
+                send_guest_authorization_dates_only_email(
+                    guest_email, start_s, end_s, ends_today=ends_today
+                )
+            except Exception:
+                pass
+        create_ledger_event(
+            db,
+            ACTION_GUEST_STAY_APPROACHING_END,
+            target_object_type="Invitation",
+            target_object_id=inv.id,
+            property_id=inv.property_id,
+            stay_id=None,
+            invitation_id=inv.id,
+            actor_user_id=None,
+            meta={
+                "message": f"Your stay runs from {start_s} to {end_s}.",
+                "stay_start_date": start_s,
+                "stay_end_date": end_s,
+                "recipient_user_id": guest_user.id,
+                "archive_agreement_only": True,
+            },
+        )
+        create_log(
+            db,
+            CATEGORY_STATUS_CHANGE,
+            GUEST_NOTICE_AUTH_END_WINDOW,
+            f"Invitation {inv.id}: guest notified (archive, dates only) – end within 2 days (days_left={days_left}).",
+            property_id=inv.property_id,
+            invitation_id=inv.id,
+            meta={"guest_id": guest_user.id, "days_left": days_left, "archive_only": True},
+        )
+        db.commit()
+
+
+def _guest_end_notification_calendar_refs(*, client_calendar_date: date | None = None) -> list[date]:
+    """Reference calendar days for eligibility (date arithmetic only).
+
+    When the app sends ``X-Client-Calendar-Date`` (guest's local YYYY-MM-DD), that anchors the window so it matches the dashboard.
+    Otherwise we use ``notification_calendar_iana_tz`` (default US Central), not UTC, so "today" is a normal calendar day for US stays.
+    Slop of ±1 day still covers edge cases around the international date line.
+    """
+    if client_calendar_date is not None:
+        anchor = client_calendar_date
+    else:
+        raw = (get_settings().notification_calendar_iana_tz or "").strip() or "America/Chicago"
+        try:
+            tz = ZoneInfo(raw)
+        except Exception:
+            tz = ZoneInfo("America/Chicago")
+        anchor = datetime.now(tz).date()
+    return [anchor + timedelta(days=k) for k in (-1, 0, 1)]
+
+
+def run_tenant_lane_guest_stay_ending_notifications(
+    db: Session,
+    *,
+    only_guest_user_id: int | None = None,
+    client_calendar_date: date | None = None,
+) -> None:
     """Tenant-invited guest stays only: alert tenant; informational email to guest (dates only). Not Status Confirmation.
 
     Runs with real calendar dates even when DMS_TEST_MODE is true (Status Confirmation uses a short test window; guest-ending notices do not).
+
+    All eligibility uses **calendar dates** only (``datetime.date`` / ISO date strings). Stay ``stay_end_date`` / ``stay_start_date`` are compared as dates, never times.
+
+    When ``client_calendar_date`` is set (from ``X-Client-Calendar-Date``), the guest's local calendar day drives the window so it matches the UI.
+
+    When ``only_guest_user_id`` is set, only stays for that guest user are processed (used on guest login / dashboard for that user).
     """
-    today_utc = datetime.now(timezone.utc).date()
-    two_days_later = today_utc + timedelta(days=2)
-    candidates = (
+    calendar_refs = _guest_end_notification_calendar_refs(client_calendar_date=client_calendar_date)
+    # SQL prefilter: stays that could fall in the window for some ref (end between min(ref) and max(ref)+2).
+    end_lo = min(calendar_refs)
+    end_hi = max(calendar_refs) + timedelta(days=2)
+    # Guest date reminders are informational (planned authorization dates). Do not require check-in:
+    # guests may have a signed agreement and valid dates but never complete in-app check-in / confirmation.
+    q = (
         db.query(Stay)
         .filter(
-            Stay.checked_in_at.isnot(None),
             Stay.checked_out_at.is_(None),
             Stay.cancelled_at.is_(None),
-            Stay.stay_end_date.in_([two_days_later, today_utc]),
+            Stay.revoked_at.is_(None),
+            Stay.stay_end_date >= end_lo,
+            Stay.stay_end_date <= end_hi,
         )
-        .all()
     )
+    if only_guest_user_id is not None:
+        q = q.filter(Stay.guest_id == only_guest_user_id)
+    candidates = q.all()
     for stay in candidates:
-        if not is_tenant_lane_stay(db, stay):
-            continue
         prop = db.query(Property).filter(Property.id == stay.property_id).first()
         property_name = _get_property_name(db, prop)
         guest_user = db.query(User).filter(User.id == stay.guest_id).first()
@@ -905,59 +1229,18 @@ def run_tenant_lane_guest_stay_ending_notifications(db: Session) -> None:
         tenant = db.query(User).filter(User.id == tenant_uid).first() if tenant_uid else None
         tenant_email = (tenant.email or "").strip() if tenant else ""
         guest_name = _get_guest_name(db, stay)
-        start_s = stay.stay_start_date.isoformat()
-        end_s = stay.stay_end_date.isoformat()
-        ends_today = stay.stay_end_date == today_utc
+        end_cal = _coerce_stay_calendar_date(stay.stay_end_date)
+        start_cal = _coerce_stay_calendar_date(stay.stay_start_date)
+        start_s = start_cal.isoformat()
+        end_s = end_cal.isoformat()
+        qualifying_refs = [r for r in calendar_refs if 0 <= (end_cal - r).days <= 2]
+        if not qualifying_refs:
+            continue
+        days_left = min((end_cal - r).days for r in qualifying_refs)
+        ends_today = any((end_cal - r).days == 0 for r in calendar_refs)
+        tenant_two_day = any((end_cal - r).days == 2 for r in calendar_refs)
 
-        if stay.stay_end_date == two_days_later:
-            if not _dms_already_logged(db, TENANT_NOTICE_GUEST_AUTH_48H, stay_id=stay.id):
-                if tenant_email:
-                    try:
-                        send_tenant_guest_authorization_ending_notice(
-                            tenant_email, guest_name, property_name, start_s, end_s, ends_today=False
-                        )
-                    except Exception:
-                        pass
-                if tenant_uid:
-                    create_alert_for_user(
-                        db,
-                        tenant_uid,
-                        "guest_stay_ending",
-                        "Guest authorization ends in 2 days",
-                        f"Your guest {guest_name} at {property_name} is scheduled to end on {end_s}.",
-                        severity="warning",
-                        property_id=stay.property_id,
-                        stay_id=stay.id,
-                        meta={"stay_end_date": end_s},
-                    )
-                create_log(
-                    db,
-                    CATEGORY_STATUS_CHANGE,
-                    TENANT_NOTICE_GUEST_AUTH_48H,
-                    f"Stay {stay.id}: tenant-lane guest authorization ends in 2 days; tenant notified.",
-                    property_id=stay.property_id,
-                    stay_id=stay.id,
-                    meta={"guest_id": stay.guest_id, "tenant_user_id": tenant_uid},
-                )
-                db.commit()
-            if guest_email and not _dms_already_logged(db, GUEST_NOTICE_AUTH_48H, stay_id=stay.id):
-                try:
-                    send_guest_authorization_dates_only_email(
-                        guest_email, start_s, end_s, ends_today=False
-                    )
-                except Exception:
-                    pass
-                create_log(
-                    db,
-                    CATEGORY_STATUS_CHANGE,
-                    GUEST_NOTICE_AUTH_48H,
-                    f"Stay {stay.id}: guest notified (dates only) – authorization ends in 2 days.",
-                    property_id=stay.property_id,
-                    stay_id=stay.id,
-                    meta={"guest_id": stay.guest_id},
-                )
-                db.commit()
-        elif ends_today:
+        if ends_today:
             if not _dms_already_logged(db, TENANT_NOTICE_GUEST_AUTH_TODAY, stay_id=stay.id):
                 if tenant_email:
                     try:
@@ -988,23 +1271,317 @@ def run_tenant_lane_guest_stay_ending_notifications(db: Session) -> None:
                     meta={"guest_id": stay.guest_id, "tenant_user_id": tenant_uid},
                 )
                 db.commit()
-            if guest_email and not _dms_already_logged(db, GUEST_NOTICE_AUTH_TODAY, stay_id=stay.id):
+        elif tenant_two_day and is_tenant_lane_stay(db, stay) and not _dms_already_logged(
+            db, TENANT_NOTICE_GUEST_AUTH_48H, stay_id=stay.id
+        ):
+            if tenant_email:
                 try:
-                    send_guest_authorization_dates_only_email(
-                        guest_email, start_s, end_s, ends_today=True
+                    send_tenant_guest_authorization_ending_notice(
+                        tenant_email, guest_name, property_name, start_s, end_s, ends_today=False
                     )
                 except Exception:
                     pass
-                create_log(
+            if tenant_uid:
+                create_alert_for_user(
                     db,
-                    CATEGORY_STATUS_CHANGE,
-                    GUEST_NOTICE_AUTH_TODAY,
-                    f"Stay {stay.id}: guest notified (dates only) – authorization ends today.",
+                    tenant_uid,
+                    "guest_stay_ending",
+                    "Guest authorization ends in 2 days",
+                    f"Your guest {guest_name} at {property_name} is scheduled to end on {end_s}.",
+                    severity="warning",
                     property_id=stay.property_id,
                     stay_id=stay.id,
-                    meta={"guest_id": stay.guest_id},
+                    meta={"stay_end_date": end_s},
                 )
-                db.commit()
+            create_log(
+                db,
+                CATEGORY_STATUS_CHANGE,
+                TENANT_NOTICE_GUEST_AUTH_48H,
+                f"Stay {stay.id}: tenant-lane guest authorization ends in 2 days; tenant notified.",
+                property_id=stay.property_id,
+                stay_id=stay.id,
+                meta={"guest_id": stay.guest_id, "tenant_user_id": tenant_uid},
+            )
+            db.commit()
+
+        if not _guest_end_window_notice_already_sent(db, stay.id):
+            if guest_email:
+                try:
+                    send_guest_authorization_dates_only_email(
+                        guest_email, start_s, end_s, ends_today=ends_today
+                    )
+                except Exception:
+                    pass
+            if guest_user:
+                create_ledger_event(
+                    db,
+                    ACTION_GUEST_STAY_APPROACHING_END,
+                    target_object_type="Stay",
+                    target_object_id=stay.id,
+                    property_id=stay.property_id,
+                    stay_id=stay.id,
+                    invitation_id=getattr(stay, "invitation_id", None),
+                    actor_user_id=None,
+                    meta={
+                        "message": f"Your stay runs from {start_s} to {end_s}.",
+                        "stay_start_date": start_s,
+                        "stay_end_date": end_s,
+                        "recipient_user_id": guest_user.id,
+                    },
+                )
+            create_log(
+                db,
+                CATEGORY_STATUS_CHANGE,
+                GUEST_NOTICE_AUTH_END_WINDOW,
+                f"Stay {stay.id}: guest notified (dates only) – end within 2 days (days_left={days_left}).",
+                property_id=stay.property_id,
+                stay_id=stay.id,
+                meta={"guest_id": stay.guest_id, "days_left": days_left},
+            )
+            db.commit()
+
+    if only_guest_user_id is not None:
+        u = db.query(User).filter(User.id == only_guest_user_id).first()
+        if u and u.role == UserRole.guest:
+            _materialize_guest_archive_approaching_end_notifications(db, u, calendar_refs)
+
+
+def _iter_tenant_jurisdiction_archive_invitations(
+    db: Session,
+    calendar_refs: list[date],
+    *,
+    only_tenant_user_id: int | None,
+) -> list[Invitation]:
+    """Tenant-lane guest invitations with a signed agreement and no Stay row, end date in the jurisdiction-threshold window."""
+    end_lo = min(calendar_refs) + timedelta(days=2)
+    end_hi = max(calendar_refs) + timedelta(days=2)
+    q = db.query(Invitation).filter(
+        Invitation.stay_end_date >= end_lo,
+        Invitation.stay_end_date <= end_hi,
+        Invitation.invited_by_user_id.isnot(None),
+    )
+    if only_tenant_user_id is not None:
+        q = q.filter(Invitation.invited_by_user_id == only_tenant_user_id)
+    out: list[Invitation] = []
+    for inv in q.all():
+        if (getattr(inv, "invitation_kind", None) or "").strip().lower() != "guest":
+            continue
+        if not is_tenant_lane_invitation(db, inv):
+            continue
+        if db.query(Stay).filter(Stay.invitation_id == inv.id).first():
+            continue
+        if not db.query(AgreementSignature).filter(AgreementSignature.invitation_code == inv.invitation_code).first():
+            continue
+        end_cal = _coerce_stay_calendar_date(inv.stay_end_date)
+        if not any((end_cal - r).days == 2 for r in calendar_refs):
+            continue
+        out.append(inv)
+    return out
+
+
+def _emit_tenant_jurisdiction_threshold_for_archive_invitation(db: Session, inv: Invitation) -> None:
+    inv_id = inv.id
+    already = (
+        db.query(EventLedger)
+        .filter(
+            EventLedger.action_type == ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING,
+            EventLedger.invitation_id == inv_id,
+            EventLedger.stay_id.is_(None),
+        )
+        .first()
+    )
+    if already:
+        return
+
+    tenant_uid = inv.invited_by_user_id
+    tenant = db.query(User).filter(User.id == tenant_uid).first() if tenant_uid else None
+    tenant_email = (tenant.email or "").strip() if tenant else ""
+    prop = db.query(Property).filter(Property.id == inv.property_id).first()
+    property_name = _get_property_name(db, prop)
+    end_cal = _coerce_stay_calendar_date(inv.stay_end_date)
+    end_s = end_cal.isoformat()
+
+    if tenant_email:
+        try:
+            send_tenant_guest_jurisdiction_threshold_approaching_notice(
+                tenant_email, property_name, end_s
+            )
+        except Exception:
+            pass
+    if tenant_uid:
+        create_alert_for_user(
+            db,
+            tenant_uid,
+            "guest_jurisdiction_threshold",
+            "Your guest's stay is approaching the threshold",
+            "Your guest's stay is approaching the threshold. You can let it expire naturally, or issue a new invite—when they accept it, it replaces the previous authorization.",
+            severity="warning",
+            property_id=inv.property_id,
+            stay_id=None,
+            invitation_id=inv_id,
+            meta={"stay_end_date": end_s},
+        )
+
+    create_ledger_event(
+        db,
+        ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING,
+        target_object_type="Invitation",
+        target_object_id=inv.id,
+        property_id=inv.property_id,
+        stay_id=None,
+        invitation_id=inv_id,
+        actor_user_id=None,
+        meta={
+            "message": "Your guest's stay is approaching the threshold. You can let it expire naturally, or issue a new invite—when they accept it, it replaces the previous authorization.",
+            "stay_end_date": end_s,
+            "recipient_user_id": tenant_uid,
+            "archive_invitation_only": True,
+        },
+    )
+    create_log(
+        db,
+        CATEGORY_STATUS_CHANGE,
+        TENANT_NOTICE_GUEST_JURISDICTION_THRESHOLD_48H,
+        f"Invitation {inv_id} (archive, no stay): tenant notified guest authorization approaching jurisdiction threshold (2-day buffer).",
+        property_id=inv.property_id,
+        stay_id=None,
+        invitation_id=inv_id,
+        meta={"tenant_user_id": tenant_uid, "stay_end_date": end_s},
+    )
+    db.commit()
+
+
+def run_tenant_invited_guest_jurisdiction_threshold_notifications(
+    db: Session,
+    *,
+    only_tenant_user_id: int | None = None,
+    client_calendar_date: date | None = None,
+) -> None:
+    """Tenant who invited the guest: dashboard + email alert 2 calendar days before the jurisdiction threshold date.
+
+    Today is a calendar date (not a time). Threshold date is represented by the documented stay end date.
+    Covers active Stays and archive-only invitations (signed agreement on file, no Stay row).
+    Idempotent per (stay_id, invitation_id) for stays; per invitation with stay_id NULL for archives.
+    """
+    calendar_refs = _guest_end_notification_calendar_refs(client_calendar_date=client_calendar_date)
+    # Pre-filter: anything that could have (end - ref) == 2
+    end_lo = min(calendar_refs) + timedelta(days=2)
+    end_hi = max(calendar_refs) + timedelta(days=2)
+    q = (
+        db.query(Stay)
+        .filter(
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+            Stay.revoked_at.is_(None),
+            Stay.stay_end_date >= end_lo,
+            Stay.stay_end_date <= end_hi,
+            Stay.invited_by_user_id.isnot(None),
+        )
+    )
+    if only_tenant_user_id is not None:
+        q = q.filter(Stay.invited_by_user_id == only_tenant_user_id)
+    stays = q.all()
+    for s in stays:
+        # Tenant lane only (tenant-invited guest)
+        if not is_tenant_lane_stay(db, s):
+            continue
+        inv_id = getattr(s, "invitation_id", None)
+        if inv_id is None:
+            continue
+        # Exactly 2-day buffer for at least one reference calendar day
+        end_cal = _coerce_stay_calendar_date(s.stay_end_date)
+        if not any((end_cal - r).days == 2 for r in calendar_refs):
+            continue
+        # Idempotent: already emitted for this stay+invitation
+        already = (
+            db.query(EventLedger)
+            .filter(
+                EventLedger.action_type == ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING,
+                EventLedger.stay_id == s.id,
+                EventLedger.invitation_id == inv_id,
+            )
+            .first()
+        )
+        if already:
+            continue
+
+        tenant_uid = getattr(s, "invited_by_user_id", None)
+        tenant = db.query(User).filter(User.id == tenant_uid).first() if tenant_uid else None
+        tenant_email = (tenant.email or "").strip() if tenant else ""
+        prop = db.query(Property).filter(Property.id == s.property_id).first()
+        property_name = _get_property_name(db, prop)
+        end_s = end_cal.isoformat()
+
+        # Email + dashboard alert to tenant inviter
+        if tenant_email:
+            try:
+                send_tenant_guest_jurisdiction_threshold_approaching_notice(
+                    tenant_email, property_name, end_s
+                )
+            except Exception:
+                pass
+        if tenant_uid:
+            create_alert_for_user(
+                db,
+                tenant_uid,
+                "guest_jurisdiction_threshold",
+                "Your guest's stay is approaching the threshold",
+                "Your guest's stay is approaching the threshold. You can let it expire naturally, or issue a new invite—when they accept it, it replaces the previous authorization.",
+                severity="warning",
+                property_id=s.property_id,
+                stay_id=s.id,
+                invitation_id=inv_id,
+                meta={"stay_end_date": end_s},
+            )
+
+        create_ledger_event(
+            db,
+            ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING,
+            target_object_type="Stay",
+            target_object_id=s.id,
+            property_id=s.property_id,
+            stay_id=s.id,
+            invitation_id=inv_id,
+            actor_user_id=None,
+            meta={
+                "message": "Your guest's stay is approaching the threshold. You can let it expire naturally, or issue a new invite—when they accept it, it replaces the previous authorization.",
+                "stay_end_date": end_s,
+                "recipient_user_id": tenant_uid,
+            },
+        )
+        create_log(
+            db,
+            CATEGORY_STATUS_CHANGE,
+            TENANT_NOTICE_GUEST_JURISDICTION_THRESHOLD_48H,
+            f"Stay {s.id}: tenant notified guest stay approaching jurisdiction threshold (2-day buffer).",
+            property_id=s.property_id,
+            stay_id=s.id,
+            invitation_id=inv_id,
+            meta={"tenant_user_id": tenant_uid, "stay_end_date": end_s},
+        )
+        db.commit()
+
+    for inv in _iter_tenant_jurisdiction_archive_invitations(
+        db, calendar_refs, only_tenant_user_id=only_tenant_user_id
+    ):
+        _emit_tenant_jurisdiction_threshold_for_archive_invitation(db, inv)
+
+
+def run_guest_stay_approaching_end_notifications_on_login(
+    db: Session,
+    guest_user_id: int,
+    *,
+    client_calendar_date: date | None = None,
+) -> None:
+    """Login / auth success hook: materialize approaching-end notices for this guest only (idempotent).
+
+    Separate from cron so guests always get in-app ledger rows when they authenticate, even if dashboard polling or background jobs did not run.
+    """
+    run_tenant_lane_guest_stay_ending_notifications(
+        db,
+        only_guest_user_id=guest_user_id,
+        client_calendar_date=client_calendar_date,
+    )
 
 
 def run_status_confirmation_daily_reminder_job(db: Session) -> None:
@@ -1174,6 +1751,7 @@ def run_stay_notification_job() -> None:
         mark_expired_guest_authorizations(db)
         run_dead_mans_switch_job(db)
         run_tenant_lane_guest_stay_ending_notifications(db)
+        run_tenant_invited_guest_jurisdiction_threshold_notifications(db)
         run_status_confirmation_daily_reminder_job(db)
         run_vacant_monitoring_job(db)
         run_dms_24h_unconfirmed_to_unknown_job(db)

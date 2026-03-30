@@ -61,6 +61,26 @@ function ensureBusinessContextForManagementUser(userType: string | undefined) {
   }
 }
 
+/** Routes where guest invite acceptance runs; hide noisy global "invalid/expired invite" modal from stale checks. */
+function isGuestInviteAcceptFlowView(v: string): boolean {
+  if (!v) return false;
+  return (
+    v.startsWith('invite/')
+    || v.startsWith('register-from-invite/')
+    || v === 'guest-login'
+    || v.startsWith('guest-login/')
+    || v === 'guest-signup'
+    || v.startsWith('guest-signup/')
+    || v === 'sign-agreement'
+    || v === 'guest-dashboard'
+  );
+}
+
+function isSpuriousInviteErrorMessage(message: string): boolean {
+  const m = (message || '').toLowerCase();
+  return m.includes('invalid or expired invitation') || m.includes('invalid or expired invite');
+}
+
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
     user: null,
@@ -107,8 +127,14 @@ const App: React.FC = () => {
   const [sessionRestoring, setSessionRestoring] = useState(true); // Track if we're restoring session
   const [notification, setNotification] = useState<{ type: 'success'; message: string } | null>(null);
   const [errorModal, setErrorModal] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
+  /** Latest route for notification handlers (avoid stale closure). */
+  const viewRef = useRef(view);
   /** Set when identity-complete calls onIdentityVerified; skip one redirect to onboarding/identity so manager-dashboard doesn't loop. */
   const identityJustVerifiedRef = useRef(false);
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   // Restore session from localStorage token on page load
   useEffect(() => {
@@ -330,6 +356,9 @@ const App: React.FC = () => {
 
   const showNotification = useCallback((type: 'success' | 'error', message: string) => {
     if (type === 'error') {
+      if (isGuestInviteAcceptFlowView(viewRef.current) && isSpuriousInviteErrorMessage(message)) {
+        return;
+      }
       setErrorModal({ open: true, message });
       return;
     }
