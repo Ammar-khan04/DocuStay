@@ -1,6 +1,6 @@
 """Billing service: Stripe subscription for owners.
 
-Pricing: $10/month flat (not per property). New subscriptions include a 7-day free trial;
+Pricing: $10/month per property. New subscriptions include a 7-day free trial;
 recurring charges begin after the trial unless cancelled.
 
 Legacy: some accounts may still have the old two-line subscription (baseline + Shield);
@@ -136,7 +136,7 @@ def ensure_subscription(
     *,
     allow_trial: bool = True,
 ) -> None:
-    """Create Stripe subscription ($10/mo flat) if not already created. Idempotent.
+    """Create Stripe subscription ($10/mo per property) if not already created. Idempotent.
 
     If allow_trial is True (default), new subscriptions get SUBSCRIPTION_TRIAL_DAYS free days.
     Set allow_trial False when recreating after cancel or after a legacy paid onboarding invoice.
@@ -192,7 +192,7 @@ def ensure_subscription(
                     "recurring": {"interval": "month"},
                     "product": flat_prod_id,
                 },
-                "quantity": 1,
+                "quantity": units,
             }
         ],
         "metadata": {"owner_profile_id": str(profile.id)},
@@ -219,8 +219,9 @@ def ensure_subscription(
         profile.stripe_subscription_shield_item_id = None
         db.commit()
         logger.info(
-            "Subscription created for profile_id=%s (flat $10/mo, trial=%s)",
+            "Subscription created for profile_id=%s ($10/mo per property, properties=%s, trial=%s)",
             profile.id,
+            units,
             allow_trial,
         )
     except stripe.StripeError as e:
@@ -231,7 +232,7 @@ def ensure_subscription(
 def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
     """Update Stripe subscription to match account state.
 
-    Flat plan: single line item, quantity 1 whenever there is at least one property; cancel if zero properties.
+    Current plan: single line item, quantity = number of properties; cancel if zero properties.
     Legacy (baseline + Shield item IDs stored): update per-unit quantities as before.
     """
     if not _stripe_enabled() or not profile.stripe_subscription_id:
@@ -269,9 +270,9 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
         if profile.stripe_subscription_baseline_item_id:
             stripe.Subscription.modify(
                 profile.stripe_subscription_id,
-                items=[{"id": profile.stripe_subscription_baseline_item_id, "quantity": 1}],
+                items=[{"id": profile.stripe_subscription_baseline_item_id, "quantity": units}],
             )
-            logger.info("Subscription synced (flat plan) for profile_id=%s", profile.id)
+            logger.info("Subscription synced ($10/property) for profile_id=%s (properties=%s)", profile.id, units)
     except stripe.StripeError as e:
         logger.warning("Stripe error syncing subscription for profile_id=%s: %s", profile.id, e)
 
@@ -329,7 +330,7 @@ def charge_onboarding_fee(
         db,
         CATEGORY_BILLING,
         "Subscription started",
-        "7-day free trial started. Billing is $10/month flat after the trial. Add a default payment method before the trial ends.",
+        "7-day free trial started. Billing is $10/month per property after the trial. Add a default payment method before the trial ends.",
         property_id=None,
         actor_user_id=user.id,
         actor_email=user.email,

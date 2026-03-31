@@ -111,7 +111,7 @@ const Settings: React.FC<{
               : billing.trial_days_remaining === 1
                 ? '1 day left in your free trial.'
                 : 'Your free trial ends today.'}{' '}
-            Billing is $10/month flat after the trial. Trial ends{' '}
+            Billing is $10/month per property after the trial. Trial ends{' '}
             <time dateTime={billing.trial_end_at}>
               {new Date(billing.trial_end_at).toLocaleString(undefined, {
                 weekday: 'short',
@@ -176,19 +176,19 @@ const Settings: React.FC<{
                 <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
                   <p className="text-sm font-medium text-gray-800 mb-1">Subscription</p>
                   <p className="text-sm text-gray-600">
-                    <strong className="text-gray-900">$10/month flat</strong> after a <strong className="text-gray-900">7-day free trial</strong>. No per-property pricing. Add a default payment method before the trial ends to avoid interruption.
+                    <strong className="text-gray-900">$10/month per property</strong> after a <strong className="text-gray-900">7-day free trial</strong>. Add a default payment method before the trial ends to avoid interruption.
                   </p>
                 </div>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                     <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Active properties</p>
                     <p className="text-2xl font-bold text-gray-900">{billing.current_unit_count ?? 0}</p>
-                    <p className="text-sm text-gray-600 mt-1">Included in your flat plan</p>
+                    <p className="text-sm text-gray-600 mt-1">Billed per property</p>
                   </div>
                   <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                     <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Shield monitoring</p>
                     <p className="text-2xl font-bold text-gray-900">{billing.current_shield_count ?? 0}</p>
-                    <p className="text-sm text-gray-600 mt-1">Always on; not billed per property</p>
+                    <p className="text-sm text-gray-600 mt-1">Always on</p>
                   </div>
                 </div>
                 {(billing.current_unit_count ?? 0) === 0 && (

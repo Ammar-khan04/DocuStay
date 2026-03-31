@@ -101,7 +101,7 @@ export default function OnboardingPOA({ user, onCompleteSignup, navigate, setLoa
         </p>
         <p className="text-sm text-slate-600 mb-6 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-left">
           When you add properties, your DocuStay subscription includes a <strong className="text-slate-800">7-day free trial</strong>, then{' '}
-          <strong className="text-slate-800">$10/month flat</strong>.
+          <strong className="text-slate-800">$10/month per property</strong>.
         </p>
         {poaError && (
           <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm text-left" role="alert">

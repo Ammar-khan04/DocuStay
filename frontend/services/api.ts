@@ -894,7 +894,7 @@ export interface BillingResponse {
   payments: BillingPaymentView[];
   /** False while billing onboarding is incomplete (e.g. subscription still being created after first property). */
   can_invite: boolean;
-  /** Active property count (informational; subscription is flat-rate, not per property). */
+  /** Active property count (used for per-property billing display). */
   current_unit_count?: number | null;
   /** Properties with Shield on. */
   current_shield_count?: number | null;

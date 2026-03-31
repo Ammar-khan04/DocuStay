@@ -469,7 +469,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                 {activeTab === 'properties' ? 'My Properties' : activeTab === 'guests' ? 'Guests' : activeTab === 'tenants' ? 'Tenants' : activeTab === 'pending-tenants' ? 'Pending tenants' : activeTab === 'invitations' ? 'Invitations' : activeTab === 'billing' ? 'Billing' : activeTab === 'logs' ? 'Event ledger' : 'Overview'}
               </h1>
               <p className="text-slate-600 mt-1">
-                {activeTab === 'properties' ? 'View, edit, or remove your registered properties.' : activeTab === 'guests' ? 'Guests currently staying at your properties and their stay details.' : activeTab === 'tenants' ? 'Tenants assigned to your properties and their lease details.' : activeTab === 'pending-tenants' ? 'Tenants from CSV or manual invites who have not yet registered. Send each person an email with their invitation link.' : activeTab === 'invitations' ? (contextMode === 'business' ? 'Tenant invitations you have sent.' : 'Pending invitations waiting for guests to accept.') : activeTab === 'billing' ? 'Invoices and payment history. $10/month flat after your free trial; subscription charges appear here.' : activeTab === 'logs' ? 'Immutable event ledger: status changes, guest signatures, payment and billing activity, and failed attempts. Filter by time, category, or search.' : 'Documentation and authorization for your properties.'}
+                {activeTab === 'properties' ? 'View, edit, or remove your registered properties.' : activeTab === 'guests' ? 'Guests currently staying at your properties and their stay details.' : activeTab === 'tenants' ? 'Tenants assigned to your properties and their lease details.' : activeTab === 'pending-tenants' ? 'Tenants from CSV or manual invites who have not yet registered. Send each person an email with their invitation link.' : activeTab === 'invitations' ? (contextMode === 'business' ? 'Tenant invitations you have sent.' : 'Pending invitations waiting for guests to accept.') : activeTab === 'billing' ? 'Invoices and payment history. $10/month per property after your free trial; subscription charges appear here.' : activeTab === 'logs' ? 'Immutable event ledger: status changes, guest signatures, payment and billing activity, and failed attempts. Filter by time, category, or search.' : 'Documentation and authorization for your properties.'}
               </p>
             </div>
             <div className="flex gap-4 flex-wrap items-center">
@@ -1154,7 +1154,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                           <span className="text-sm text-slate-600">
                             Status: <span className="font-semibold text-slate-800">{shieldStatus}</span>
                           </span>
-                          <span className="text-xs text-slate-400">Account plan: $10/month flat (7-day free trial for new accounts)</span>
+                          <span className="text-xs text-slate-400">Account plan: $10/month per property (7-day free trial for new accounts)</span>
                         </div>
                       </div>
 
@@ -1325,10 +1325,10 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
             )}
             <Card className="p-6">
               <h3 className="text-lg font-bold text-slate-800 mb-2">Billing</h3>
-              <p className="text-slate-500 text-sm mb-4">Invoices and payment history. You get a 7-day free trial when your subscription starts; after that, billing is $10/month flat. Billing activity is also recorded in Event ledger.</p>
+              <p className="text-slate-500 text-sm mb-4">Invoices and payment history. You get a 7-day free trial when your subscription starts; after that, billing is $10/month per property. Billing activity is also recorded in Event ledger.</p>
               {billing && (billing.current_unit_count != null || billing.current_shield_count != null) && (
                 <p className="text-slate-600 text-sm mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <strong>Plan:</strong> $10/month flat after the trial.{' '}
+                  <strong>Plan:</strong> $10/month per property after the trial.{' '}
                   <strong>Properties on account:</strong> {billing.current_unit_count ?? 0} active
                   {(billing.current_shield_count ?? 0) > 0 && (
                     <> · Shield monitoring: {(billing.current_shield_count ?? 0)} propert{(billing.current_shield_count ?? 0) !== 1 ? 'ies' : 'y'}.</>
@@ -1855,7 +1855,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
             Use a CSV with: <strong>Required:</strong> <code className="bg-slate-100 px-1 rounded">Address</code>, <code className="bg-slate-100 px-1 rounded">City</code>, <code className="bg-slate-100 px-1 rounded">State</code>, <code className="bg-slate-100 px-1 rounded">Zip</code>, <code className="bg-slate-100 px-1 rounded">Occupied</code> (YES/NO). <strong>If Occupied=YES:</strong> <code className="bg-slate-100 px-1 rounded">Tenant Name</code>, <code className="bg-slate-100 px-1 rounded">Lease Start</code>, <code className="bg-slate-100 px-1 rounded">Lease End</code>. <strong>Optional:</strong> <code className="bg-slate-100 px-1 rounded">Unit No</code>, <code className="bg-slate-100 px-1 rounded">Shield Mode</code> (YES/NO, default NO), <code className="bg-slate-100 px-1 rounded">Tax ID</code>, <code className="bg-slate-100 px-1 rounded">APN</code>.
           </p>
           <p className="text-xs text-slate-500">
-            Occupied=YES: property token is active, tenant is recorded, an invite link is created (Active) with stay end reminders from lease end. Occupied=NO: token stays Pending, status VACANT. Shield Mode is always on for all properties (not a separate per-property subscription charge). Subscription billing is $10/month flat after your free trial. Existing properties (same address, city, state) are updated when values change.
+            Occupied=YES: property token is active, tenant is recorded, an invite link is created (Active) with stay end reminders from lease end. Occupied=NO: token stays Pending, status VACANT. Shield Mode is always on for all properties (not a separate per-property subscription charge). Subscription billing is $10/month per property after your free trial. Existing properties (same address, city, state) are updated when values change.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button
