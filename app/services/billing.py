@@ -182,17 +182,19 @@ def ensure_subscription(
         return
 
     flat_prod_id = _get_or_create_flat_subscription_product_id()
+    total_cents = int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) * int(units)
     create_kwargs: dict = {
         "customer": profile.stripe_customer_id,
         "items": [
             {
                 "price_data": {
                     "currency": "usd",
-                    "unit_amount": SUBSCRIPTION_FLAT_AMOUNT_CENTS,
+                    # Single flat line: $10 * number of properties (quantity=1).
+                    "unit_amount": total_cents,
                     "recurring": {"interval": "month"},
                     "product": flat_prod_id,
                 },
-                "quantity": units,
+                "quantity": 1,
             }
         ],
         "metadata": {"owner_profile_id": str(profile.id)},
@@ -208,10 +210,8 @@ def ensure_subscription(
         if items_data is not None:
             data = getattr(items_data, "data", None) or []
             for item in data:
-                price = getattr(item, "price", None)
-                amt = (getattr(price, "unit_amount", 0) or 0) if price else 0
                 item_id = getattr(item, "id", None)
-                if amt == SUBSCRIPTION_FLAT_AMOUNT_CENTS and item_id:
+                if item_id:
                     baseline_item_id = item_id
                     break
         profile.stripe_subscription_id = sub.id
@@ -232,7 +232,7 @@ def ensure_subscription(
 def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
     """Update Stripe subscription to match account state.
 
-    Current plan: single line item, quantity = number of properties; cancel if zero properties.
+    Current plan: single line item, amount = $10 * properties (quantity=1); cancel if zero properties.
     Legacy (baseline + Shield item IDs stored): update per-unit quantities as before.
     """
     if not _stripe_enabled() or not profile.stripe_subscription_id:
@@ -252,6 +252,18 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
             logger.info("Subscription cancelled for profile_id=%s (0 units); billing stopped (prorated).", profile.id)
             return
 
+        # Ensure we have a baseline item id so we can update its price.
+        if not profile.stripe_subscription_baseline_item_id and profile.stripe_subscription_id:
+            try:
+                sub = stripe.Subscription.retrieve(profile.stripe_subscription_id)
+                items_obj = getattr(sub, "items", None)
+                items = (getattr(items_obj, "data", None) or []) if items_obj is not None else []
+                if items and getattr(items[0], "id", None):
+                    profile.stripe_subscription_baseline_item_id = items[0].id
+                    db.commit()
+            except Exception:
+                pass
+
         if profile.stripe_subscription_shield_item_id:
             items = []
             if profile.stripe_subscription_baseline_item_id:
@@ -268,11 +280,20 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
             return
 
         if profile.stripe_subscription_baseline_item_id:
+            flat_prod_id = _get_or_create_flat_subscription_product_id()
+            new_total_cents = int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) * int(units)
+            price = stripe.Price.create(
+                currency="usd",
+                unit_amount=new_total_cents,
+                recurring={"interval": "month"},
+                product=flat_prod_id,
+                metadata={"owner_profile_id": str(profile.id), "billing_model": "flat_total"},
+            )
             stripe.Subscription.modify(
                 profile.stripe_subscription_id,
-                items=[{"id": profile.stripe_subscription_baseline_item_id, "quantity": units}],
+                items=[{"id": profile.stripe_subscription_baseline_item_id, "price": price.id, "quantity": 1}],
             )
-            logger.info("Subscription synced ($10/property) for profile_id=%s (properties=%s)", profile.id, units)
+            logger.info("Subscription synced ($10*properties) for profile_id=%s (properties=%s)", profile.id, units)
     except stripe.StripeError as e:
         logger.warning("Stripe error syncing subscription for profile_id=%s: %s", profile.id, e)
 
