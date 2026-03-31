@@ -990,6 +990,9 @@ export const dashboardApi = {
     }),
   /** Invoices and payments for owner billing section. */
   billing: () => request<BillingResponse>("/dashboard/owner/billing"),
+  /** Reconcile Stripe subscription with current property count (call before opening portal from Settings). */
+  syncBillingSubscription: () =>
+    request<{ ok: boolean }>("/dashboard/owner/billing/sync-subscription", { method: "POST" }),
   /** Create Stripe Billing Portal session; redirect user to returned URL to pay. After payment (e.g. Klarna) they return to our app. */
   billingPortalSession: () =>
     request<{ url: string }>("/dashboard/owner/billing/portal-session", { method: "POST" }),

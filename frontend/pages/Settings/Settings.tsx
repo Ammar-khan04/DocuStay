@@ -24,6 +24,7 @@ const Settings: React.FC<{
   const [portfolioLink, setPortfolioLink] = useState<{ portfolio_slug: string; portfolio_url: string } | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [portfolioCopyFeedback, setPortfolioCopyFeedback] = useState(false);
+  const [billingPortalOpening, setBillingPortalOpening] = useState(false);
   const isOwner = user?.user_type === 'PROPERTY_OWNER';
   useEffect(() => {
     if (!isOwner) return;
@@ -204,16 +205,22 @@ const Settings: React.FC<{
                   <Button
                     variant="outline"
                     type="button"
+                    disabled={billingPortalOpening}
                     onClick={async () => {
+                      setBillingPortalOpening(true);
                       try {
+                        await dashboardApi.syncBillingSubscription().catch(() => {});
                         const { url } = await dashboardApi.billingPortalSession();
                         if (url) window.location.href = url;
                       } catch (e) {
                         console.error(e);
+                        window.alert((e as Error)?.message ?? 'Could not open payment portal.');
+                      } finally {
+                        setBillingPortalOpening(false);
                       }
                     }}
                   >
-                    Set default payment method
+                    {billingPortalOpening ? 'Opening payment portal…' : 'Set default payment method'}
                   </Button>
                   {onOpenBilling && (
                     <Button variant="outline" type="button" onClick={onOpenBilling}>

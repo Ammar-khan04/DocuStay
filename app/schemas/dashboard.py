@@ -181,6 +181,11 @@ class BillingResponse(BaseModel):
     trial_days_remaining: int | None = None  # Whole calendar days left in trial (UTC dates); only set when trialing
 
 
+class BillingSyncSubscriptionResponse(BaseModel):
+    """Stripe subscription was reconciled with current property count (no-op if already in sync)."""
+    ok: bool = True
+
+
 class BillingPortalSessionResponse(BaseModel):
     """URL for Stripe Customer Billing Portal; redirect here so after payment (e.g. Klarna) user returns to our app."""
     url: str

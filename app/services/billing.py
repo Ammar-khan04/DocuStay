@@ -339,8 +339,14 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
             profile.stripe_subscription_baseline_item_id = raw_items[0].id
 
         if profile.stripe_subscription_baseline_item_id:
-            flat_prod_id = _get_or_create_flat_subscription_product_id()
             new_total_cents = int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) * int(units)
+            if len(raw_items) == 1:
+                po = getattr(raw_items[0], "price", None)
+                cur_ua = getattr(po, "unit_amount", None) if po else None
+                if cur_ua is not None and int(cur_ua) == new_total_cents:
+                    db.commit()
+                    return
+            flat_prod_id = _get_or_create_flat_subscription_product_id()
             price = stripe.Price.create(
                 currency="usd",
                 unit_amount=new_total_cents,

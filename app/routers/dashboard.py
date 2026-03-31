@@ -50,6 +50,7 @@ from app.schemas.dashboard import (
     BillingInvoiceView,
     BillingPaymentView,
     BillingPortalSessionResponse,
+    BillingSyncSubscriptionResponse,
     PortfolioLinkResponse,
     DashboardAlertView,
 )
@@ -4931,6 +4932,26 @@ def owner_billing(
         trial_end_at=trial_end_at,
         trial_days_remaining=trial_days_remaining,
     )
+
+
+@router.post("/owner/billing/sync-subscription", response_model=BillingSyncSubscriptionResponse)
+def sync_owner_billing_subscription(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_owner_onboarding_complete),
+):
+    """Reconcile Stripe subscription amount with active property count (call before opening Customer Portal from Settings)."""
+    if current_user.role == UserRole.property_manager:
+        raise HTTPException(status_code=403, detail="Property managers cannot modify billing. Contact the property owner.")
+    profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
+    if not profile or not profile.stripe_subscription_id:
+        return BillingSyncSubscriptionResponse(ok=True)
+    if not (get_settings().stripe_secret_key or "").strip():
+        raise HTTPException(status_code=501, detail="Stripe is not configured")
+    try:
+        sync_subscription_quantities(db, profile)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not sync subscription: {e}") from e
+    return BillingSyncSubscriptionResponse(ok=True)
 
 
 @router.post("/owner/billing/portal-session", response_model=BillingPortalSessionResponse)

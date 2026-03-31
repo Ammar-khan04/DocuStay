@@ -1393,8 +1393,13 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          dashboardApi.billingPortalSession()
-                                            .then((data) => { window.location.href = data.url; })
+                                          dashboardApi
+                                            .syncBillingSubscription()
+                                            .catch(() => {})
+                                            .then(() => dashboardApi.billingPortalSession())
+                                            .then((data) => {
+                                              window.location.href = data.url;
+                                            })
                                             .catch(() => notify('error', 'Could not open payment page. Try again.'));
                                         }}
                                         className="text-blue-600 hover:underline disabled:opacity-50"
