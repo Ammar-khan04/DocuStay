@@ -53,7 +53,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
   introText = "Invitations you've sent. Pending invitations are labeled as expired after 72 hours if not accepted.",
 }) => {
   const handleCopyLink = async (inv: OwnerInvitationView) => {
-    const url = buildGuestInviteUrl(inv.invitation_code);
+    const url = buildGuestInviteUrl(inv.invitation_code, { isDemo: Boolean(inv.is_demo) });
     const ok = await copyToClipboard(url);
     if (ok) notify('success', 'Invitation link copied to clipboard.');
     else notify('error', 'Could not copy. Please copy the link manually.');

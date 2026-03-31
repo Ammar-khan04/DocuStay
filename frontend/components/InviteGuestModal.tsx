@@ -297,7 +297,7 @@ export const InviteGuestModal: React.FC<InviteGuestModalProps> = ({
             checkout_date: formData.checkout_date,
           });
       if (result.status === 'success' && result.data?.invitation_code) {
-        const link = buildGuestInviteUrl(result.data.invitation_code);
+        const link = buildGuestInviteUrl(result.data.invitation_code, { isDemo: Boolean(user?.is_demo) });
         linkGeneratedRef.current = true;
         setFormError(null);
         notify('success', 'Invitation link generated.');

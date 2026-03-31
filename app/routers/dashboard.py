@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, EmailStr, field_validator
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.stay import Stay
+from app.models.demo_account import is_demo_user_id
 from app.models.invitation import Invitation
 from app.models.guest import GuestProfile, PurposeOfStay, RelationshipToOwner
 from app.models.region_rule import RegionRule
@@ -831,6 +832,7 @@ def _invitations_to_owner_views(invs: list, db: Session, get_invitation_expire_c
             display_status = "ongoing"
         else:
             display_status = "pending"
+        demo_flag = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
         out.append(
             OwnerInvitationView(
                 id=inv.id,
@@ -846,6 +848,7 @@ def _invitations_to_owner_views(invs: list, db: Session, get_invitation_expire_c
                 token_state=getattr(inv, "token_state", None) or "STAGED",
                 created_at=inv.created_at,
                 is_expired=is_expired,
+                is_demo=demo_flag,
             )
         )
     return out
@@ -2983,19 +2986,25 @@ def _parse_invitation_code_input(raw: str | None) -> str:
     if not s:
         return ""
     low = s.lower()
-    if "#invite/" in s:
+    if "#demo/invite/" in low:
+        s = s.split("#demo/invite/", 1)[-1]
+    elif "#invite/" in s:
         s = s.split("#invite/", 1)[-1]
+    elif "/demo/invite/" in low:
+        s = s.split("demo/invite/", 1)[-1]
     elif "/invite/" in low:
         s = s.split("invite/", 1)[-1]
     s = s.split("?", 1)[0].split("#", 1)[0].strip()
     return s.upper()
 
 
-def _guest_invite_frontend_url(invitation_code: str) -> str:
+def _guest_invite_frontend_url(invitation_code: str, *, is_demo: bool = False) -> str:
     settings = get_settings()
     base = (settings.stripe_identity_return_url or settings.frontend_base_url or "http://localhost:5173").strip().split("#")[0].rstrip("/")
     code = (invitation_code or "").strip().upper()
-    return f"{base}/#invite/{code}" if code else base
+    if not code:
+        return base
+    return f"{base}/#demo/invite/{code}" if is_demo else f"{base}/#invite/{code}"
 
 
 def _guest_extension_request_to_view(db: Session, row: GuestExtensionRequest) -> TenantGuestExtensionRequestView | None:
@@ -3254,7 +3263,10 @@ def tenant_approve_guest_extension(
 
     new_start_s = inv.stay_start_date.isoformat()
     new_end_s = inv.stay_end_date.isoformat()
-    invite_url = _guest_invite_frontend_url(inv.invitation_code)
+    invite_url = _guest_invite_frontend_url(
+        inv.invitation_code,
+        is_demo=is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None)),
+    )
 
     if guest_email and stay:
         try:
@@ -4063,6 +4075,7 @@ def tenant_invitations(
             display_status = "ongoing"
         else:
             display_status = "pending"
+        demo_flag = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
         out.append(
             OwnerInvitationView(
                 id=inv.id,
@@ -4078,6 +4091,7 @@ def tenant_invitations(
                 token_state=getattr(inv, "token_state", None) or "STAGED",
                 created_at=inv.created_at,
                 is_expired=is_expired,
+                is_demo=demo_flag,
             )
         )
     return out

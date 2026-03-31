@@ -16,6 +16,7 @@ interface RegisterManagerProps {
 const RegisterManager: React.FC<RegisterManagerProps> = ({ inviteToken, onLogin, navigate, setLoading, notify }) => {
   const [inviteData, setInviteData] = useState<{ email: string; property_name: string } | null>(null);
   const [loadingInvite, setLoadingInvite] = useState(true);
+  const [leaveForDemo, setLeaveForDemo] = useState(false);
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -36,12 +37,17 @@ const RegisterManager: React.FC<RegisterManagerProps> = ({ inviteToken, onLogin,
     authApi
       .getManagerInvite(inviteToken)
       .then((data) => {
+        if (data.is_demo) {
+          setLeaveForDemo(true);
+          navigate(`demo/register/manager/${inviteToken}`);
+          return;
+        }
         setInviteData(data);
         setFormData((prev) => ({ ...prev, email: data.email }));
       })
       .catch(() => setErrorModal({ open: true, message: 'Invitation not found or expired.' }))
       .finally(() => setLoadingInvite(false));
-  }, [inviteToken]);
+  }, [inviteToken, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,12 +89,12 @@ const RegisterManager: React.FC<RegisterManagerProps> = ({ inviteToken, onLogin,
     }
   };
 
-  if (loadingInvite) {
+  if (loadingInvite || leaveForDemo) {
     return (
       <HeroBackground className="flex-grow flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block w-10 h-10 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4" />
-          <p className="text-gray-600">Loading invitation...</p>
+          <p className="text-gray-600">{leaveForDemo ? 'Opening demo sign-in…' : 'Loading invitation...'}</p>
         </div>
       </HeroBackground>
     );

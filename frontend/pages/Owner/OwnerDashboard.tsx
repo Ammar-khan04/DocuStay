@@ -593,7 +593,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                               variant="outline"
                               size="sm"
                               onClick={async () => {
-                                const url = buildGuestInviteUrl(inv.invitation_code);
+                                const url = buildGuestInviteUrl(inv.invitation_code, { isDemo: Boolean(inv.is_demo) });
                                 const ok = await copyToClipboard(url);
                                 if (ok) notify('success', 'Invitation link copied to clipboard.');
                                 else notify('error', 'Could not copy. Please copy the link manually.');
@@ -2327,6 +2327,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
         }}
         notify={notify}
         onSuccess={() => { loadData(); window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT)); }}
+        guestInviteUrlIsDemo={Boolean(user?.is_demo)}
       />
 
       <InviteGuestModal

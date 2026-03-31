@@ -14,6 +14,7 @@ const US_CITIES = US_CITIES_DATA as Record<string, string[]>;
 
 interface Props {
   invitationId: string;
+  sessionIsDemo?: boolean;
   navigate: (v: string) => void;
   setLoading: (l: boolean) => void;
   notify: (t: 'success' | 'error', m: string) => void;
@@ -28,7 +29,16 @@ function formatDate(s: string | undefined): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-const RegisterFromInvite: React.FC<Props> = ({ invitationId, navigate, setLoading, notify, setPendingVerification, onGuestLogin, onTenantLogin }) => {
+const RegisterFromInvite: React.FC<Props> = ({
+  invitationId,
+  sessionIsDemo = false,
+  navigate,
+  setLoading,
+  notify,
+  setPendingVerification,
+  onGuestLogin,
+  onTenantLogin,
+}) => {
   const [inviteDetails, setInviteDetails] = useState<InvitationDetails | null>(null);
   const [inviteLoading, setInviteLoading] = useState(true);
   const normalizedCode = invitationId.trim().toUpperCase();
@@ -182,6 +192,10 @@ const RegisterFromInvite: React.FC<Props> = ({ invitationId, navigate, setLoadin
     }
     invitationsApi.getDetails(normalizedCode)
       .then((d) => {
+        if (d.valid && d.is_demo && !sessionIsDemo) {
+          navigate(`demo/invite/${normalizedCode}`);
+          return;
+        }
         setInviteDetails(d);
         if (!d.valid) {
           if (d.expired) notify('error', 'This invitation has expired. Please ask your host for a new invitation.');
@@ -198,7 +212,7 @@ const RegisterFromInvite: React.FC<Props> = ({ invitationId, navigate, setLoadin
         notify('error', msg || 'Could not verify invitation. Please check the link and try again.');
       })
       .finally(() => setInviteLoading(false));
-  }, [normalizedCode, notify]);
+  }, [normalizedCode, notify, navigate, sessionIsDemo]);
 
   if (inviteLoading) {
     return (

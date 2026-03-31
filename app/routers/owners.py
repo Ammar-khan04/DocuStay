@@ -15,6 +15,7 @@ from app.models.owner import OwnerProfile, Property, PropertyType, USAT_TOKEN_ST
 from app.models.invitation import Invitation
 from app.models.agreement_signature import AgreementSignature
 from app.models.guest import PurposeOfStay, RelationshipToOwner
+from app.models.demo_account import is_demo_user_id
 from app.models.manager_invitation import ManagerInvitation, MANAGER_INVITE_EXPIRE_DAYS
 from app.models.property_manager_assignment import PropertyManagerAssignment
 from app.schemas.owner import (
@@ -1918,6 +1919,7 @@ def invite_property_manager(
     # Create invitation
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(days=MANAGER_INVITE_EXPIRE_DAYS)
+    manager_invite_is_demo = is_demo_user_id(db, current_user.id)
     inv = ManagerInvitation(
         token=token,
         property_id=property_id,
@@ -1931,7 +1933,9 @@ def invite_property_manager(
     db.refresh(inv)
     # Build signup link
     base_url = (get_settings().stripe_identity_return_url or get_settings().frontend_base_url or "http://localhost:5173").strip().split("#")[0].rstrip("/")
-    invite_link = f"{base_url}/#register/manager/{token}"
+    invite_link = (
+        f"{base_url}/#demo/register/manager/{token}" if manager_invite_is_demo else f"{base_url}/#register/manager/{token}"
+    )
     property_name = (prop.name or f"{prop.street}, {prop.city}").strip() or "Property"
     sent = send_manager_invite_email(email, invite_link, property_name)
     create_ledger_event(
@@ -3574,7 +3578,7 @@ def owner_send_tenant_invite_email(
     tenant_name = tenant_name_in
     base_url = (get_settings().stripe_identity_return_url or get_settings().frontend_base_url or "http://localhost:5173").strip().split("#")[0].rstrip("/")
     code = (inv.invitation_code or "").strip().upper()
-    invite_link = f"{base_url}/#invite/{code}"
+    invite_link = f"{base_url}/#demo/invite/{code}" if is_demo_user_id(db, inv.invited_by_user_id or inv.owner_id) else f"{base_url}/#invite/{code}"
     sent = send_tenant_invite_email(email, invite_link, tenant_name, property_name)
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "").strip() or None
@@ -3686,6 +3690,7 @@ def get_invitation_details(
         "valid": True,
         "invitation_kind": invitation_kind,
         "is_tenant_invite": is_tenant,
+        "is_demo": is_demo_user_id(db, inv.invited_by_user_id or inv.owner_id),
         "property_name": prop.name if prop else None,
         "property_address": f"{prop.street}, {prop.city}, {prop.state}{(' ' + prop.zip_code) if (prop and prop.zip_code) else ''}" if prop else None,
         "stay_start_date": str(inv.stay_start_date),

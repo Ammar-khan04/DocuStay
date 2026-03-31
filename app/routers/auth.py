@@ -70,6 +70,7 @@ from app.schemas.auth import (
     PendingOwnerIdentityRetryRequest,
     PendingOwnerIdentityRetryResponse,
     CompleteOwnerSignupRequest,
+    DemoLoginRequest,
 )
 from app.services.auth import (
     get_password_hash,
@@ -110,6 +111,8 @@ def _user_to_response(user: User, db: Session) -> UserResponse:
         has_poa = db.query(OwnerPOASignature).filter(OwnerPOASignature.used_by_user_id == user.id).first() is not None
         poa_waived = bool(getattr(user, "poa_waived_at", None))
         poa_linked = has_poa or poa_waived
+    from app.models.demo_account import DemoAccount
+    is_demo = db.query(DemoAccount).filter(DemoAccount.user_id == user.id).first() is not None
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -120,6 +123,7 @@ def _user_to_response(user: User, db: Session) -> UserResponse:
         city=user.city,
         identity_verified=identity_verified,
         poa_linked=poa_linked,
+        is_demo=is_demo,
     )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -127,6 +131,182 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 VERIFICATION_CODE_EXPIRE_MINUTES = 10
 
 logger = logging.getLogger(__name__)
+
+
+@router.post("/demo/login", response_model=Token)
+def demo_login(data: DemoLoginRequest, db: Session = Depends(get_db)):
+    """Demo-only login: bypasses credentials and verification entirely.
+
+    This endpoint is isolated under /auth/demo/* and is only reachable from the demo UI entrypoint.
+    Normal /auth/login and /auth/register behavior is unchanged.
+    """
+    now = datetime.now(timezone.utc)
+    role = data.role
+
+    # Demo can use a user-supplied email (saved as entered), otherwise a stable default per role.
+    email = ((data.email or "").strip().lower() or f"demo+{role.value}@docustay.demo").lower()
+    user = db.query(User).filter(func.lower(func.trim(User.email)) == email, User.role == role).first()
+    if user:
+        from app.models.demo_account import DemoAccount
+        if db.query(DemoAccount).filter(DemoAccount.user_id == user.id).first() is None:
+            raise HTTPException(
+                status_code=400,
+                detail="That email is already registered for this role. Please use a different email for demo mode.",
+            )
+    else:
+        raw_pw = f"demo-{role.value}-{secrets.token_urlsafe(12)}"
+        user = User(
+            email=email,
+            hashed_password=get_password_hash(raw_pw),
+            role=role,
+            full_name=f"Demo {role.value.replace('_', ' ').title()}",
+            email_verified=True,
+            email_verification_code=None,
+            email_verification_expires_at=None,
+        )
+        # Ensure demo can access role-gated dashboards.
+        if role in (UserRole.owner, UserRole.property_manager):
+            user.identity_verified_at = now
+        if role == UserRole.owner:
+            user.poa_waived_at = now
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    from app.models.demo_account import DemoAccount
+    if db.query(DemoAccount).filter(DemoAccount.user_id == user.id).first() is None:
+        db.add(DemoAccount(user_id=user.id))
+        db.commit()
+
+    # Minimal demo data so dashboards have something real to load.
+    try:
+        from app.models.owner import OwnerProfile, Property, OccupancyStatus
+        from app.models.unit import Unit
+        from app.models.property_manager_assignment import PropertyManagerAssignment
+        from app.models.tenant_assignment import TenantAssignment
+
+        owner_email = "demo+owner@docustay.demo"
+        demo_owner = db.query(User).filter(func.lower(func.trim(User.email)) == owner_email, User.role == UserRole.owner).first()
+        if not demo_owner:
+            demo_owner = User(
+                email=owner_email,
+                hashed_password=get_password_hash(f"demo-owner-{secrets.token_urlsafe(12)}"),
+                role=UserRole.owner,
+                full_name="Demo Owner",
+                email_verified=True,
+                identity_verified_at=now,
+                poa_waived_at=now,
+            )
+            db.add(demo_owner)
+            db.commit()
+            db.refresh(demo_owner)
+            if db.query(DemoAccount).filter(DemoAccount.user_id == demo_owner.id).first() is None:
+                db.add(DemoAccount(user_id=demo_owner.id))
+                db.commit()
+
+        profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == demo_owner.id).first()
+        if not profile:
+            profile = OwnerProfile(user_id=demo_owner.id)
+            db.add(profile)
+            db.commit()
+            db.refresh(profile)
+
+        prop = db.query(Property).filter(Property.owner_profile_id == profile.id, Property.deleted_at.is_(None)).first()
+        if not prop:
+            prop = Property(
+                owner_profile_id=profile.id,
+                name="Demo Property",
+                street="123 Demo St",
+                city="Demo City",
+                state="TX",
+                zip_code="78701",
+                region_code="TX",
+                owner_occupied=False,
+                occupancy_status=OccupancyStatus.occupied.value,
+                live_slug=secrets.token_hex(12),
+                shield_mode_enabled=1,
+            )
+            db.add(prop)
+            db.flush()
+            db.commit()
+            db.refresh(prop)
+
+        unit = db.query(Unit).filter(Unit.property_id == prop.id).first()
+        if not unit:
+            unit = Unit(property_id=prop.id, unit_label="1", occupancy_status=OccupancyStatus.occupied.value, is_primary_residence=0)
+            db.add(unit)
+            db.commit()
+            db.refresh(unit)
+
+        if role == UserRole.property_manager:
+            if not db.query(PropertyManagerAssignment).filter(
+                PropertyManagerAssignment.user_id == user.id,
+                PropertyManagerAssignment.property_id == prop.id,
+            ).first():
+                db.add(PropertyManagerAssignment(user_id=user.id, property_id=prop.id, assigned_by_user_id=demo_owner.id))
+                db.commit()
+        if role == UserRole.tenant:
+            if not db.query(TenantAssignment).filter(
+                TenantAssignment.user_id == user.id,
+                TenantAssignment.unit_id == unit.id,
+            ).first():
+                db.add(TenantAssignment(user_id=user.id, unit_id=unit.id, invited_by_user_id=demo_owner.id, start_date=date.today(), end_date=None))
+                db.commit()
+
+        # Demo convenience: if a demo property manager logs in with an email that has pending manager invitations,
+        # auto-accept them all so the manager can immediately see assigned properties.
+        if role == UserRole.property_manager and user.email:
+            pending_manager_invites = (
+                db.query(ManagerInvitation)
+                .filter(
+                    func.lower(func.trim(ManagerInvitation.email)) == user.email.strip().lower(),
+                    ManagerInvitation.status == "pending",
+                    ManagerInvitation.expires_at > now,
+                )
+                .all()
+            )
+            for mi in pending_manager_invites:
+                existing_assignment = db.query(PropertyManagerAssignment).filter(
+                    PropertyManagerAssignment.property_id == mi.property_id,
+                    PropertyManagerAssignment.user_id == user.id,
+                ).first()
+                if not existing_assignment:
+                    db.add(
+                        PropertyManagerAssignment(
+                            property_id=mi.property_id,
+                            user_id=user.id,
+                            assigned_by_user_id=mi.invited_by_user_id,
+                        )
+                    )
+                mi.status = "accepted"
+                mi.accepted_at = now
+                try:
+                    create_ledger_event(
+                        db,
+                        ACTION_MANAGER_INVITE_ACCEPTED,
+                        target_object_type="ManagerInvitation",
+                        target_object_id=mi.id,
+                        property_id=mi.property_id,
+                        actor_user_id=user.id,
+                        meta={"email": user.email, "property_id": mi.property_id, "demo_auto_accept": True},
+                    )
+                    create_ledger_event(
+                        db,
+                        ACTION_MANAGER_ASSIGNED,
+                        target_object_type="PropertyManagerAssignment",
+                        target_object_id=(existing_assignment.id if existing_assignment else None),
+                        property_id=mi.property_id,
+                        actor_user_id=mi.invited_by_user_id,
+                        meta={"manager_email": user.email, "manager_user_id": user.id, "property_id": mi.property_id, "demo_auto_accept": True},
+                    )
+                except Exception:
+                    pass
+            db.commit()
+    except Exception:
+        pass
+
+    token = create_access_token(user.id, user.email, user.role)
+    return Token(access_token=token, user=_user_to_response(user, db))
 
 
 def _client_calendar_date_from_request(request: Request) -> date | None:
@@ -558,7 +738,13 @@ def get_manager_invite(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Invitation not found or expired.")
     prop = db.query(Property).filter(Property.id == inv.property_id).first()
     property_name = (prop.name or f"{prop.street or ''}, {prop.city or ''}".strip(", ")).strip() or "Property" if prop else "Property"
-    return {"email": inv.email, "property_name": property_name, "property_id": inv.property_id}
+    from app.models.demo_account import is_demo_user_id
+    return {
+        "email": inv.email,
+        "property_name": property_name,
+        "property_id": inv.property_id,
+        "is_demo": is_demo_user_id(db, inv.invited_by_user_id),
+    }
 
 
 @router.post("/register/manager", response_model=Token)
@@ -2143,6 +2329,9 @@ def accept_invite(
 
     inv_kind_raw = (getattr(inv, "invitation_kind", None) or "").strip().lower()
     is_tenant_invite = inv_kind_raw == "tenant"
+    from app.models.demo_account import is_demo_user_id
+    demo_session_user = is_demo_user_id(db, current_user.id)
+    demo_originated_invite = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
 
     if is_tenant_invite:
         if inv.status not in ("pending", "ongoing"):
@@ -2238,9 +2427,12 @@ def accept_invite(
             detail="This invitation is for a guest. Please sign in as a guest to accept it.",
         )
 
-    # Guest stays: invitation must include the authorized email; tenant invites may omit it (legacy CSV)
+    # Guest stays: invitation must include the authorized email; tenant invites may omit it (legacy CSV).
+    # Demo exception: for demo-originated invites accepted by a demo account, allow bypassing the email lock.
     inv_guest_email = (getattr(inv, "guest_email", None) or "").strip().lower()
     if not is_tenant_invite:
+        if demo_session_user and demo_originated_invite:
+            inv_guest_email = (current_user.email or "").strip().lower()
         if not inv_guest_email:
             create_log(
                 db,
@@ -2304,7 +2496,37 @@ def accept_invite(
         # Tenant invitations don't require an agreement signature
         pass
     else:
-        sig = db.query(AgreementSignature).filter(AgreementSignature.id == data.agreement_signature_id).first()
+        # Demo exception: auto-create a minimal signature for demo-originated invites accepted by demo accounts.
+        if demo_session_user and demo_originated_invite and not (data.agreement_signature_id and data.agreement_signature_id > 0):
+            import hashlib
+
+            content = f"DocuStay Demo Agreement\nInvite: {code}\nUser: {(current_user.email or '').strip()}\n"
+            doc_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            sig = AgreementSignature(
+                invitation_code=code,
+                region_code=getattr(inv, "region_code", None) or "US",
+                guest_email=(current_user.email or "").strip().lower(),
+                guest_full_name=(current_user.full_name or "").strip() or (current_user.email or "").strip() or "Demo Guest",
+                typed_signature=(current_user.full_name or "").strip() or (current_user.email or "").strip() or "Demo Guest",
+                signature_method="typed",
+                acks_read=True,
+                acks_temporary=True,
+                acks_vacate=True,
+                acks_electronic=True,
+                document_id=f"demo-{code}",
+                document_title="DocuStay Demo Agreement",
+                document_hash=doc_hash,
+                document_content=content,
+                ip_address=request.client.host if request.client else None,
+                user_agent=(request.headers.get("user-agent") or "").strip() or None,
+                used_by_user_id=current_user.id,
+                used_at=datetime.now(timezone.utc),
+            )
+            db.add(sig)
+            db.flush()
+        else:
+            sig = db.query(AgreementSignature).filter(AgreementSignature.id == data.agreement_signature_id).first()
+
         if not sig:
             create_log(
                 db,
@@ -2474,7 +2696,7 @@ def accept_invite(
             unit_id=inv.unit_id,
             user_id=current_user.id,
             start_date=inv.stay_start_date,
-            end_date=None,
+            end_date=inv.stay_end_date,
             invited_by_user_id=getattr(inv, "invited_by_user_id", None),
         )
         db.add(ta)

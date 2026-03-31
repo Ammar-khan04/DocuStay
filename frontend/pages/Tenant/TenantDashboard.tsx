@@ -2016,7 +2016,7 @@ const TenantDashboard: React.FC<{
                                 onClick={async (e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  const url = buildGuestInviteUrl(row.inv.invitation_code);
+                                  const url = buildGuestInviteUrl(row.inv.invitation_code, { isDemo: Boolean(row.inv.is_demo) });
                                   const ok = await copyToClipboard(url);
                                   if (ok) notify('success', 'Invitation link copied.');
                                   else notify('error', 'Could not copy.');

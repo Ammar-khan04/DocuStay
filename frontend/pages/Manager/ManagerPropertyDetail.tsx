@@ -893,6 +893,7 @@ const ManagerPropertyDetail: React.FC<{
         }
         notify={notify}
         onSuccess={loadData}
+        guestInviteUrlIsDemo={Boolean(user?.is_demo)}
       />
 
       <InviteGuestModal

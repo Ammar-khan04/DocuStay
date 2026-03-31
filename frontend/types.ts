@@ -24,6 +24,7 @@ export interface UserSession {
   email: string;
   account_status: AccountStatus;
   token: string;
+  is_demo?: boolean;
 }
 
 export interface AppState {

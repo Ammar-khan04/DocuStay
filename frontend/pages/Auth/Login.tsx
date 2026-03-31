@@ -8,9 +8,10 @@ import { PENDING_INVITE_STORAGE_KEY } from '../Guest/GuestLogin';
 const parseInviteCode = (raw: string): string => {
   const trimmed = raw.trim();
   if (!trimmed) return '';
+  const fromDemoHash = trimmed.includes('#demo/invite/') ? trimmed.split('#demo/invite/').pop() || '' : '';
   const fromHash = trimmed.includes('#invite/') ? trimmed.split('#invite/').pop() || '' : '';
   const fromPath = trimmed.includes('invite/') ? trimmed.split('invite/').pop() || '' : '';
-  const code = (fromHash || fromPath || trimmed).split(/[?#]/)[0];
+  const code = (fromDemoHash || fromHash || fromPath || trimmed).split(/[?#]/)[0];
   return code.trim().toUpperCase();
 };
 
@@ -37,6 +38,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, setLoading, notify, navigate, in
     if (managerInviteToken && initialRole === 'property_manager') {
       authApi.getManagerInvite(managerInviteToken)
         .then((d) => {
+          if (d.is_demo && managerInviteToken) {
+            navigate(`demo/register/manager/${managerInviteToken}`);
+            return;
+          }
           setFormData((prev) => ({ ...prev, email: d.email }));
           setManagerInviteInfo({ property_name: d.property_name });
         })
@@ -44,7 +49,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, setLoading, notify, navigate, in
     } else {
       setManagerInviteInfo(null);
     }
-  }, [managerInviteToken, initialRole]);
+  }, [managerInviteToken, initialRole, navigate]);
   const [errorModal, setErrorModal] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [successModal, setSuccessModal] = useState<{ open: boolean; message: string; user?: any }>({ open: false, message: '' });
 
@@ -57,9 +62,15 @@ const Login: React.FC<LoginProps> = ({ onLogin, setLoading, notify, navigate, in
     }
     setInviteCheck((prev) => (prev?.valid === true && !prev?.expired ? prev : { loading: true, valid: true }));
     invitationsApi.getDetails(inviteCode)
-      .then((d) => setInviteCheck({ loading: false, valid: d.valid, expired: d.expired, used: d.used }))
+      .then((d) => {
+        if (d.valid && d.is_demo && inviteCode) {
+          navigate(`demo/invite/${inviteCode}`);
+          return;
+        }
+        setInviteCheck({ loading: false, valid: d.valid, expired: d.expired, used: d.used });
+      })
       .catch(() => setInviteCheck({ loading: false, valid: false }));
-  }, [inviteCode, formData.role]);
+  }, [inviteCode, formData.role, navigate]);
 
   const showError = (message: string) => setErrorModal({ open: true, message });
 

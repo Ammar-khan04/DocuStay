@@ -24,11 +24,18 @@ elif _db_url.startswith("sqlite"):
     # Bulk upload and other work runs in a background thread; SQLite default blocks other threads.
     _connect_args["check_same_thread"] = False
 
-engine = create_engine(
-    settings.database_url,
-    pool_pre_ping=True,
-    connect_args=_connect_args,
-)
+_engine_kwargs: dict = {"pool_pre_ping": True, "connect_args": _connect_args}
+if _db_url.startswith("postgresql"):
+    _engine_kwargs.update(
+        {
+            "pool_size": int(getattr(settings, "db_pool_size", 5)),
+            "max_overflow": int(getattr(settings, "db_max_overflow", 0)),
+            "pool_timeout": int(getattr(settings, "db_pool_timeout", 30)),
+            "pool_recycle": int(getattr(settings, "db_pool_recycle", 1800)),
+        }
+    )
+
+engine = create_engine(settings.database_url, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 logger.info("[startup] Database: engine and SessionLocal ready")

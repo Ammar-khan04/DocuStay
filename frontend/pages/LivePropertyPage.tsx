@@ -125,6 +125,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   }, [slug]);
 
   const viewerIsGuest = viewerSession?.user_type === 'GUEST';
+  const viewerIsOwner = viewerSession?.user_type === 'PROPERTY_OWNER';
 
   if (loading) {
     return (
@@ -550,6 +551,9 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                       return (
                         <>
                           Tenant (Unit {row.unit_label}): {tenantAssignmentDisplayName(row)}
+                          {viewerIsOwner ? (
+                            <span className="text-slate-600"> · Lease {tenantLeasePeriodLabel(row)}</span>
+                          ) : null}
                         </>
                       );
                     })()}

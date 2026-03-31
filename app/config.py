@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     secret_key: str = "change-me"
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/docustay_demo"
+    # SQLAlchemy connection pool tuning (important for Supabase poolers).
+    # Keep max_overflow at 0 when using session-mode poolers to avoid exhausting client slots.
+    db_pool_size: int = 5
+    db_max_overflow: int = 0
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800  # seconds; helps avoid stale connections on managed Postgres
 
     jwt_secret_key: str = "jwt-secret-change-me"
     jwt_algorithm: str = "HS256"

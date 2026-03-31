@@ -26,6 +26,8 @@ import OnboardingIdentityComplete from './pages/Onboarding/OnboardingIdentityCom
 import OnboardingPOA from './pages/Onboarding/OnboardingPOA';
 import ProviderAuthorityLetter from './pages/Provider/ProviderAuthorityLetter';
 import Landing from './pages/Landing';
+import { DemoLogin } from './pages/Demo/DemoLogin';
+import { DemoInviteGate } from './pages/Demo/DemoInviteGate';
 import TermsOfService from './pages/Legal/TermsOfService';
 import PrivacyPolicy from './pages/Legal/PrivacyPolicy';
 import { LivePropertyPage } from './pages/LivePropertyPage';
@@ -66,6 +68,8 @@ function isGuestInviteAcceptFlowView(v: string): boolean {
   if (!v) return false;
   return (
     v.startsWith('invite/')
+    || v.startsWith('demo/invite/')
+    || v.startsWith('demo/register/manager/')
     || v.startsWith('register-from-invite/')
     || v === 'guest-login'
     || v.startsWith('guest-login/')
@@ -396,6 +400,9 @@ const App: React.FC = () => {
                     <p className="text-xs text-gray-500 uppercase tracking-wide">
                       {(state.user.user_type || '').replace('_', ' ')}
                     </p>
+                    {state.user.is_demo && (
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">demo</p>
+                    )}
                   </div>
                   <Button variant="outline" onClick={handleLogout} className="px-5 py-2">Logout</Button>
                 </>
@@ -449,9 +456,40 @@ const App: React.FC = () => {
         {view === 'reset-password' && (
           <ResetPassword setLoading={setLoading} notify={showNotification} navigate={navigate} />
         )}
+        {view === 'demo' && (
+          <DemoLogin
+            navigate={navigate}
+            setLoading={setLoading}
+            notify={showNotification}
+            onLogin={handleLogin}
+          />
+        )}
+        {view.startsWith('demo/invite/') && (
+          <DemoInviteGate
+            mode="invite"
+            payload={view.slice('demo/invite/'.length)}
+            sessionUser={state.user}
+            navigate={navigate}
+            setLoading={setLoading}
+            notify={showNotification}
+            onLogin={handleLogin}
+          />
+        )}
+        {view.startsWith('demo/register/manager/') && (
+          <DemoInviteGate
+            mode="manager_register"
+            payload={view.slice('demo/register/manager/'.length)}
+            sessionUser={state.user}
+            navigate={navigate}
+            setLoading={setLoading}
+            notify={showNotification}
+            onLogin={handleLogin}
+          />
+        )}
         {view.startsWith('invite/') && (
           <InviteLanding
             invitationCode={view.split('/')[1] || ''}
+            sessionIsDemo={Boolean(state.user?.is_demo)}
             navigate={navigate}
             setLoading={setLoading}
             notify={showNotification}
@@ -476,6 +514,7 @@ const App: React.FC = () => {
         {view.startsWith('register-from-invite/') && (
           <RegisterFromInvite
             invitationId={view.split('/')[1] || ''}
+            sessionIsDemo={Boolean(state.user?.is_demo)}
             navigate={navigate}
             setLoading={setLoading}
             notify={showNotification}

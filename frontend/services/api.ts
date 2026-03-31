@@ -14,11 +14,12 @@ export const APP_ORIGIN =
  * Public invite URL (`#invite/CODE` for InviteLanding). Uses `/#invite/...` with no dashboard pathname
  * so links work when copied from any route and match `VITE_APP_ORIGIN` when set.
  */
-export function buildGuestInviteUrl(invitationCode: string): string {
+export function buildGuestInviteUrl(invitationCode: string, opts?: { isDemo?: boolean }): string {
   const code = (invitationCode || "").trim();
   if (!code) return "";
   const base = (APP_ORIGIN || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/$/, "");
-  return `${base}/#invite/${code}`;
+  const path = opts?.isDemo ? `demo/invite/${code}` : `invite/${code}`;
+  return `${base}/#${path}`;
 }
 
 /**
@@ -197,6 +198,7 @@ export interface UserSession {
   token: string;
   identity_verified?: boolean;
   poa_linked?: boolean;
+  is_demo?: boolean;
 }
 
 interface BackendUser {
@@ -209,6 +211,7 @@ interface BackendUser {
   city?: string | null;
   identity_verified?: boolean;
   poa_linked?: boolean;
+  is_demo?: boolean;
 }
 
 export interface TokenResponse {
@@ -234,10 +237,20 @@ export function toUserSession(t: TokenResponse): UserSession {
     token: t.access_token,
     identity_verified: u.identity_verified ?? false,
     poa_linked: u.poa_linked ?? false,
+    is_demo: u.is_demo ?? false,
   };
 }
 
 export const authApi = {
+  async demoLogin(data: { role: "owner" | "property_manager" | "tenant" | "guest"; email?: string }): Promise<{ status: string; data: UserSession }> {
+    const body = await request<TokenResponse>("/auth/demo/login", {
+      method: "POST",
+      body: JSON.stringify({ role: data.role, email: data.email ?? null }),
+      headers: clientCalendarDateHeaders(),
+    });
+    setToken(body.access_token);
+    return { status: "success", data: toUserSession(body) };
+  },
   async login(
     email: string,
     password: string,
@@ -366,8 +379,10 @@ export const authApi = {
   },
 
   /** Get manager invite details for pre-filling signup form. */
-  async getManagerInvite(token: string): Promise<{ email: string; property_name: string; property_id: number }> {
-    return request<{ email: string; property_name: string; property_id: number }>(`/auth/manager-invite/${encodeURIComponent(token)}`);
+  async getManagerInvite(token: string): Promise<{ email: string; property_name: string; property_id: number; is_demo?: boolean }> {
+    return request<{ email: string; property_name: string; property_id: number; is_demo?: boolean }>(
+      `/auth/manager-invite/${encodeURIComponent(token)}`
+    );
   },
   /** Property manager signup via invite link. */
   async registerManager(data: { invite_token: string; full_name: string; email: string; phone: string; password: string; confirm_password: string }): Promise<{ status: string; data: UserSession; message?: string }> {
@@ -541,6 +556,7 @@ export interface OwnerInvitationView {
   token_state?: string;
   created_at: string | null;
   is_expired?: boolean;
+  is_demo?: boolean;
 }
 
 export interface OwnerTenantView {
@@ -1811,6 +1827,8 @@ export interface InvitationDetails {
   guest_email?: string | null;
   /** Derived from invitation_kind (true when invitation_kind === 'tenant'). */
   is_tenant_invite?: boolean;
+  /** Invitation was created by a demo user — use demo login flow. */
+  is_demo?: boolean;
 }
 
 export const invitationsApi = {

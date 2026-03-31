@@ -92,6 +92,16 @@ const Landing: React.FC<LandingProps> = ({ navigate }) => {
     <div className="min-h-screen flex flex-col">
       {/* Hero: full-viewport background carousel + overlay + content */}
       <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden">
+        {/* Demo entrypoint (isolated demo auth flow) */}
+        <div className="absolute top-5 right-6 z-20">
+          <button
+            type="button"
+            onClick={() => navigate('demo')}
+            className="px-4 py-2 rounded-xl text-sm font-medium border border-white/40 text-white bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-colors"
+          >
+            Demo
+          </button>
+        </div>
         {/* Background slideshow */}
         <div className="absolute inset-0">
           {HERO_IMAGES.map((src, i) => (

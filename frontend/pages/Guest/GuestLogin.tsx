@@ -7,9 +7,10 @@ import { authApi, invitationsApi } from '../../services/api';
 const parseInviteCode = (raw: string): string => {
   const trimmed = raw.trim();
   if (!trimmed) return '';
+  const fromDemoHash = trimmed.includes('#demo/invite/') ? trimmed.split('#demo/invite/').pop() || '' : '';
   const fromHash = trimmed.includes('#invite/') ? trimmed.split('#invite/').pop() || '' : '';
   const fromPath = trimmed.includes('invite/') ? trimmed.split('invite/').pop() || '' : '';
-  const code = (fromHash || fromPath || trimmed).split(/[?#]/)[0];
+  const code = (fromDemoHash || fromHash || fromPath || trimmed).split(/[?#]/)[0];
   return code.trim().toUpperCase();
 };
 
@@ -43,6 +44,10 @@ const GuestLogin: React.FC<GuestLoginProps> = ({ inviteCode: inviteCodeFromUrl, 
     setInviteCheck((prev) => (prev?.valid === true && !prev?.expired ? prev : { loading: true, valid: true }));
     invitationsApi.getDetails(inviteCode)
       .then((d) => {
+        if (d.valid && d.is_demo && inviteCode) {
+          navigate(`demo/invite/${inviteCode}`);
+          return;
+        }
         const kind = d.invitation_kind || (d.is_tenant_invite ? 'tenant' : 'guest');
         if (d.valid && kind === 'tenant') {
           navigate(`register-from-invite/${inviteCode}`);

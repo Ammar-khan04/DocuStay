@@ -28,6 +28,8 @@ export interface InviteTenantModalProps {
   }) => Promise<{ invitation_code: string }>;
   notify: (t: 'success' | 'error', m: string) => void;
   onSuccess?: () => void;
+  /** When the inviter is a demo account, copy links use `#demo/invite/...`. */
+  guestInviteUrlIsDemo?: boolean;
 }
 
 export const InviteTenantModal: React.FC<InviteTenantModalProps> = ({
@@ -39,6 +41,7 @@ export const InviteTenantModal: React.FC<InviteTenantModalProps> = ({
   createInvitation,
   notify,
   onSuccess,
+  guestInviteUrlIsDemo = false,
 }) => {
   const [formData, setFormData] = useState({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });
   const [propertyId, setPropertyId] = useState<number | null>(null);
@@ -123,7 +126,7 @@ export const InviteTenantModal: React.FC<InviteTenantModalProps> = ({
       });
       const code = res?.invitation_code;
       if (code) {
-        setInviteLink(buildGuestInviteUrl(code));
+        setInviteLink(buildGuestInviteUrl(code, { isDemo: guestInviteUrlIsDemo }));
         setFormError(null);
         notify('success', 'Tenant invitation created. Share the invite link with the tenant.');
         setFormData({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });

@@ -1628,7 +1628,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                         }
                         const code = res?.invitation_code;
                         if (code) {
-                          setInviteTenantLink(buildGuestInviteUrl(code));
+                          setInviteTenantLink(buildGuestInviteUrl(code, { isDemo: Boolean(user.is_demo) }));
                           notify('success', 'Tenant invitation created. Share the invite link with the tenant.');
                           setInviteTenantUnitId(null);
                           setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });

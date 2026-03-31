@@ -21,6 +21,7 @@ class OwnerInvitationView(BaseModel):
     token_state: str = "STAGED"  # STAGED | BURNED | EXPIRED | REVOKED | CANCELLED
     created_at: datetime | None
     is_expired: bool = False  # True when pending and created_at older than 12 hours
+    is_demo: bool = False
 
 
 class GuestPendingInviteView(BaseModel):

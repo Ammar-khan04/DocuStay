@@ -40,9 +40,10 @@ function inviteVerificationMessage(details: { expired?: boolean; used?: boolean;
 const parseInviteCode = (raw: string): string => {
   const trimmed = raw.trim();
   if (!trimmed) return '';
+  const fromDemoHash = trimmed.includes('#demo/invite/') ? trimmed.split('#demo/invite/').pop() || '' : '';
   const fromHash = trimmed.includes('#invite/') ? trimmed.split('#invite/').pop() || '' : '';
   const fromPath = trimmed.includes('invite/') ? trimmed.split('invite/').pop() || '' : '';
-  const code = (fromHash || fromPath || trimmed).split(/[?#]/)[0];
+  const code = (fromDemoHash || fromHash || fromPath || trimmed).split(/[?#]/)[0];
   return code.trim().toUpperCase();
 };
 

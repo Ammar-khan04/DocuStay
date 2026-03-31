@@ -315,6 +315,7 @@ def invite_tenant(
     if jurisdiction_error:
         raise HTTPException(status_code=400, detail=jurisdiction_error)
     code = "INV-" + secrets.token_hex(4).upper()
+    from app.models.demo_account import is_demo_user_id
     inv = Invitation(
         invitation_code=code,
         owner_id=owner_user_id,

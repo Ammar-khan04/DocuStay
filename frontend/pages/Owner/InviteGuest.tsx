@@ -64,7 +64,7 @@ const InviteGuest: React.FC<{ user: UserSession | null, navigate: (v: string) =>
       if (result.status === 'success' && result.data?.invitation_code) {
         notify('success', 'Invitation generated and sent!');
         const inviteCode = result.data.invitation_code;
-        const link = buildGuestInviteUrl(inviteCode);
+        const link = buildGuestInviteUrl(inviteCode, { isDemo: Boolean(user?.is_demo) });
         setInviteLink(link);
         setShowInviteModal(true);
       } else {

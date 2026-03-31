@@ -108,6 +108,7 @@ class UserResponse(BaseModel):
     city: str | None = None
     identity_verified: bool = False
     poa_linked: bool = False  # owner has linked Master POA signature
+    is_demo: bool = False
 
     class Config:
         from_attributes = True
@@ -123,6 +124,11 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class DemoLoginRequest(BaseModel):
+    role: UserRole
+    email: EmailStr | None = None
 
 
 class GuestRegister(BaseModel):
