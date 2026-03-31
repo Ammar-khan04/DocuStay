@@ -100,7 +100,11 @@ def stripe_subscription_status_and_trial(
 
 
 def subscription_looks_legacy_per_unit_from_stripe(subscription: object) -> bool:
-    """True if subscription is not the current flat single-price line (e.g. old $1/unit ± Shield lines)."""
+    """True if subscription is not the current flat-total model (e.g. multiple lines or odd cent amounts).
+
+    Current model: typically one line with unit_amount = N * $10.00 for N properties (still a multiple of $10).
+    Legacy: multiple items, or a single item priced at something not divisible by $10 (e.g. old $1/unit).
+    """
     items_obj = getattr(subscription, "items", None)
     data = getattr(items_obj, "data", None) if items_obj is not None else None
     items = data or []
@@ -113,7 +117,10 @@ def subscription_looks_legacy_per_unit_from_stripe(subscription: object) -> bool
         ua = getattr(price, "unit_amount", None) if price else None
         if ua is None:
             continue
-        if int(ua) != SUBSCRIPTION_FLAT_AMOUNT_CENTS:
+        cents = int(ua)
+        if cents <= 0:
+            return True
+        if cents % int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) != 0:
             return True
     return False
 
@@ -229,15 +236,46 @@ def ensure_subscription(
         raise
 
 
+def _replace_subscription_items_with_flat_total(
+    subscription_id: str, existing_items: list, units: int, *, owner_profile_id: int | None = None
+) -> object:
+    """Stripe modify: remove all current line items and add one recurring line at $10 * units (qty 1)."""
+    import stripe
+
+    stripe.api_key = get_settings().stripe_secret_key
+    flat_prod_id = _get_or_create_flat_subscription_product_id()
+    new_total_cents = int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) * int(units)
+    meta = {"billing_model": "flat_total"}
+    if owner_profile_id is not None:
+        meta["owner_profile_id"] = str(owner_profile_id)
+    price = stripe.Price.create(
+        currency="usd",
+        unit_amount=new_total_cents,
+        recurring={"interval": "month"},
+        product=flat_prod_id,
+        metadata=meta,
+    )
+    mod_items: list = []
+    for it in existing_items:
+        iid = getattr(it, "id", None)
+        if iid:
+            mod_items.append({"id": iid, "deleted": True})
+    mod_items.append({"price": price.id, "quantity": 1})
+    return stripe.Subscription.modify(
+        subscription_id,
+        items=mod_items,
+        proration_behavior="none",
+    )
+
+
 def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
     """Update Stripe subscription to match account state.
 
-    Current plan: single line item, amount = $10 * properties (quantity=1); cancel if zero properties.
-    Legacy (baseline + Shield item IDs stored): update per-unit quantities as before.
+    Single line item: amount = $10 * properties (quantity=1). Multi-line (legacy) subs are consolidated here.
     """
     if not _stripe_enabled() or not profile.stripe_subscription_id:
         return
-    units, shield_units = _count_properties_and_shield(db, profile)
+    units, _shield_units = _count_properties_and_shield(db, profile)
 
     import stripe
 
@@ -252,32 +290,53 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
             logger.info("Subscription cancelled for profile_id=%s (0 units); billing stopped (prorated).", profile.id)
             return
 
-        # Ensure we have a baseline item id so we can update its price.
-        if not profile.stripe_subscription_baseline_item_id and profile.stripe_subscription_id:
-            try:
-                sub = stripe.Subscription.retrieve(profile.stripe_subscription_id)
-                items_obj = getattr(sub, "items", None)
-                items = (getattr(items_obj, "data", None) or []) if items_obj is not None else []
-                if items and getattr(items[0], "id", None):
-                    profile.stripe_subscription_baseline_item_id = items[0].id
-                    db.commit()
-            except Exception:
-                pass
+        sub = stripe.Subscription.retrieve(
+            profile.stripe_subscription_id,
+            expand=["items.data.price"],
+        )
+        raw_items = list(getattr(getattr(sub, "items", None), "data", None) or [])
+        actual_ids = {getattr(i, "id", None) for i in raw_items if getattr(i, "id", None)}
 
-        if profile.stripe_subscription_shield_item_id:
-            items = []
-            if profile.stripe_subscription_baseline_item_id:
-                items.append({"id": profile.stripe_subscription_baseline_item_id, "quantity": units})
-            items.append({"id": profile.stripe_subscription_shield_item_id, "quantity": shield_units})
-            if items:
-                stripe.Subscription.modify(profile.stripe_subscription_id, items=items)
+        # Stale DB item IDs (e.g. Shield removed in Stripe) caused legacy branch or wrong modifies to fail silently.
+        id_dirty = False
+        if (
+            profile.stripe_subscription_baseline_item_id
+            and profile.stripe_subscription_baseline_item_id not in actual_ids
+        ):
+            profile.stripe_subscription_baseline_item_id = None
+            id_dirty = True
+        if profile.stripe_subscription_shield_item_id and profile.stripe_subscription_shield_item_id not in actual_ids:
+            profile.stripe_subscription_shield_item_id = None
+            id_dirty = True
+        if id_dirty:
+            db.commit()
+
+        if len(raw_items) > 1:
+            _replace_subscription_items_with_flat_total(
+                profile.stripe_subscription_id,
+                raw_items,
+                units,
+                owner_profile_id=profile.id,
+            )
+            sub2 = stripe.Subscription.retrieve(profile.stripe_subscription_id, expand=["items.data"])
+            data2 = list(getattr(getattr(sub2, "items", None), "data", None) or [])
+            new_baseline = getattr(data2[0], "id", None) if data2 else None
+            profile.stripe_subscription_baseline_item_id = new_baseline
+            profile.stripe_subscription_shield_item_id = None
+            db.commit()
             logger.info(
-                "Subscription quantities synced (legacy) for profile_id=%s: units=%s, shield=%s",
+                "Subscription consolidated to flat total ($10*properties) for profile_id=%s (properties=%s)",
                 profile.id,
                 units,
-                shield_units,
             )
             return
+
+        if len(raw_items) == 1 and profile.stripe_subscription_shield_item_id:
+            profile.stripe_subscription_shield_item_id = None
+            db.commit()
+
+        if len(raw_items) == 1 and getattr(raw_items[0], "id", None):
+            profile.stripe_subscription_baseline_item_id = raw_items[0].id
 
         if profile.stripe_subscription_baseline_item_id:
             flat_prod_id = _get_or_create_flat_subscription_product_id()
@@ -294,6 +353,7 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
                 items=[{"id": profile.stripe_subscription_baseline_item_id, "price": price.id, "quantity": 1}],
             )
             logger.info("Subscription synced ($10*properties) for profile_id=%s (properties=%s)", profile.id, units)
+            db.commit()
     except stripe.StripeError as e:
         logger.warning("Stripe error syncing subscription for profile_id=%s: %s", profile.id, e)
 
