@@ -1,4 +1,6 @@
 """Module F: Legal restrictions & law display (Owner and Guest views)."""
+from typing import Any
+
 import logging
 import secrets
 import time
@@ -96,7 +98,12 @@ from app.services.event_ledger import (
 )
 from app.services.invitation_cleanup import get_invitation_expire_cutoff
 from app.services.invitation_guest_completion import guest_invitation_signing_started
-from app.services.billing import _count_properties_and_shield, sync_subscription_quantities, stripe_subscription_status_and_trial
+from app.services.billing import (
+    SUBSCRIPTION_FLAT_AMOUNT_CENTS,
+    _count_properties_and_shield,
+    sync_subscription_quantities,
+    stripe_subscription_status_and_trial,
+)
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON
 from app.services.notifications import (
     send_vacate_12h_notice,
@@ -4787,6 +4794,33 @@ def _parse_optional_utc(s: str | None) -> datetime | None:
         return None
 
 
+def _invoice_metadata_dict(inv: object) -> dict[str, Any]:
+    """Normalize Stripe ``Invoice.metadata`` (a ``StripeObject``) to a plain ``dict``.
+
+    Do not call ``dict(stripe_object)`` — the Stripe SDK can raise ``KeyError`` during coercion.
+    """
+    raw = getattr(inv, "metadata", None)
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    to_dict = getattr(raw, "to_dict", None)
+    if callable(to_dict):
+        try:
+            out = to_dict()
+            if isinstance(out, dict):
+                return {str(k): out[k] for k in out}
+        except Exception:
+            pass
+    keys_fn = getattr(raw, "keys", None)
+    if callable(keys_fn):
+        try:
+            return {str(k): raw[k] for k in keys_fn()}  # type: ignore[index]
+        except Exception:
+            pass
+    return {}
+
+
 def _stripe_invoice_visible_in_dashboard(inv: object) -> bool:
     """Hide $0 Stripe invoices (e.g. subscription free-trial bookkeeping with status paid, $0).
 
@@ -4827,6 +4861,16 @@ def owner_billing(
     import stripe
 
     stripe.api_key = settings.stripe_secret_key
+    if profile.stripe_subscription_id:
+        try:
+            sync_subscription_quantities(db, profile)
+        except Exception as e:
+            logger.warning(
+                "owner_billing: subscription sync failed profile_id=%s: %s",
+                profile.id,
+                e,
+                exc_info=True,
+            )
     invoices: list[BillingInvoiceView] = []
     payments: list[BillingPaymentView] = []
     try:
@@ -4847,7 +4891,7 @@ def owner_billing(
             if not desc and getattr(inv, "lines", None) and getattr(inv.lines, "data", None) and len(inv.lines.data) > 0:
                 desc = getattr(inv.lines.data[0], "description", None)
             # Self-heal: if webhook missed invoice.paid, set onboarding_invoice_paid_at and record in audit log so it shows in Logs (skip when stripe_skip_onboarding_self_heal for re-testing)
-            meta = getattr(inv, "metadata", None) or {}
+            meta = _invoice_metadata_dict(inv)
             if not settings.stripe_skip_onboarding_self_heal and inv.status == "paid" and meta.get("onboarding_units") and profile.onboarding_invoice_paid_at is None:
                 profile.onboarding_invoice_paid_at = datetime.now(timezone.utc)
                 user = db.query(User).filter(User.id == profile.user_id).first()
@@ -4943,15 +4987,55 @@ def sync_owner_billing_subscription(
     if current_user.role == UserRole.property_manager:
         raise HTTPException(status_code=403, detail="Property managers cannot modify billing. Contact the property owner.")
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
-    if not profile or not profile.stripe_subscription_id:
-        return BillingSyncSubscriptionResponse(ok=True)
+    if not profile:
+        return BillingSyncSubscriptionResponse(
+            ok=True,
+            properties_billed=0,
+            monthly_total_cents=0,
+            per_property_cents=int(SUBSCRIPTION_FLAT_AMOUNT_CENTS),
+        )
+    units, _shield_units = _count_properties_and_shield(db, profile)
+    monthly_total_cents = int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) * int(units)
+    meta = BillingSyncSubscriptionResponse(
+        ok=True,
+        properties_billed=units,
+        monthly_total_cents=monthly_total_cents,
+        per_property_cents=int(SUBSCRIPTION_FLAT_AMOUNT_CENTS),
+    )
+    if not profile.stripe_subscription_id:
+        return meta.model_copy(
+            update={
+                "stripe_modification_requests": [
+                    {
+                        "note": "no_stripe_subscription_id",
+                        "properties_billed": units,
+                        "target_monthly_total_cents": monthly_total_cents,
+                        "detail": "Sync did not call Stripe — no subscription id on this profile yet.",
+                    }
+                ]
+            }
+        )
     if not (get_settings().stripe_secret_key or "").strip():
         raise HTTPException(status_code=501, detail="Stripe is not configured")
+    trace: list[dict[str, Any]] = [
+        {
+            "note": "billing_sync_context",
+            "stripe_subscription_id": profile.stripe_subscription_id,
+            "properties_billed": units,
+            "target_monthly_total_cents": monthly_total_cents,
+        }
+    ]
     try:
-        sync_subscription_quantities(db, profile)
+        sync_subscription_quantities(db, profile, stripe_request_trace=trace)
     except Exception as e:
+        trace.append(
+            {
+                "note": "sync_raised_exception",
+                "error": str(e),
+            }
+        )
         raise HTTPException(status_code=502, detail=f"Could not sync subscription: {e}") from e
-    return BillingSyncSubscriptionResponse(ok=True)
+    return meta.model_copy(update={"stripe_modification_requests": trace})
 
 
 @router.post("/owner/billing/portal-session", response_model=BillingPortalSessionResponse)
@@ -4974,8 +5058,13 @@ def create_billing_portal_session(
     # Match Stripe line item to current property count before opening Customer Portal (most common entrypoint).
     try:
         sync_subscription_quantities(db, profile)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "billing portal: pre-sync failed profile_id=%s: %s",
+            profile.id,
+            e,
+            exc_info=True,
+        )
     base = (settings.stripe_identity_return_url or settings.frontend_base_url or "").strip().split("#")[0].rstrip("/")
     if not base:
         raise HTTPException(status_code=501, detail="Billing return URL not configured. Set STRIPE_IDENTITY_RETURN_URL or FRONTEND_BASE_URL in .env.")

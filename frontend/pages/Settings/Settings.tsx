@@ -209,7 +209,16 @@ const Settings: React.FC<{
                     onClick={async () => {
                       setBillingPortalOpening(true);
                       try {
-                        await dashboardApi.syncBillingSubscription().catch(() => {});
+                        const syncResult = await dashboardApi.syncBillingSubscription().catch((err) => {
+                          console.warn('[billing] sync failed', err);
+                          return null;
+                        });
+                        if (syncResult) {
+                          console.log(
+                            '[billing] Stripe subscription amount sync — echoed API payloads (copy/paste):',
+                            JSON.stringify(syncResult.stripe_modification_requests, null, 2)
+                          );
+                        }
                         const { url } = await dashboardApi.billingPortalSession();
                         if (url) window.location.href = url;
                       } catch (e) {

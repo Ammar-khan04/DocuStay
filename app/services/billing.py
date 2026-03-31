@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -125,6 +126,37 @@ def subscription_looks_legacy_per_unit_from_stripe(subscription: object) -> bool
     return False
 
 
+def _stripe_price_unit_amount_cents(price_obj: object | None) -> int | None:
+    """Unit amount in cents from an expanded Stripe Price, a dict-like object, or by retrieving price_* id."""
+    if price_obj is None:
+        return None
+    ua = None
+    if isinstance(price_obj, dict):
+        ua = price_obj.get("unit_amount")
+    else:
+        ua = getattr(price_obj, "unit_amount", None)
+    if ua is not None:
+        try:
+            return int(ua)
+        except (TypeError, ValueError):
+            pass
+    pid = None
+    if isinstance(price_obj, dict):
+        pid = price_obj.get("id")
+    else:
+        pid = getattr(price_obj, "id", None)
+    if isinstance(pid, str) and pid.startswith("price_"):
+        import stripe
+
+        try:
+            p = stripe.Price.retrieve(pid)
+            u = getattr(p, "unit_amount", None)
+            return int(u) if u is not None else None
+        except Exception:
+            return None
+    return None
+
+
 def _get_or_create_flat_subscription_product_id() -> str:
     import stripe
 
@@ -237,7 +269,12 @@ def ensure_subscription(
 
 
 def _replace_subscription_items_with_flat_total(
-    subscription_id: str, existing_items: list, units: int, *, owner_profile_id: int | None = None
+    subscription_id: str,
+    existing_items: list,
+    units: int,
+    *,
+    owner_profile_id: int | None = None,
+    stripe_request_trace: list[dict[str, Any]] | None = None,
 ) -> object:
     """Stripe modify: remove all current line items and add one recurring line at $10 * units (qty 1)."""
     import stripe
@@ -245,9 +282,22 @@ def _replace_subscription_items_with_flat_total(
     stripe.api_key = get_settings().stripe_secret_key
     flat_prod_id = _get_or_create_flat_subscription_product_id()
     new_total_cents = int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) * int(units)
-    meta = {"billing_model": "flat_total"}
+    meta: dict[str, str] = {"billing_model": "flat_total"}
     if owner_profile_id is not None:
         meta["owner_profile_id"] = str(owner_profile_id)
+    if stripe_request_trace is not None:
+        stripe_request_trace.append(
+            {
+                "stripe_request": "POST https://api.stripe.com/v1/prices",
+                "body": {
+                    "currency": "usd",
+                    "unit_amount": new_total_cents,
+                    "recurring": {"interval": "month"},
+                    "product": flat_prod_id,
+                    "metadata": dict(meta),
+                },
+            }
+        )
     price = stripe.Price.create(
         currency="usd",
         unit_amount=new_total_cents,
@@ -261,6 +311,16 @@ def _replace_subscription_items_with_flat_total(
         if iid:
             mod_items.append({"id": iid, "deleted": True})
     mod_items.append({"price": price.id, "quantity": 1})
+    if stripe_request_trace is not None:
+        stripe_request_trace.append(
+            {
+                "stripe_request": f"POST https://api.stripe.com/v1/subscriptions/{subscription_id}",
+                "body": {
+                    "items": mod_items,
+                    "proration_behavior": "none",
+                },
+            }
+        )
     return stripe.Subscription.modify(
         subscription_id,
         items=mod_items,
@@ -268,10 +328,17 @@ def _replace_subscription_items_with_flat_total(
     )
 
 
-def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
+def sync_subscription_quantities(
+    db: Session,
+    profile: OwnerProfile,
+    *,
+    stripe_request_trace: list[dict[str, Any]] | None = None,
+) -> None:
     """Update Stripe subscription to match account state.
 
     Single line item: amount = $10 * properties (quantity=1). Multi-line (legacy) subs are consolidated here.
+
+    If ``stripe_request_trace`` is a list, append JSON-serializable copies of Stripe API payloads (for client console debugging).
     """
     if not _stripe_enabled() or not profile.stripe_subscription_id:
         return
@@ -281,8 +348,22 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
 
     stripe.api_key = get_settings().stripe_secret_key
     try:
+        logger.info(
+            "sync_subscription_quantities start profile_id=%s units=%s subscription_id=%s",
+            profile.id,
+            units,
+            profile.stripe_subscription_id,
+        )
         if units <= 0:
-            stripe.Subscription.cancel(profile.stripe_subscription_id, prorate=True)
+            sub_id = profile.stripe_subscription_id
+            if stripe_request_trace is not None:
+                stripe_request_trace.append(
+                    {
+                        "stripe_request": f"DELETE https://api.stripe.com/v1/subscriptions/{sub_id}",
+                        "query": {"prorate": "true"},
+                    }
+                )
+            stripe.Subscription.cancel(sub_id, prorate=True)
             profile.stripe_subscription_id = None
             profile.stripe_subscription_baseline_item_id = None
             profile.stripe_subscription_shield_item_id = None
@@ -290,8 +371,16 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
             logger.info("Subscription cancelled for profile_id=%s (0 units); billing stopped (prorated).", profile.id)
             return
 
+        sub_id = profile.stripe_subscription_id
+        if stripe_request_trace is not None:
+            stripe_request_trace.append(
+                {
+                    "stripe_request": f"GET https://api.stripe.com/v1/subscriptions/{sub_id}",
+                    "query": {"expand[]": "items.data.price"},
+                }
+            )
         sub = stripe.Subscription.retrieve(
-            profile.stripe_subscription_id,
+            sub_id,
             expand=["items.data.price"],
         )
         raw_items = list(getattr(getattr(sub, "items", None), "data", None) or [])
@@ -317,6 +406,7 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
                 raw_items,
                 units,
                 owner_profile_id=profile.id,
+                stripe_request_trace=stripe_request_trace,
             )
             sub2 = stripe.Subscription.retrieve(profile.stripe_subscription_id, expand=["items.data"])
             data2 = list(getattr(getattr(sub2, "items", None), "data", None) or [])
@@ -342,26 +432,72 @@ def sync_subscription_quantities(db: Session, profile: OwnerProfile) -> None:
             new_total_cents = int(SUBSCRIPTION_FLAT_AMOUNT_CENTS) * int(units)
             if len(raw_items) == 1:
                 po = getattr(raw_items[0], "price", None)
-                cur_ua = getattr(po, "unit_amount", None) if po else None
-                if cur_ua is not None and int(cur_ua) == new_total_cents:
+                cur_ua = _stripe_price_unit_amount_cents(po)
+                if cur_ua is not None and cur_ua == new_total_cents:
+                    if stripe_request_trace is not None:
+                        stripe_request_trace.append(
+                            {
+                                "note": "no_stripe_write",
+                                "reason": "subscription_item_unit_amount_already_matches_property_count",
+                                "expected_unit_amount_cents": new_total_cents,
+                                "properties_billed": units,
+                            }
+                        )
                     db.commit()
                     return
             flat_prod_id = _get_or_create_flat_subscription_product_id()
+            meta = {"owner_profile_id": str(profile.id), "billing_model": "flat_total"}
+            if stripe_request_trace is not None:
+                stripe_request_trace.append(
+                    {
+                        "stripe_request": "POST https://api.stripe.com/v1/prices",
+                        "body": {
+                            "currency": "usd",
+                            "unit_amount": new_total_cents,
+                            "recurring": {"interval": "month"},
+                            "product": flat_prod_id,
+                            "metadata": meta,
+                        },
+                    }
+                )
             price = stripe.Price.create(
                 currency="usd",
                 unit_amount=new_total_cents,
                 recurring={"interval": "month"},
                 product=flat_prod_id,
-                metadata={"owner_profile_id": str(profile.id), "billing_model": "flat_total"},
+                metadata=meta,
             )
+            modify_items = [{"id": profile.stripe_subscription_baseline_item_id, "price": price.id, "quantity": 1}]
+            if stripe_request_trace is not None:
+                stripe_request_trace.append(
+                    {
+                        "stripe_request": f"POST https://api.stripe.com/v1/subscriptions/{profile.stripe_subscription_id}",
+                        "body": {"items": modify_items},
+                    }
+                )
             stripe.Subscription.modify(
                 profile.stripe_subscription_id,
-                items=[{"id": profile.stripe_subscription_baseline_item_id, "price": price.id, "quantity": 1}],
+                items=modify_items,
             )
             logger.info("Subscription synced ($10*properties) for profile_id=%s (properties=%s)", profile.id, units)
             db.commit()
     except stripe.StripeError as e:
-        logger.warning("Stripe error syncing subscription for profile_id=%s: %s", profile.id, e)
+        if stripe_request_trace is not None:
+            stripe_request_trace.append(
+                {
+                    "stripe_error": str(e),
+                    "stripe_error_code": getattr(e, "code", None),
+                    "note": "Stripe rejected a request in this sync (common: API key IP restrictions). Entries after this would be Price.create / Subscription.modify — those were not sent.",
+                }
+            )
+        logger.warning(
+            "Stripe error syncing subscription for profile_id=%s (units=%s sub=%s): %s",
+            profile.id,
+            units,
+            profile.stripe_subscription_id,
+            e,
+            exc_info=True,
+        )
 
 
 def charge_onboarding_fee(

@@ -1,8 +1,8 @@
 """Module F: Legal restrictions & law display (Owner / Guest views)."""
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.models.region_rule import StayClassification, RiskLevel
 
 
@@ -183,7 +183,15 @@ class BillingResponse(BaseModel):
 
 class BillingSyncSubscriptionResponse(BaseModel):
     """Stripe subscription was reconciled with current property count (no-op if already in sync)."""
+
     ok: bool = True
+    properties_billed: int = 0
+    monthly_total_cents: int = 0
+    per_property_cents: int = 1000
+    stripe_modification_requests: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Echo of Stripe API payloads used during sync (debug / console).",
+    )
 
 
 class BillingPortalSessionResponse(BaseModel):
