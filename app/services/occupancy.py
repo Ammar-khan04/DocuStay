@@ -27,6 +27,23 @@ def is_unit_effectively_occupied(db: Session, unit: Unit) -> bool:
     """True if the unit is occupied (stored status) or has an on-site resident (ResidentMode)."""
     if (unit.occupancy_status or "").lower() == OccupancyStatus.occupied.value:
         return True
+    today = date.today()
+    has_active_tenant_assignment = (
+        db.query(TenantAssignment)
+        .filter(
+            TenantAssignment.unit_id == unit.id,
+            TenantAssignment.start_date.isnot(None),
+            TenantAssignment.start_date <= today,
+            or_(
+                TenantAssignment.end_date.is_(None),
+                TenantAssignment.end_date >= today,
+            ),
+        )
+        .first()
+        is not None
+    )
+    if has_active_tenant_assignment:
+        return True
     return (
         db.query(ResidentMode)
         .filter(
@@ -41,6 +58,23 @@ def is_unit_effectively_occupied(db: Session, unit: Unit) -> bool:
 def get_unit_display_occupancy_status(db: Session, unit: Unit) -> str:
     """Return the occupancy status to display for a unit (owner or manager view)."""
     if (unit.occupancy_status or "").lower() == OccupancyStatus.occupied.value:
+        return OccupancyStatus.occupied.value
+    today = date.today()
+    has_active_tenant_assignment = (
+        db.query(TenantAssignment)
+        .filter(
+            TenantAssignment.unit_id == unit.id,
+            TenantAssignment.start_date.isnot(None),
+            TenantAssignment.start_date <= today,
+            or_(
+                TenantAssignment.end_date.is_(None),
+                TenantAssignment.end_date >= today,
+            ),
+        )
+        .first()
+        is not None
+    )
+    if has_active_tenant_assignment:
         return OccupancyStatus.occupied.value
     if (
         db.query(ResidentMode)

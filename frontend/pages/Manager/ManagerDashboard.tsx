@@ -5,7 +5,7 @@ import { InviteRoleChoiceModal } from '../../components/InviteRoleChoiceModal';
 import { InviteTenantModal } from '../../components/InviteTenantModal';
 import { InviteGuestModal } from '../../components/InviteGuestModal';
 import { UserSession } from '../../types';
-import { dashboardApi, getContextMode, setContextMode, buildGuestInviteUrl, type OwnerInvitationView, type OwnerAuditLogEntry } from '../../services/api';
+import { dashboardApi, getContextMode, setContextMode, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, type OwnerInvitationView, type OwnerAuditLogEntry } from '../../services/api';
 import { ModeSwitcher } from '../../components/ModeSwitcher';
 import Settings from '../Settings/Settings';
 import HelpCenter from '../Support/HelpCenter';
@@ -355,18 +355,30 @@ const ManagerDashboard: React.FC<{
                           )}
                         </td>
                         <td className="px-6 py-5 text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={async () => {
-                              const url = buildGuestInviteUrl(inv.invitation_code, { isDemo: Boolean(inv.is_demo) });
-                              const ok = await copyToClipboard(url);
-                              if (ok) notify('success', 'Invitation link copied to clipboard.');
-                              else notify('error', 'Could not copy. Please copy the link manually.');
-                            }}
-                          >
-                            Copy link
-                          </Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {inv.is_demo && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                type="button"
+                                onClick={() => window.open(demoStoredUnsignedGuestAgreementPdfUrl(inv.invitation_code), '_blank')}
+                              >
+                                Unsigned PDF
+                              </Button>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                const url = buildGuestInviteUrl(inv.invitation_code, { isDemo: Boolean(inv.is_demo) });
+                                const ok = await copyToClipboard(url);
+                                if (ok) notify('success', 'Invitation link copied to clipboard.');
+                                else notify('error', 'Could not copy. Please copy the link manually.');
+                              }}
+                            >
+                              Copy link
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -445,11 +457,10 @@ const ManagerDashboard: React.FC<{
                   <option value="status_change">Status change</option>
                   <option value="shield_mode">Shield Mode</option>
                   <option value="dead_mans_switch">Stay end reminders</option>
-                  <option value="guest_signature">Guest signature</option>
-                  <option value="failed_attempt">Failed attempt</option>
-                  <option value="billing">Billing</option>
-                  <option value="presence">Presence / Away</option>
-                  <option value="tenant_assignment">Tenant assignment</option>
+                    <option value="guest_signature">Guest signature</option>
+                    <option value="failed_attempt">Failed attempt</option>
+                    <option value="billing">Billing</option>
+                    <option value="tenant_assignment">Tenant assignment</option>
                 </select>
               </div>
               <div>

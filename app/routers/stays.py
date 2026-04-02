@@ -59,6 +59,17 @@ def create_stay(
     if result and result.compliance_status == "exceeds_limit":
         raise HTTPException(status_code=400, detail=result.message or "Stay duration exceeds legal limit for this region.")
 
+    from app.services.guest_stay_overlap import enforce_guest_stay_no_overlap_or_resolve_for_dates
+
+    enforce_guest_stay_no_overlap_or_resolve_for_dates(
+        db,
+        guest_id=guest_id,
+        property_id=prop.id,
+        unit_id=None,
+        range_start=data.stay_start_date,
+        range_end=data.stay_end_date,
+    )
+
     stay = Stay(
         guest_id=guest_id,
         owner_id=owner_id,

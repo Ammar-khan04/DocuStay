@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, Button } from './UI';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatStayDuration } from '../utils/dateUtils';
-import { buildGuestInviteUrl, type OwnerInvitationView, type OwnerStayView } from '../services/api';
+import { buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, type OwnerInvitationView, type OwnerStayView } from '../services/api';
 
 function TokenStateBadge({ tokenState }: { tokenState?: string | null }) {
   const state = (tokenState || 'STAGED').toUpperCase();
@@ -23,6 +23,20 @@ function TokenStateBadge({ tokenState }: { tokenState?: string | null }) {
     <span className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${classes}`}>
       {displayLabel}
     </span>
+  );
+}
+
+function DemoUnsignedAgreementPdfButton({ invitationCode, isDemo }: { invitationCode: string; isDemo?: boolean }) {
+  if (!isDemo) return null;
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      type="button"
+      onClick={() => window.open(demoStoredUnsignedGuestAgreementPdfUrl(invitationCode), '_blank')}
+    >
+      Unsigned PDF
+    </Button>
   );
 }
 
@@ -127,6 +141,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-2 flex-wrap">
+                        <DemoUnsignedAgreementPdfButton invitationCode={inv.invitation_code} isDemo={inv.is_demo} />
                         <Button variant="outline" size="sm" onClick={() => handleCopyLink(inv)}>Copy link</Button>
                         {showVerifyQR && onVerifyQR && (
                           <Button variant="outline" size="sm" onClick={() => onVerifyQR(inv.invitation_code)}>Verify QR</Button>
@@ -187,7 +202,8 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-600 border border-slate-200">Expired</span>
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
+                        <DemoUnsignedAgreementPdfButton invitationCode={inv.invitation_code} isDemo={inv.is_demo} />
                         {onResendInvitation && (
                           <Button variant="outline" size="sm" onClick={() => handleResend(inv)}>Re-send</Button>
                         )}
@@ -255,6 +271,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-2 flex-wrap">
+                          <DemoUnsignedAgreementPdfButton invitationCode={inv.invitation_code} isDemo={inv.is_demo} />
                           <Button variant="outline" size="sm" onClick={() => handleCopyLink(inv)}>Copy link</Button>
                           {showVerifyQR && onVerifyQR && (
                             <Button variant="outline" size="sm" onClick={() => onVerifyQR(inv.invitation_code)}>Verify QR</Button>

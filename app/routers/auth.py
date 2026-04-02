@@ -41,6 +41,11 @@ from app.services.event_ledger import (
     ACTION_SHIELD_MODE_OFF,
 )
 from app.services.billing import sync_subscription_quantities
+from app.services.agreements import (
+    agreement_content_to_pdf,
+    build_invitation_agreement,
+    fill_guest_signature_in_content,
+)
 from app.services.registration_email import (
     normalize_registration_email,
     enforce_email_available_for_intended_role,
@@ -99,6 +104,10 @@ from app.models.guest import GuestProfile
 from app.models.manager_invitation import ManagerInvitation
 from app.models.tenant_assignment import TenantAssignment
 from app.models.property_manager_assignment import PropertyManagerAssignment
+from app.services.tenant_lease_window import (
+    assert_can_record_tenant_assignment_for_invite_or_raise,
+    find_tenant_assignment_matching_invitation,
+)
 from app.config import get_settings
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON
 
@@ -1029,6 +1038,7 @@ def _complete_pending_tenant(db: Session, pending: PendingRegistration) -> User:
 
     if inv:
         # Tenant does not sign any agreement. Create TenantAssignment directly (accept invite / access to unit).
+        assert_can_record_tenant_assignment_for_invite_or_raise(db, inv, user.id)
         ta = TenantAssignment(
             unit_id=inv.unit_id,
             user_id=user.id,
@@ -1124,6 +1134,9 @@ def _complete_pending_guest(
         duration = (inv.stay_end_date - inv.stay_start_date).days
         if duration <= 0:
             duration = 1
+        from app.services.guest_stay_overlap import enforce_guest_stay_no_overlap_or_resolve
+
+        enforce_guest_stay_no_overlap_or_resolve(db, guest_id=user.id, inv=inv)
         stay = Stay(
             guest_id=user.id,
             owner_id=inv.owner_id,
@@ -2080,7 +2093,7 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
     )
     db.add(user)
     try:
-        db.commit()
+        db.flush()
     except IntegrityError as e:
         db.rollback()
         msg = str(getattr(getattr(e, "orig", None), "args", [""])[0] if hasattr(e, "orig") and e.orig else str(e))
@@ -2090,7 +2103,6 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
                 detail=same_role_already_registered_message(target_role),
             )
         raise
-    db.refresh(user)
     if target_role == UserRole.guest:
         permanent_home = f"{data.permanent_address}, {data.permanent_city}, {data.permanent_state} {data.permanent_zip}".strip()
         profile = GuestProfile(
@@ -2101,7 +2113,12 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
         )
         db.add(profile)
     if target_role == UserRole.tenant and code and inv:
-        # Tenant does not sign any agreement. Create TenantAssignment directly (accept invite / access to unit).
+        # Tenant does not sign any agreement. Create TenantAssignment in the same transaction as the user.
+        try:
+            assert_can_record_tenant_assignment_for_invite_or_raise(db, inv, user.id)
+        except HTTPException:
+            db.rollback()
+            raise
         ta = TenantAssignment(
             unit_id=inv.unit_id,
             user_id=user.id,
@@ -2136,14 +2153,27 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
             )
         except Exception as e:
             logging.getLogger(__name__).warning("Failed to create tenant_accepted dashboard alert (register): %s", e)
-    db.flush()
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        msg = str(getattr(getattr(e, "orig", None), "args", [""])[0] if hasattr(e, "orig") and e.orig else str(e))
+        if "email" in msg.lower() or "unique" in msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=same_role_already_registered_message(target_role),
+            )
+        raise
+    db.refresh(user)
 
     # Full accept path (guests only): code + valid signature -> create stay, mark inv accepted, token BURNED
     if target_role == UserRole.guest and code and inv and sig:
         duration = (inv.stay_end_date - inv.stay_start_date).days
         if duration <= 0:
             duration = 1
+        from app.services.guest_stay_overlap import enforce_guest_stay_no_overlap_or_resolve
+
+        enforce_guest_stay_no_overlap_or_resolve(db, guest_id=user.id, inv=inv)
         stay = Stay(
             guest_id=user.id,
             owner_id=inv.owner_id,
@@ -2496,33 +2526,64 @@ def accept_invite(
         # Tenant invitations don't require an agreement signature
         pass
     else:
-        # Demo exception: auto-create a minimal signature for demo-originated invites accepted by demo accounts.
+        # Demo exception: auto-create signature for demo-originated invites accepted by demo accounts.
+        # Use the same agreement body, document id/title/hash, and PDF pipeline as production typed signing.
         if demo_session_user and demo_originated_invite and not (data.agreement_signature_id and data.agreement_signature_id > 0):
-            import hashlib
-
-            content = f"DocuStay Demo Agreement\nInvite: {code}\nUser: {(current_user.email or '').strip()}\n"
-            doc_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            guest_fn = (current_user.full_name or "").strip() or (current_user.email or "").strip() or "Demo Guest"
+            doc = build_invitation_agreement(db, invitation_code=code, guest_full_name=guest_fn)
+            if not doc:
+                create_log(
+                    db,
+                    CATEGORY_FAILED_ATTEMPT,
+                    "Accept invite (demo): agreement build failed",
+                    f"Could not build invitation agreement for demo accept-invite code {code}.",
+                    property_id=getattr(inv, "property_id", None),
+                    invitation_id=inv.id,
+                    actor_user_id=current_user.id,
+                    actor_email=current_user.email,
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=(request.headers.get("user-agent") or "").strip() or None,
+                    meta={"invitation_code": code},
+                )
+                db.commit()
+                raise HTTPException(
+                    status_code=400,
+                    detail="Agreement could not be generated for this invitation. Please try again.",
+                )
+            ip = request.client.host if request.client else None
+            ua = (request.headers.get("user-agent") or "").strip() or None
             sig = AgreementSignature(
                 invitation_code=code,
-                region_code=getattr(inv, "region_code", None) or "US",
+                region_code=doc.region_code,
                 guest_email=(current_user.email or "").strip().lower(),
-                guest_full_name=(current_user.full_name or "").strip() or (current_user.email or "").strip() or "Demo Guest",
-                typed_signature=(current_user.full_name or "").strip() or (current_user.email or "").strip() or "Demo Guest",
+                guest_full_name=guest_fn,
+                typed_signature=guest_fn,
                 signature_method="typed",
                 acks_read=True,
                 acks_temporary=True,
                 acks_vacate=True,
                 acks_electronic=True,
-                document_id=f"demo-{code}",
-                document_title="DocuStay Demo Agreement",
-                document_hash=doc_hash,
-                document_content=content,
-                ip_address=request.client.host if request.client else None,
-                user_agent=(request.headers.get("user-agent") or "").strip() or None,
+                document_id=doc.document_id,
+                document_title=doc.title,
+                document_hash=doc.document_hash,
+                document_content=doc.content,
+                ip_address=ip,
+                user_agent=ua[:400] if ua else None,
                 used_by_user_id=current_user.id,
                 used_at=datetime.now(timezone.utc),
             )
             db.add(sig)
+            db.flush()
+            date_str = sig.signed_at.strftime("%Y-%m-%d") if sig.signed_at else ""
+            content_with_sig = fill_guest_signature_in_content(
+                doc.content, sig.typed_signature, date_str, sig.ip_address
+            )
+            try:
+                sig.signed_pdf_bytes = agreement_content_to_pdf(doc.title, content_with_sig)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Demo accept-invite: agreement_content_to_pdf failed for invitation %s", code, exc_info=True
+                )
             db.flush()
         else:
             sig = db.query(AgreementSignature).filter(AgreementSignature.id == data.agreement_signature_id).first()
@@ -2659,28 +2720,11 @@ def accept_invite(
         db.commit()
         return {"status": "success", "message": "Invitation already accepted."}
 
-    # Reject if this invite overlaps any existing stay for this guest
-    existing_stays = db.query(Stay).filter(Stay.guest_id == current_user.id).all()
-    for s in existing_stays:
-        # Ranges overlap if start1 < end2 and end1 > start2
-        if inv.stay_start_date < s.stay_end_date and inv.stay_end_date > s.stay_start_date:
-            raise HTTPException(
-                status_code=400,
-                detail="This invitation overlaps with an existing stay. Only one stay can be accepted at a time.",
-            )
-
     inv_kind = (getattr(inv, "invitation_kind", None) or "").strip().lower()
     if inv_kind == "tenant" and current_user.role == UserRole.tenant:
         # Tenant accepting a tenant invitation: create TenantAssignment (no Stay)
-        existing_ta = (
-            db.query(TenantAssignment)
-            .filter(
-                TenantAssignment.user_id == current_user.id,
-                TenantAssignment.unit_id == inv.unit_id,
-            )
-            .first()
-        )
-        if existing_ta:
+        matching_ta = find_tenant_assignment_matching_invitation(db, current_user.id, inv)
+        if matching_ta:
             if sig and sig.used_by_user_id is None:
                 sig.used_by_user_id = current_user.id
                 sig.used_at = datetime.now(timezone.utc)
@@ -2692,6 +2736,7 @@ def accept_invite(
             ).delete(synchronize_session="fetch")
             db.commit()
             return {"status": "success", "message": "Invitation already accepted."}
+        assert_can_record_tenant_assignment_for_invite_or_raise(db, inv, current_user.id)
         ta = TenantAssignment(
             unit_id=inv.unit_id,
             user_id=current_user.id,
@@ -2757,6 +2802,10 @@ def accept_invite(
         db.flush()
         db.commit()
         return {"status": "success", "message": "Invitation accepted"}
+
+    from app.services.guest_stay_overlap import enforce_guest_stay_no_overlap_or_resolve
+
+    enforce_guest_stay_no_overlap_or_resolve(db, guest_id=current_user.id, inv=inv)
 
     duration = (inv.stay_end_date - inv.stay_start_date).days
     if duration <= 0:

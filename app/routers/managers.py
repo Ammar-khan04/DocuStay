@@ -3,6 +3,7 @@ import secrets
 from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Body
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, func
 from pydantic import BaseModel, Field
 from app.database import get_db
 from app.models.user import User
@@ -10,6 +11,7 @@ from app.models.owner import Property, OwnerProfile, OccupancyStatus
 from app.models.unit import Unit
 from app.models.property_manager_assignment import PropertyManagerAssignment
 from app.models.invitation import Invitation
+from app.models.tenant_assignment import TenantAssignment
 from app.services.occupancy import (
     count_effectively_occupied_units,
     get_property_display_occupancy_status,
@@ -23,6 +25,7 @@ from app.services.manager_resident import add_manager_onsite_resident, remove_ma
 from app.services.jle import validate_stay_duration_for_property
 from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE
 from app.services.event_ledger import create_ledger_event, ACTION_TENANT_INVITED
+from app.services.tenant_lease_window import assert_unit_available_for_new_tenant_invite_or_raise
 from app.services.shield_mode_policy import effective_shield_mode_enabled
 from app.models.audit_log import AuditLog
 
@@ -65,6 +68,10 @@ class UnitSummary(BaseModel):
     occupancy_status: str
     occupied_by: str | None = None  # guest name, "X (Property manager)", or tenant name
     invite_id: str | None = None  # invitation_code when applicable (not for manager/tenant)
+    current_tenant_name: str | None = None
+    current_tenant_email: str | None = None
+    lease_start_date: str | None = None  # YYYY-MM-DD
+    lease_end_date: str | None = None  # YYYY-MM-DD; null on API means open-ended lease
 
 
 @router.get("/properties", response_model=list[PropertySummary])
@@ -197,7 +204,44 @@ def list_property_units(
         raise HTTPException(status_code=404, detail="Property not found")
     units = db.query(Unit).filter(Unit.property_id == property_id).all()
     if not units:
-        # Single-unit property: return implicit unit
+        # Single-unit property: return implicit unit; tenant invite may have unit_id=null
+        today_su = date.today()
+        inv_su = (
+            db.query(Invitation)
+            .filter(
+                Invitation.property_id == property_id,
+                Invitation.unit_id.is_(None),
+                func.lower(func.coalesce(Invitation.invitation_kind, "guest")) == "tenant",
+                Invitation.token_state.notin_(["REVOKED", "CANCELLED"]),
+            )
+            .order_by(Invitation.created_at.desc())
+            .first()
+        )
+        tn_su = te_su = tls_su = tle_su = None
+        if inv_su:
+            raw_n = (inv_su.guest_name or "").strip() or None
+            te_su = (inv_su.guest_email or "").strip() or None
+            tn_su = raw_n or te_su
+            tls_su = inv_su.stay_start_date.isoformat() if inv_su.stay_start_date else None
+            tle_su = inv_su.stay_end_date.isoformat() if inv_su.stay_end_date else None
+        else:
+            ta_su = (
+                db.query(TenantAssignment)
+                .join(Unit, TenantAssignment.unit_id == Unit.id)
+                .filter(
+                    Unit.property_id == property_id,
+                    TenantAssignment.start_date <= today_su,
+                    or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today_su),
+                )
+                .order_by(TenantAssignment.created_at.desc())
+                .first()
+            )
+            if ta_su:
+                usr = db.query(User).filter(User.id == ta_su.user_id).first()
+                te_su = ((usr.email or "").strip() or None) if usr else None
+                tn_su = ((usr.full_name or "").strip() or te_su or None) if usr else None
+                tls_su = ta_su.start_date.isoformat() if ta_su.start_date else None
+                tle_su = ta_su.end_date.isoformat() if ta_su.end_date else None
         return [
             UnitSummary(
                 id=0,
@@ -205,6 +249,10 @@ def list_property_units(
                 occupancy_status=prop.occupancy_status or OccupancyStatus.unknown.value,
                 occupied_by=None,
                 invite_id=None,
+                current_tenant_name=tn_su,
+                current_tenant_email=te_su,
+                lease_start_date=tls_su,
+                lease_end_date=tle_su,
             )
         ]
     unit_ids = [u.id for u in units]
@@ -215,16 +263,85 @@ def list_property_units(
         )
     else:
         occupancy_display = {}
-    return [
-        UnitSummary(
-            id=u.id,
-            unit_label=u.unit_label,
-            occupancy_status=get_unit_display_occupancy_status(db, u),
-            occupied_by=occupancy_display.get(u.id, {}).get("occupied_by") if context_mode == "personal" else None,
-            invite_id=occupancy_display.get(u.id, {}).get("invite_id") if context_mode == "personal" else None,
+
+    today = date.today()
+
+    def _tuple_from_tenant_assignment(ta: TenantAssignment) -> tuple[str | None, str | None, str | None, str | None]:
+        usr = db.query(User).filter(User.id == ta.user_id).first()
+        email = ((usr.email or "").strip() or None) if usr else None
+        name = ((usr.full_name or "").strip() or email or None) if usr else None
+        ls = ta.start_date.isoformat() if ta.start_date else None
+        le = ta.end_date.isoformat() if ta.end_date else None
+        return name, email, ls, le
+
+    def tenant_lease_display_for_unit(unit_id: int) -> tuple[str | None, str | None, str | None, str | None]:
+        """
+        Prefer an in-window TenantAssignment, then a future assignment, then a tenant Invitation on the unit
+        (CSV / pending signup often have invitation + unit occupancy but no assignment row yet).
+        """
+        ta_active = (
+            db.query(TenantAssignment)
+            .filter(
+                TenantAssignment.unit_id == unit_id,
+                TenantAssignment.start_date <= today,
+                or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
+            )
+            .order_by(TenantAssignment.created_at.desc())
+            .first()
         )
-        for u in units
-    ]
+        if ta_active:
+            return _tuple_from_tenant_assignment(ta_active)
+
+        ta_future = (
+            db.query(TenantAssignment)
+            .filter(
+                TenantAssignment.unit_id == unit_id,
+                TenantAssignment.start_date > today,
+                or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
+            )
+            .order_by(TenantAssignment.start_date.asc())
+            .first()
+        )
+        if ta_future:
+            return _tuple_from_tenant_assignment(ta_future)
+
+        inv = (
+            db.query(Invitation)
+            .filter(
+                Invitation.unit_id == unit_id,
+                func.lower(func.coalesce(Invitation.invitation_kind, "guest")) == "tenant",
+                Invitation.token_state.notin_(["REVOKED", "CANCELLED"]),
+            )
+            .order_by(Invitation.created_at.desc())
+            .first()
+        )
+        if inv:
+            raw_name = (inv.guest_name or "").strip() or None
+            email = (inv.guest_email or "").strip() or None
+            display_name = raw_name or email
+            ls = inv.stay_start_date.isoformat() if inv.stay_start_date else None
+            le = inv.stay_end_date.isoformat() if inv.stay_end_date else None
+            return display_name, email, ls, le
+
+        return None, None, None, None
+
+    summaries: list[UnitSummary] = []
+    for u in units:
+        tn, te, tls, tle = tenant_lease_display_for_unit(u.id)
+        summaries.append(
+            UnitSummary(
+                id=u.id,
+                unit_label=u.unit_label,
+                occupancy_status=get_unit_display_occupancy_status(db, u),
+                occupied_by=occupancy_display.get(u.id, {}).get("occupied_by") if context_mode == "personal" else None,
+                invite_id=occupancy_display.get(u.id, {}).get("invite_id") if context_mode == "personal" else None,
+                current_tenant_name=tn,
+                current_tenant_email=te,
+                lease_start_date=tls,
+                lease_end_date=tle,
+            )
+        )
+    return summaries
 
 
 @router.post("/properties/{property_id}/my-resident-mode")
@@ -314,6 +431,7 @@ def invite_tenant(
     jurisdiction_error = validate_stay_duration_for_property(db, region_code, owner_occupied, start, end)
     if jurisdiction_error:
         raise HTTPException(status_code=400, detail=jurisdiction_error)
+    assert_unit_available_for_new_tenant_invite_or_raise(db, unit_id, start, end)
     code = "INV-" + secrets.token_hex(4).upper()
     from app.models.demo_account import is_demo_user_id
     inv = Invitation(

@@ -54,6 +54,7 @@ class BulkUploadResult(BaseModel):
     """Result of CSV bulk upload: counts and first failure info."""
     created: int = 0
     updated: int = 0
+    units_created: int = 0
     failed_from_row: int | None = None  # 1-based; None if all succeeded
     failure_reason: str | None = None
 
@@ -106,6 +107,9 @@ class PropertyResponse(BaseModel):
     is_multi_unit: bool = False
     # Number of units (1 for single-unit; from Unit table for multi-unit). Included in list response for dashboard counts.
     unit_count: int | None = None
+    # Occupancy counts (for multi-unit card/status display). For single-unit, these may be 0/1 depending on effective occupancy.
+    occupied_unit_count: int | None = None
+    vacant_unit_count: int | None = None
 
     # Smarty standardized address (ZIP-code utility bucket / authority letters)
     smarty_delivery_line_1: str | None = None

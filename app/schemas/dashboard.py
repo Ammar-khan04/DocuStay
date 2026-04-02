@@ -12,6 +12,7 @@ class OwnerInvitationView(BaseModel):
     invitation_code: str  # Invite ID (used as Stay ID for display)
     property_id: int
     property_name: str
+    unit_label: str | None = None  # Set for multi-unit properties (tenant/owner guest lists)
     guest_name: str | None = None
     guest_email: str | None
     stay_start_date: date
@@ -49,6 +50,7 @@ class OwnerStayView(BaseModel):
     invitation_only: bool = False  # True when from CSV BURNED invite with no Stay (tenant has not signed up yet)
     guest_name: str
     property_name: str
+    unit_label: str | None = None  # Multi-unit: which unit this stay/invite is for
     stay_start_date: date
     stay_end_date: date
     region_code: str

@@ -74,6 +74,7 @@ from app.models.property_utility import PropertyUtilityProvider, PropertyAuthori
 from app.background_jobs import submit_utility_job
 from app.services.provider_contact_search import run_provider_contact_lookup_job
 from app.services.census_geocoder import geocode_coordinates
+from app.services.tenant_lease_window import assert_unit_available_for_new_tenant_invite_or_raise
 from app.utility_providers.pending_provider_verification_job import run_pending_provider_verification_job
 from app.utility_providers.sqlite_cache import add_pending_provider, get_pending_providers_for_property
 from app.config import get_settings
@@ -97,6 +98,7 @@ from app.services.occupancy import (
     get_unit_display_occupancy_status,
     get_property_display_occupancy_status,
     get_units_occupancy_display,
+    count_effectively_occupied_units,
 )
 
 router = APIRouter(prefix="/owners", tags=["owners"])
@@ -302,17 +304,30 @@ def list_my_properties(
     db.commit()
     if not props:
         return []
+    prop_ids = [p.id for p in props]
     unit_count_rows = (
         db.query(Unit.property_id, func.count(Unit.id).label("cnt"))
-        .filter(Unit.property_id.in_([p.id for p in props]))
+        .filter(Unit.property_id.in_(prop_ids))
         .group_by(Unit.property_id)
         .all()
     )
     unit_count_map = {r.property_id: r.cnt for r in unit_count_rows}
+    # Load units once so we can compute effective occupancy + counts consistently for cards.
+    units_by_property_id: dict[int, list[Unit]] = {pid: [] for pid in prop_ids}
+    all_units = db.query(Unit).filter(Unit.property_id.in_(prop_ids)).all()
+    for u in all_units:
+        units_by_property_id.setdefault(u.property_id, []).append(u)
     out = []
     for p in props:
         data = PropertyResponse.model_validate(p).model_dump()
-        data["unit_count"] = unit_count_map.get(p.id) or 1
+        units = units_by_property_id.get(p.id, [])
+        data["unit_count"] = unit_count_map.get(p.id) or (len(units) if units else 1)
+        # Use effective occupancy for display (includes tenant assignments + on-site manager resident).
+        data["occupancy_status"] = get_property_display_occupancy_status(db, p, units)
+        occupied_units = count_effectively_occupied_units(db, units) if units else (1 if (data["occupancy_status"] or "").lower() == OccupancyStatus.occupied.value else 0)
+        total_units = int(data["unit_count"] or 1)
+        data["occupied_unit_count"] = occupied_units
+        data["vacant_unit_count"] = max(0, total_units - occupied_units)
         out.append(PropertyResponse(**data))
     return out
 
@@ -598,6 +613,40 @@ def _parse_date_cell(val: str | None) -> date | None:
     return None
 
 
+def _bulk_property_group_key(
+    *,
+    street: str,
+    city: str,
+    state: str,
+    zip_code: str | None,
+    property_name: str,
+) -> tuple[str, str, str, str, str]:
+    """Grouping key for bulk upload.
+
+    Rows with the same (street, city, state, zip, name) are treated as units of the same Property.
+    """
+    return (
+        _normalize_addr(street),
+        _normalize_addr(city),
+        _normalize_addr(state),
+        _normalize_addr(zip_code or ""),
+        _normalize_addr(property_name),
+    )
+
+
+def _next_auto_unit_label(existing_labels: set[str]) -> str:
+    """Next numeric unit label not currently used (1,2,3...)."""
+    max_n = 0
+    for l in existing_labels:
+        try:
+            n = int(str(l).strip())
+            if n > max_n:
+                max_n = n
+        except Exception:
+            continue
+    return str(max_n + 1 if max_n >= 1 else 1)
+
+
 @router.post("/properties/bulk-upload", response_model=BulkUploadResult)
 def bulk_upload_properties(
     request: Request,
@@ -638,6 +687,7 @@ def bulk_upload_properties(
 
     created = 0
     updated = 0
+    units_created = 0
     failed_from_row = None
     failure_reason = None
     existing_props: list[Property] = (
@@ -649,6 +699,20 @@ def bulk_upload_properties(
         .all()
     )
 
+    # Build a fast lookup for existing properties using the same grouping logic.
+    existing_props_by_key: dict[tuple[str, str, str, str, str], Property] = {}
+    for p in existing_props:
+        k = _bulk_property_group_key(
+            street=(p.street or ""),
+            city=(p.city or ""),
+            state=(p.state or ""),
+            zip_code=(p.zip_code or None),
+            property_name=(p.name or ""),
+        )
+        # Keep first match; if duplicates exist already, behavior is undefined but consistent.
+        if k not in existing_props_by_key:
+            existing_props_by_key[k] = p
+
     def _get_cell(row: dict, *keys: str) -> str | None:
         for k in keys:
             orig = norm_to_orig.get(k) or norm_to_orig.get(k.replace("_", ""))
@@ -657,6 +721,30 @@ def bulk_upload_properties(
                 if v:
                     return v
         return None
+
+    # Pre-scan rows to detect multi-unit groups (same addr+city+state+zip+name).
+    group_counts: dict[tuple[str, str, str, str, str], int] = {}
+    for row in rows:
+        address = _get_cell(row, "address", "street_address", "street") or ""
+        city = _get_cell(row, "city") or ""
+        state = _get_cell(row, "state") or ""
+        zip_code = _get_cell(row, "zip", "zip_code") or ""
+        property_name_raw = _get_cell(row, "property_name", "name")
+        state_upper = (state or "").upper()[:50]
+        base_street = (address or "").strip()
+        address_as_name = f"{base_street.strip()}, {city.strip()}, {state_upper}".strip(", ")
+        prop_name = (property_name_raw or "").strip() or address_as_name
+        k = _bulk_property_group_key(
+            street=base_street,
+            city=city,
+            state=state_upper,
+            zip_code=zip_code,
+            property_name=prop_name,
+        )
+        group_counts[k] = int(group_counts.get(k, 0)) + 1
+
+    # Cache units per property so we don't query on every row.
+    units_by_property_id: dict[int, dict[str, int]] = {}
 
     for idx, row in enumerate(rows, start=1):
         row_num = idx
@@ -681,9 +769,8 @@ def bulk_upload_properties(
         occupied_unit_raw = _get_cell(row, "occupied_unit", "unit_label")
         primary_residence_unit_raw = _get_cell(row, "primary_residence_unit", "primary_unit")
 
+        # Do NOT append Unit No to street; repeated addresses become units of the same property.
         street = (address or "").strip()
-        if unit_no:
-            street = f"{street}, {unit_no.strip()}".strip(", ")
         if not street:
             failed_from_row = row_num
             failure_reason = "Missing required column: Address (or street_address/street)."
@@ -766,12 +853,15 @@ def bulk_upload_properties(
             # threshold only applies when creating Guest Invitations, not tenant leases.
             # Allow past lease start (e.g. existing tenancies / backfilled data)
 
-        state_norm = _normalize_addr(state)
-        existing_match = None
-        for p in existing_props:
-            if _normalize_addr(p.street) == street_norm and _normalize_addr(p.city) == city_norm and _normalize_addr(p.state) == state_norm:
-                existing_match = p
-                break
+        key = _bulk_property_group_key(
+            street=street,
+            city=city,
+            state=state_upper,
+            zip_code=zip_code,
+            property_name=prop_name,
+        )
+        existing_match = existing_props_by_key.get(key)
+        treat_as_multi_unit = bool(group_counts.get(key, 0) > 1 or (unit_no or "").strip() or (occupied_unit_raw or "").strip())
 
         if existing_match is None:
             # Primary residence: from primary_residence column, or when primary_unit_val is set for multi-unit
@@ -791,7 +881,7 @@ def bulk_upload_properties(
                 bedrooms=bedrooms_val if not is_multi_type else None,
                 occupancy_status=occ_status,
                 shield_mode_enabled=persisted_shield_row_int(csv_parsed_on=shield_mode),
-                is_multi_unit=bool(unit_count_val and unit_count_val > 1),
+                is_multi_unit=treat_as_multi_unit,
             )
             prop.tax_id = (tax_id_raw or "").strip() or None
             prop.apn = (apn_raw or "").strip() or None
@@ -806,17 +896,7 @@ def bulk_upload_properties(
             else:
                 prop.usat_token = "USAT-" + secrets.token_hex(8).upper() + "-" + str(prop.id)
             prop.usat_token_state = USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED
-            # Create Unit rows for multi-unit properties
-            if unit_count_val is not None and unit_count_val > 1:
-                for i in range(1, unit_count_val + 1):
-                    is_primary = primary_unit_val is not None and primary_unit_val == i
-                    u = Unit(
-                        property_id=prop.id,
-                        unit_label=str(i),
-                        occupancy_status=OccupancyStatus.occupied.value if is_primary else OccupancyStatus.unknown.value,
-                        is_primary_residence=1 if is_primary else 0,
-                    )
-                    db.add(u)
+            # Note: units are created below when this CSV indicates multi-unit grouping for this address+name.
             # Address normalization and utility lookup shelved for now.
             # _apply_smarty_address(prop, street.strip(), city.strip(), state_upper, zip_code)
             # try:
@@ -858,12 +938,26 @@ def bulk_upload_properties(
             if occupied and (tenant_name or "").strip():
                 inv_code = "INV-" + secrets.token_hex(4).upper()
                 inv_unit_id: int | None = None
-                if prop.is_multi_unit and occupied_unit_raw:
-                    unit_label = str(occupied_unit_raw).strip()
-                    unit_row = db.query(Unit).filter(Unit.property_id == prop.id, Unit.unit_label == unit_label).first()
-                    if unit_row:
-                        inv_unit_id = unit_row.id
-                if inv_unit_id is None:
+                treat_as_multi_unit = bool(group_counts.get(key, 0) > 1 or (unit_no or "").strip() or (occupied_unit_raw or "").strip())
+                if treat_as_multi_unit:
+                    if prop.id not in units_by_property_id:
+                        unit_rows = db.query(Unit).filter(Unit.property_id == prop.id).all()
+                        units_by_property_id[prop.id] = {str(u.unit_label): int(u.id) for u in unit_rows if u.unit_label}
+                    label_map = units_by_property_id[prop.id]
+                    preferred_label = (occupied_unit_raw or unit_no or "").strip()
+                    unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
+                    if unit_label not in label_map:
+                        u = Unit(
+                            property_id=prop.id,
+                            unit_label=unit_label,
+                            occupancy_status=OccupancyStatus.occupied.value,
+                            is_primary_residence=0,
+                        )
+                        db.add(u)
+                        db.flush()
+                        label_map[unit_label] = int(u.id)
+                    inv_unit_id = label_map[unit_label]
+                else:
                     existing_units = db.query(Unit).filter(Unit.property_id == prop.id).all()
                     if existing_units:
                         inv_unit_id = existing_units[0].id
@@ -939,13 +1033,16 @@ def bulk_upload_properties(
             db.commit()
             db.refresh(prop)
             existing_props.append(prop)
+            existing_props_by_key[key] = prop
+            existing_match = prop
         else:
             # Primary residence (owner-occupied) implies unit is occupied; same as tenant Occupied=YES
             owner_occ = primary_residence
             new_occ_status = OccupancyStatus.occupied.value if (occupied or owner_occ) else OccupancyStatus.vacant.value
             updates: dict[str, object] = {}
             if (existing_match.name or "").strip() != address_as_name:
-                updates["name"] = address_as_name
+                # Preserve provided name; only fall back to address_as_name when CSV provides none.
+                updates["name"] = prop_name
             if street.strip() != (existing_match.street or "").strip():
                 updates["street"] = street.strip()
             if city.strip() != (existing_match.city or "").strip():
@@ -992,6 +1089,8 @@ def bulk_upload_properties(
                     existing_match.tax_id = val
                 elif key == "apn":
                     existing_match.apn = val
+            if treat_as_multi_unit and not existing_match.is_multi_unit:
+                existing_match.is_multi_unit = True
             if updates:
                 updated += 1
                 _em_addr = _csv_bulk_address_line(
@@ -1034,12 +1133,29 @@ def bulk_upload_properties(
                 if not existing_inv:
                     inv_code = "INV-" + secrets.token_hex(4).upper()
                     inv_unit_id_upd: int | None = None
-                    if existing_match.is_multi_unit and occupied_unit_raw:
-                        _ulabel = str(occupied_unit_raw).strip()
-                        _urow = db.query(Unit).filter(Unit.property_id == existing_match.id, Unit.unit_label == _ulabel).first()
-                        if _urow:
-                            inv_unit_id_upd = _urow.id
-                    if inv_unit_id_upd is None:
+                    treat_as_multi_unit = bool(group_counts.get(key, 0) > 1 or (unit_no or "").strip() or (occupied_unit_raw or "").strip())
+                    if treat_as_multi_unit:
+                        if existing_match.id not in units_by_property_id:
+                            unit_rows = db.query(Unit).filter(Unit.property_id == existing_match.id).all()
+                            units_by_property_id[existing_match.id] = {str(u.unit_label): int(u.id) for u in unit_rows if u.unit_label}
+                        label_map = units_by_property_id[existing_match.id]
+                        preferred_label = (occupied_unit_raw or unit_no or "").strip()
+                        unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
+                        if unit_label not in label_map:
+                            u = Unit(
+                                property_id=existing_match.id,
+                                unit_label=unit_label,
+                                occupancy_status=OccupancyStatus.occupied.value,
+                                is_primary_residence=0,
+                            )
+                            db.add(u)
+                            db.flush()
+                            label_map[unit_label] = int(u.id)
+                        inv_unit_id_upd = label_map[unit_label]
+                        if not existing_match.is_multi_unit and len(label_map) > 1:
+                            existing_match.is_multi_unit = True
+                            db.commit()
+                    else:
                         existing_units = db.query(Unit).filter(Unit.property_id == existing_match.id).all()
                         if existing_units:
                             inv_unit_id_upd = existing_units[0].id
@@ -1116,6 +1232,29 @@ def bulk_upload_properties(
                     )
             db.commit()
 
+        # --- Unit grouping behavior (multi-unit auto-assign) ---
+        # Ensure every row in a multi-unit group creates a Unit row, so the UI shows the correct unit count.
+        prop_for_units = existing_match
+        if prop_for_units is not None and treat_as_multi_unit:
+            if prop_for_units.id not in units_by_property_id:
+                unit_rows = db.query(Unit).filter(Unit.property_id == prop_for_units.id).all()
+                units_by_property_id[prop_for_units.id] = {str(u.unit_label): int(u.id) for u in unit_rows if u.unit_label}
+            label_map = units_by_property_id[prop_for_units.id]
+
+            preferred_label = (occupied_unit_raw or unit_no or "").strip()
+            unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
+            if unit_label not in label_map:
+                u = Unit(
+                    property_id=prop_for_units.id,
+                    unit_label=unit_label,
+                    occupancy_status=OccupancyStatus.unknown.value,
+                    is_primary_residence=0,
+                )
+                db.add(u)
+                db.flush()
+                label_map[unit_label] = int(u.id)
+                units_created += 1
+
     # Billing: after bulk upload, same as single-property add — start subscription when first properties were just added, then sync subscription.
     # Billing units = properties (1 property = 1 billing unit).
     if created >= 1 or updated >= 1:
@@ -1142,7 +1281,13 @@ def bulk_upload_properties(
             except Exception as e:
                 print(f"[Owners] Subscription sync failed after bulk upload: {e}", flush=True)
 
-    return BulkUploadResult(created=created, updated=updated, failed_from_row=failed_from_row, failure_reason=failure_reason)
+    return BulkUploadResult(
+        created=created,
+        updated=updated,
+        units_created=units_created,
+        failed_from_row=failed_from_row,
+        failure_reason=failure_reason,
+    )
 
 
 # --- Async Bulk Upload (avoids nginx 504 timeouts for large CSV files) ---
@@ -1157,6 +1302,7 @@ class BulkUploadJobStatusResponse(BaseModel):
     processed_rows: int = 0
     created: int = 0
     updated: int = 0
+    units_created: int = 0
     failed_from_row: int | None = None
     failure_reason: str | None = None
     error_message: str | None = None
@@ -1207,6 +1353,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
 
         created = 0
         updated = 0
+        units_created = 0
         failed_from_row = None
         failure_reason = None
         existing_props = (
@@ -1214,6 +1361,17 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
             .filter(Property.owner_profile_id == profile.id, Property.deleted_at.is_(None))
             .all()
         )
+        existing_props_by_key: dict[tuple[str, str, str, str, str], Property] = {}
+        for p in existing_props:
+            k = _bulk_property_group_key(
+                street=(p.street or ""),
+                city=(p.city or ""),
+                state=(p.state or ""),
+                zip_code=(p.zip_code or None),
+                property_name=(p.name or ""),
+            )
+            if k not in existing_props_by_key:
+                existing_props_by_key[k] = p
 
         def _get_cell(row, *keys):
             for k in keys:
@@ -1223,6 +1381,29 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     if v:
                         return v
             return None
+
+        # Pre-scan rows to detect multi-unit groups (same addr+city+state+zip+name).
+        group_counts: dict[tuple[str, str, str, str, str], int] = {}
+        for row in rows:
+            address = _get_cell(row, "address", "street_address", "street") or ""
+            city_val = _get_cell(row, "city") or ""
+            state_val = _get_cell(row, "state") or ""
+            zip_code = _get_cell(row, "zip", "zip_code") or ""
+            property_name_raw = _get_cell(row, "property_name", "name")
+            state_upper = (state_val or "").upper()[:50]
+            base_street = (address or "").strip()
+            address_as_name = f"{base_street.strip()}, {city_val.strip()}, {state_upper}".strip(", ")
+            prop_name = (property_name_raw or "").strip() or address_as_name
+            k = _bulk_property_group_key(
+                street=base_street,
+                city=city_val,
+                state=state_upper,
+                zip_code=zip_code,
+                property_name=prop_name,
+            )
+            group_counts[k] = int(group_counts.get(k, 0)) + 1
+
+        units_by_property_id: dict[int, dict[str, int]] = {}
 
         for idx, row in enumerate(rows, start=1):
             row_num = idx
@@ -1244,8 +1425,6 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
             occupied_unit_raw = _get_cell(row, "occupied_unit", "unit_label")
 
             street = (address or "").strip()
-            if unit_no:
-                street = f"{street}, {unit_no.strip()}".strip(", ")
             if not street:
                 failed_from_row = row_num
                 failure_reason = "Missing required column: Address."
@@ -1282,6 +1461,15 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
             address_as_name = f"{street.strip()}, {city_val.strip()}, {state_upper}".strip(", ")
             prop_name = (property_name_raw or "").strip() or address_as_name
 
+            key = _bulk_property_group_key(
+                street=street,
+                city=city_val,
+                state=state_upper,
+                zip_code=zip_code,
+                property_name=prop_name,
+            )
+            treat_as_multi_unit = bool(group_counts.get(key, 0) > 1 or (unit_no or "").strip() or (occupied_unit_raw or "").strip())
+
             if occupied:
                 if not (tenant_name or "").strip():
                     failed_from_row = row_num
@@ -1302,12 +1490,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     failure_reason = "Lease End must be after Lease Start."
                     break
 
-            state_norm_check = _normalize_addr(state_val)
-            existing_match = None
-            for p in existing_props:
-                if _normalize_addr(p.street) == street_norm and _normalize_addr(p.city) == city_norm and _normalize_addr(p.state) == state_norm_check:
-                    existing_match = p
-                    break
+            existing_match = existing_props_by_key.get(key)
 
             if existing_match is None:
                 owner_occ = primary_residence
@@ -1324,6 +1507,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     property_type=None,
                     occupancy_status=occ_status,
                     shield_mode_enabled=persisted_shield_row_int(csv_parsed_on=shield_mode),
+                    is_multi_unit=treat_as_multi_unit,
                 )
                 prop.tax_id = (tax_id_raw or "").strip() or None
                 prop.apn = (apn_raw or "").strip() or None
@@ -1369,12 +1553,23 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                 if occupied and (tenant_name or "").strip():
                     inv_code = "INV-" + secrets.token_hex(4).upper()
                     inv_unit_id: int | None = None
-                    if prop.is_multi_unit and occupied_unit_raw:
-                        unit_label = str(occupied_unit_raw).strip()
-                        unit_row = db.query(Unit).filter(Unit.property_id == prop.id, Unit.unit_label == unit_label).first()
-                        if unit_row:
-                            inv_unit_id = unit_row.id
-                    if inv_unit_id is None:
+                    if treat_as_multi_unit:
+                        if prop.id not in units_by_property_id:
+                            unit_rows = db.query(Unit).filter(Unit.property_id == prop.id).all()
+                            units_by_property_id[prop.id] = {str(u.unit_label): int(u.id) for u in unit_rows if u.unit_label}
+                        label_map = units_by_property_id[prop.id]
+                        preferred_label = (occupied_unit_raw or unit_no or "").strip()
+                        unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
+                        if unit_label not in label_map:
+                            u = Unit(property_id=prop.id, unit_label=unit_label, occupancy_status=OccupancyStatus.occupied.value)
+                            db.add(u)
+                            db.flush()
+                            label_map[unit_label] = int(u.id)
+                            units_created += 1
+                        inv_unit_id = label_map[unit_label]
+                        if not prop.is_multi_unit and len(label_map) > 1:
+                            prop.is_multi_unit = True
+                    else:
                         existing_units = db.query(Unit).filter(Unit.property_id == prop.id).all()
                         if existing_units:
                             inv_unit_id = existing_units[0].id
@@ -1446,13 +1641,15 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                 db.commit()
                 db.refresh(prop)
                 existing_props.append(prop)
+                existing_props_by_key[key] = prop
+                existing_match = prop
             else:
                 # Update existing property fields (same logic as sync bulk upload)
                 owner_occ = primary_residence
                 new_occ_status = OccupancyStatus.occupied.value if (occupied or owner_occ) else OccupancyStatus.vacant.value
                 updates: dict[str, object] = {}
-                if (existing_match.name or "").strip() != address_as_name:
-                    updates["name"] = address_as_name
+                if (existing_match.name or "").strip() != prop_name:
+                    updates["name"] = prop_name
                 if street.strip() != (existing_match.street or "").strip():
                     updates["street"] = street.strip()
                 if city_val.strip() != (existing_match.city or "").strip():
@@ -1539,12 +1736,24 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     if not existing_inv:
                         inv_code = "INV-" + secrets.token_hex(4).upper()
                         inv_unit_id_upd: int | None = None
-                        if existing_match.is_multi_unit and occupied_unit_raw:
-                            unit_label = str(occupied_unit_raw).strip()
-                            unit_row = db.query(Unit).filter(Unit.property_id == existing_match.id, Unit.unit_label == unit_label).first()
-                            if unit_row:
-                                inv_unit_id_upd = unit_row.id
-                        if inv_unit_id_upd is None:
+                        if treat_as_multi_unit:
+                            if existing_match.id not in units_by_property_id:
+                                unit_rows = db.query(Unit).filter(Unit.property_id == existing_match.id).all()
+                                units_by_property_id[existing_match.id] = {str(u.unit_label): int(u.id) for u in unit_rows if u.unit_label}
+                            label_map = units_by_property_id[existing_match.id]
+                            preferred_label = (occupied_unit_raw or unit_no or "").strip()
+                            unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
+                            if unit_label not in label_map:
+                                u = Unit(property_id=existing_match.id, unit_label=unit_label, occupancy_status=OccupancyStatus.occupied.value)
+                                db.add(u)
+                                db.flush()
+                                label_map[unit_label] = int(u.id)
+                                units_created += 1
+                            inv_unit_id_upd = label_map[unit_label]
+                            if not existing_match.is_multi_unit and len(label_map) > 1:
+                                existing_match.is_multi_unit = True
+                                db.commit()
+                        else:
                             existing_units = db.query(Unit).filter(Unit.property_id == existing_match.id).all()
                             if existing_units:
                                 inv_unit_id_upd = existing_units[0].id
@@ -1616,6 +1825,30 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                             ),
                         )
                 db.commit()
+
+            # Ensure every row in a multi-unit group creates/ensures a Unit row (even vacant),
+            # so the UI shows the correct unit count.
+            if existing_match is not None and treat_as_multi_unit:
+                if existing_match.id not in units_by_property_id:
+                    unit_rows = db.query(Unit).filter(Unit.property_id == existing_match.id).all()
+                    units_by_property_id[existing_match.id] = {str(u.unit_label): int(u.id) for u in unit_rows if u.unit_label}
+                label_map = units_by_property_id[existing_match.id]
+                preferred_label = (occupied_unit_raw or unit_no or "").strip()
+                unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
+                if unit_label not in label_map:
+                    u = Unit(
+                        property_id=existing_match.id,
+                        unit_label=unit_label,
+                        occupancy_status=OccupancyStatus.unknown.value,
+                        is_primary_residence=0,
+                    )
+                    db.add(u)
+                    db.flush()
+                    label_map[unit_label] = int(u.id)
+                    units_created += 1
+                    if not existing_match.is_multi_unit and len(label_map) > 1:
+                        existing_match.is_multi_unit = True
+                    db.commit()
 
             job.processed_rows = idx
             job.created = created
@@ -1762,6 +1995,8 @@ def get_bulk_upload_status(
         processed_rows=job.processed_rows or 0,
         created=job.created,
         updated=job.updated,
+        # We don't persist units_created in DB (no migration); approximate as processed rows.
+        units_created=job.processed_rows or 0,
         failed_from_row=job.failed_from_row,
         failure_reason=job.failure_reason,
         error_message=job.error_message,
@@ -1795,6 +2030,11 @@ def get_property(
     # Use effective occupancy (includes units with on-site manager) for display
     units = db.query(Unit).filter(Unit.property_id == property_id).all()
     payload["occupancy_status"] = get_property_display_occupancy_status(db, prop, units)
+    occupied_units = count_effectively_occupied_units(db, units) if units else (1 if (payload["occupancy_status"] or "").lower() == OccupancyStatus.occupied.value else 0)
+    total_units = len(units) if units else (1 if not getattr(prop, "is_multi_unit", False) else 0)
+    payload["unit_count"] = total_units or payload.get("unit_count") or 1
+    payload["occupied_unit_count"] = occupied_units
+    payload["vacant_unit_count"] = max(0, int(payload["unit_count"] or 1) - occupied_units)
     jinfo = get_jurisdiction_for_property(db, prop.zip_code, prop.region_code)
     if jinfo:
         payload["jurisdiction_documentation"] = PropertyJurisdictionDocumentation(
@@ -3335,24 +3575,9 @@ def owner_invite_tenant_by_property(
         raise HTTPException(status_code=400, detail="lease_end_date must be after lease_start_date")
     if start < date.today():
         raise HTTPException(status_code=400, detail="Lease start date cannot be in the past")
-    overlapping = (
-        db.query(Invitation)
-        .filter(
-            Invitation.property_id == prop.id,
-            Invitation.invitation_kind == "tenant",
-            Invitation.status.in_(("pending", "ongoing")),
-            Invitation.token_state.notin_(("CANCELLED", "REVOKED", "EXPIRED")),
-            Invitation.stay_start_date <= end,
-            Invitation.stay_end_date >= start,
-        )
-        .first()
+    assert_unit_available_for_new_tenant_invite_or_raise(
+        db, unit.id, start, end, invitation_overlap_property_id=prop.id
     )
-    if overlapping:
-        existing_name = overlapping.guest_name or "another tenant"
-        raise HTTPException(
-            status_code=409,
-            detail=f"A tenant lease already exists for this property that overlaps with the selected dates ({overlapping.stay_start_date.isoformat()} – {overlapping.stay_end_date.isoformat()}, {existing_name}). Please choose dates that do not overlap with an existing tenant lease.",
-        )
     code = "INV-" + secrets.token_hex(4).upper()
     inv = Invitation(
         invitation_code=code,
@@ -3456,24 +3681,7 @@ def owner_invite_tenant(
         raise HTTPException(status_code=400, detail="lease_end_date must be after lease_start_date")
     if start < date.today():
         raise HTTPException(status_code=400, detail="Lease start date cannot be in the past")
-    overlapping = (
-        db.query(Invitation)
-        .filter(
-            Invitation.unit_id == unit_id,
-            Invitation.invitation_kind == "tenant",
-            Invitation.status.in_(("pending", "ongoing")),
-            Invitation.token_state.notin_(("CANCELLED", "REVOKED", "EXPIRED")),
-            Invitation.stay_start_date <= end,
-            Invitation.stay_end_date >= start,
-        )
-        .first()
-    )
-    if overlapping:
-        existing_name = overlapping.guest_name or "another tenant"
-        raise HTTPException(
-            status_code=409,
-            detail=f"A tenant lease already exists for this unit that overlaps with the selected dates ({overlapping.stay_start_date.isoformat()} – {overlapping.stay_end_date.isoformat()}, {existing_name}). Please choose dates that do not overlap with an existing tenant lease.",
-        )
+    assert_unit_available_for_new_tenant_invite_or_raise(db, unit_id, start, end)
     code = "INV-" + secrets.token_hex(4).upper()
     inv = Invitation(
         invitation_code=code,

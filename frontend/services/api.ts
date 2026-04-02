@@ -26,6 +26,18 @@ export function buildGuestInviteUrl(invitationCode: string, opts?: { isDemo?: bo
  * Backend often returns root-relative paths (e.g. `/public/live/{slug}/poa` for PDFs). Opening those on the SPA
  * origin loads the React shell instead of the API document — prefix with `API_URL` (same as `#check` verify links).
  */
+/** Public PDF URL: unsigned guest agreement snapshot for demo-originated invites. */
+export function demoStoredUnsignedGuestAgreementPdfUrl(invitationCode: string): string {
+  const code = (invitationCode || "").trim().toUpperCase();
+  const base = String(API_URL || "").replace(/\/$/, "");
+  return `${base}/agreements/invitation/${encodeURIComponent(code)}/demo-stored-unsigned-pdf`;
+}
+
+/** Authenticated demo owners: unsigned Master POA PDF (Bearer required — open via fetch+blob). */
+export function demoUnsignedPoaPdfRequestPath(): string {
+  return "/agreements/demo/unsigned-poa";
+}
+
 export function resolveBackendMediaUrl(pathOrUrl: string): string {
   const s = (pathOrUrl || "").trim();
   if (!s) return s;
@@ -521,6 +533,8 @@ export interface OwnerStayView {
   invitation_only?: boolean;
   guest_name: string;
   property_name: string;
+  /** Multi-unit property: unit this stay/invite applies to. */
+  unit_label?: string | null;
   stay_start_date: string;
   stay_end_date: string;
   region_code: string;
@@ -546,6 +560,8 @@ export interface OwnerInvitationView {
   invitation_code: string;
   property_id: number;
   property_name: string;
+  /** Multi-unit: unit the guest invitation is for. */
+  unit_label?: string | null;
   guest_name?: string | null;
   guest_email: string | null;
   stay_start_date: string;
@@ -574,9 +590,13 @@ export interface OwnerTenantView {
   start_date: string | null;
   end_date: string | null;
   active: boolean;
-  status: 'active' | 'ended' | 'pending_signup';
+  /** Overall status for tenant lease row. Source of truth: invite_status + assignment_status + stay_status. */
+  status: 'active' | 'future' | 'ended' | 'pending_signup';
   invitation_code: string | null;
   created_at: string | null;
+  invite_status?: 'pending' | 'accepted' | 'cancelled' | 'revoked' | 'expired' | 'unknown';
+  assignment_status?: 'none' | 'future' | 'active' | 'ended';
+  stay_status?: 'none' | 'upcoming' | 'checked_in' | 'checked_out' | 'cancelled' | 'revoked' | 'ended';
 }
 
 export interface TenantSignedDocument {
@@ -910,9 +930,9 @@ export interface BillingResponse {
   payments: BillingPaymentView[];
   /** False while billing onboarding is incomplete (e.g. subscription still being created after first property). */
   can_invite: boolean;
-  /** Active property count (used for per-property billing display). */
+  /** Active unit count (billed per unit). */
   current_unit_count?: number | null;
-  /** Properties with Shield on. */
+  /** Properties with Shield on (Shield is per property). */
   current_shield_count?: number | null;
   /** Stripe subscription.status when loaded (e.g. trialing, active). */
   subscription_status?: string | null;
@@ -973,7 +993,20 @@ export const dashboardApi = {
   managerProperties: () => request<{ id: number; name: string | null; address: string; occupancy_status: string; unit_count: number; occupied_count: number }[]>("/managers/properties"),
   getManagerProperty: (propertyId: number) =>
     request<{ id: number; name: string | null; address: string; street?: string | null; city?: string | null; state?: string | null; zip_code?: string | null; occupancy_status: string; unit_count: number; occupied_count: number; region_code?: string | null; property_type_label?: string | null; is_multi_unit?: boolean; shield_mode_enabled?: boolean }>(`/managers/properties/${propertyId}`),
-  managerUnits: (propertyId: number) => request<{ id: number; unit_label: string; occupancy_status: string; occupied_by?: string | null; invite_id?: string | null }[]>(`/managers/properties/${propertyId}/units`),
+  managerUnits: (propertyId: number) =>
+    request<
+      {
+        id: number;
+        unit_label: string;
+        occupancy_status: string;
+        occupied_by?: string | null;
+        invite_id?: string | null;
+        current_tenant_name?: string | null;
+        current_tenant_email?: string | null;
+        lease_start_date?: string | null;
+        lease_end_date?: string | null;
+      }[]
+    >(`/managers/properties/${propertyId}/units`),
   /** Manager self-service: register as on-site resident for a unit (links Business assignment to Personal Mode for that unit). */
   registerMyResidentMode: (propertyId: number, unitId?: number | null) =>
     request<{ status: string; message?: string; unit_id?: number }>(`/managers/properties/${propertyId}/my-resident-mode`, {
@@ -990,7 +1023,7 @@ export const dashboardApi = {
     }),
   /** Invoices and payments for owner billing section. */
   billing: () => request<BillingResponse>("/dashboard/owner/billing"),
-  /** Reconcile Stripe subscription with current property count (call before opening portal from Settings). Body empty; amounts computed server-side. */
+  /** Reconcile Stripe subscription with current property count (debugging / explicit sync). Portal open uses `/portal-session`, which syncs internally. */
   syncBillingSubscription: () =>
     request<{
       ok: boolean;
@@ -999,9 +1032,15 @@ export const dashboardApi = {
       per_property_cents: number;
       stripe_modification_requests: Record<string, unknown>[];
     }>("/dashboard/owner/billing/sync-subscription", { method: "POST" }),
-  /** Create Stripe Billing Portal session; redirect user to returned URL to pay. After payment (e.g. Klarna) they return to our app. */
+  /** Create Stripe Billing Portal session (runs subscription sync server-side). Longer timeout — multiple Stripe API calls before redirect. */
   billingPortalSession: () =>
-    request<{ url: string }>("/dashboard/owner/billing/portal-session", { method: "POST" }),
+    request<{ url: string }>("/dashboard/owner/billing/portal-session", {
+      method: "POST",
+      signal:
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(120_000)
+          : undefined,
+    }),
   /** Get or create owner portfolio slug and URL for sharing. Owner only. */
   ownerPortfolioLink: () =>
     request<{ portfolio_slug: string; portfolio_url: string }>("/dashboard/owner/portfolio-link"),
@@ -1495,6 +1534,9 @@ export interface Property {
   is_multi_unit?: boolean;
   /** Number of units (1 for single-unit; backend may include this for list). */
   unit_count?: number | null;
+  /** Multi-unit: how many units are effectively occupied/vacant (for consistent status display). */
+  occupied_unit_count?: number | null;
+  vacant_unit_count?: number | null;
   ownership_proof_filename?: string | null;
   ownership_proof_type?: string | null;
   ownership_proof_uploaded_at?: string | null;
@@ -1513,6 +1555,7 @@ export interface Property {
 export interface BulkUploadResult {
   created: number;
   updated: number;
+  units_created?: number;
   failed_from_row: number | null;
   failure_reason: string | null;
 }
@@ -1777,7 +1820,7 @@ export const propertiesApi = {
     while (true) {
       await new Promise(r => setTimeout(r, polls < 5 ? 1000 : polls < 20 ? 2000 : 5000));
       polls++;
-      const statusRes = await request<{ status: string; total_rows: number; processed_rows: number; created: number; updated: number; failed_from_row: number | null; failure_reason: string | null; error_message: string | null }>(
+      const statusRes = await request<{ status: string; total_rows: number; processed_rows: number; created: number; updated: number; units_created?: number; failed_from_row: number | null; failure_reason: string | null; error_message: string | null }>(
         `/owners/properties/bulk-upload-status/${encodeURIComponent(job_id)}`
       );
       if (statusRes.status === "processing" && onProgress && statusRes.total_rows > 0) {
@@ -1788,6 +1831,7 @@ export const propertiesApi = {
         return {
           created: statusRes.created,
           updated: statusRes.updated,
+          units_created: statusRes.units_created ?? statusRes.processed_rows ?? 0,
           failed_from_row: statusRes.failed_from_row ?? null,
           failure_reason: statusRes.failure_reason ?? null,
         };

@@ -11,11 +11,25 @@ Every record belongs to: property/management | tenant | guest. Permissions follo
 Ownership does NOT override privacy scope. Even if someone owns the property, switching to
 personal mode does NOT unlock tenant-private information.
 """
+from datetime import date
+
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 from app.models.invitation import Invitation
 from app.models.stay import Stay
 from app.models.property_manager_assignment import PropertyManagerAssignment
+from app.models.tenant_assignment import TenantAssignment
+from app.services.event_ledger import (
+    ACTION_AWAY_ACTIVATED,
+    ACTION_AWAY_ENDED,
+    ACTION_PRESENCE_STATUS_CHANGED,
+)
+
+# Unit resident presence (tenant/manager/owner); tenant-actor rows must not appear on owner/manager dashboards.
+_TENANT_PRESENCE_LEDGER_ACTIONS = frozenset(
+    {ACTION_AWAY_ACTIVATED, ACTION_AWAY_ENDED, ACTION_PRESENCE_STATUS_CHANGED}
+)
 
 
 def is_tenant_lane_invitation(db: Session, inv: Invitation) -> bool:
@@ -137,4 +151,80 @@ def filter_tenant_lane_from_ledger_rows(db: Session, rows: list) -> list:
         r for r in rows
         if getattr(r, "invitation_id", None) not in tenant_inv_ids
         and getattr(r, "stay_id", None) not in tenant_stay_ids
+    ]
+
+
+def filter_tenant_presence_from_owner_manager_ledger(db: Session, rows: list) -> list:
+    """
+    Drop EventLedger rows for unit presence/away when the actor is a tenant.
+    Owners and managers must not see tenant present/away status in notifications or the event ledger.
+    """
+    if not rows:
+        return rows
+    actor_ids = {
+        r.actor_user_id
+        for r in rows
+        if getattr(r, "action_type", None) in _TENANT_PRESENCE_LEDGER_ACTIONS and r.actor_user_id
+    }
+    if not actor_ids:
+        return rows
+    tenant_actor_ids = {
+        u.id
+        for u in db.query(User).filter(User.id.in_(actor_ids), User.role == UserRole.tenant).all()
+    }
+    if not tenant_actor_ids:
+        return rows
+    return [
+        r
+        for r in rows
+        if not (
+            getattr(r, "action_type", None) in _TENANT_PRESENCE_LEDGER_ACTIONS
+            and r.actor_user_id in tenant_actor_ids
+        )
+    ]
+
+
+def filter_manager_presence_on_tenant_leased_units(db: Session, rows: list) -> list:
+    """
+    Property managers must not see unit-level resident presence/away (here/away) for units
+    that have an active tenant lease — that activity is tenant-private. Guest-stay presence
+    ledger rows (stay_id set) stay visible. Also drops owner/manager resident presence logged
+    on the same unit as an active lease (avoids indirect tenant context).
+    """
+    if not rows:
+        return rows
+    today = date.today()
+    candidates = [
+        r
+        for r in rows
+        if getattr(r, "action_type", None) in _TENANT_PRESENCE_LEDGER_ACTIONS
+        and getattr(r, "stay_id", None) is None
+        and getattr(r, "unit_id", None) is not None
+    ]
+    if not candidates:
+        return rows
+    unit_ids = list({r.unit_id for r in candidates if r.unit_id is not None})
+    if not unit_ids:
+        return rows
+    leased_unit_ids = {
+        row[0]
+        for row in db.query(TenantAssignment.unit_id)
+        .filter(
+            TenantAssignment.unit_id.in_(unit_ids),
+            TenantAssignment.start_date <= today,
+            or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
+        )
+        .distinct()
+        .all()
+    }
+    if not leased_unit_ids:
+        return rows
+    return [
+        r
+        for r in rows
+        if not (
+            getattr(r, "action_type", None) in _TENANT_PRESENCE_LEDGER_ACTIONS
+            and getattr(r, "stay_id", None) is None
+            and getattr(r, "unit_id", None) in leased_unit_ids
+        )
     ]

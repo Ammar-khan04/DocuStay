@@ -84,6 +84,74 @@ function guestStayMatchesViewer(
   return false;
 }
 
+/** Parse YYYY-MM-DD (or ISO) from API for calendar-day comparison in local time. */
+function parseDateOnly(s: string): Date {
+  const part = (s || '').split('T')[0];
+  const [y, m, d] = part.split('-').map((x) => parseInt(x, 10));
+  if (!y || !m || !d) return new Date(NaN);
+  return new Date(y, m - 1, d);
+}
+
+function startOfTodayLocal(): Date {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+
+function isLeaseWindowActiveToday(startStr: string, endStr: string | null | undefined): boolean {
+  const today = startOfTodayLocal();
+  const start = parseDateOnly(startStr);
+  if (Number.isNaN(start.getTime()) || start > today) return false;
+  if (endStr) {
+    const end = parseDateOnly(endStr);
+    if (Number.isNaN(end.getTime()) || end < today) return false;
+  }
+  return true;
+}
+
+function tenantHasOngoingLeaseOnPage(rows: LiveTenantAssignmentInfo[], viewer: UserSession): boolean {
+  return rows.some(
+    (row) => tenantRowMatchesViewer(row, viewer) && isLeaseWindowActiveToday(row.start_date, row.end_date ?? null),
+  );
+}
+
+function guestHasOngoingStayOnPage(
+  guestStaysOnly: LiveCurrentGuestInfo[],
+  invitations: LiveInvitationSummary[],
+  viewer: UserSession,
+): boolean {
+  return guestStaysOnly.some((stay) => guestStayMatchesViewer(stay, invitations, viewer));
+}
+
+/**
+ * Per-viewer authorization label for the Quick Decision layer (and tenant card copy).
+ * Owner of record: always ACTIVE on this live record. Tenant: ACTIVE only if lease window includes today.
+ * Guest: ACTIVE only if a current guest-stay row matches the viewer (checked-in stays from the API).
+ */
+function resolveLivePageAuthorizationState(
+  apiState: string,
+  viewer: UserSession | null,
+  ownerEmailNorm: string,
+  tenantAssignmentRows: LiveTenantAssignmentInfo[],
+  guestStaysOnly: LiveCurrentGuestInfo[],
+  invitations: LiveInvitationSummary[],
+): string {
+  if (!viewer) return apiState;
+  if (
+    viewer.user_type === 'PROPERTY_OWNER' &&
+    ownerEmailNorm &&
+    normalizeEmail(viewer.email) === normalizeEmail(ownerEmailNorm)
+  ) {
+    return 'ACTIVE';
+  }
+  if (viewer.user_type === 'TENANT') {
+    return tenantHasOngoingLeaseOnPage(tenantAssignmentRows, viewer) ? 'ACTIVE' : 'NONE';
+  }
+  if (viewer.user_type === 'GUEST') {
+    return guestHasOngoingStayOnPage(guestStaysOnly, invitations, viewer) ? 'ACTIVE' : 'NONE';
+  }
+  return apiState;
+}
+
 export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const [data, setData] = useState<LivePropertyPagePayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,7 +263,6 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     return typeof v === 'string' ? v.trim() : '';
   })();
   const statusLabel = statusDisplay(prop.occupancy_status);
-  const authLabel = authDisplay(authorization_state);
   const isVacant = (prop.occupancy_status || '').toLowerCase() === 'vacant' && !has_current_guest;
   const liveLink = typeof window !== 'undefined' ? window.location.href : `#live/${slug}`;
   const poaPdfUrl = publicApi.getLivePoaPdfUrl(slug);
@@ -245,6 +312,15 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     (m) => typeof m?.email === 'string' && m.email.trim().length > 0,
   );
   const currentTenantAssignments: LiveTenantAssignmentInfo[] = current_tenant_assignments ?? [];
+  const resolvedAuthorizationState = resolveLivePageAuthorizationState(
+    authorization_state,
+    viewerSession,
+    ownerEmailNormalized,
+    currentTenantAssignments,
+    activeGuestsOnly,
+    invitations,
+  );
+  const authLabel = authDisplay(resolvedAuthorizationState);
   const propertySummaryLine = [prop.name || '', address].filter(Boolean).join(' — ') || address || '—';
 
   const authorityTenantAssignmentsUnique = (() => {

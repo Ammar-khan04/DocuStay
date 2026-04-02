@@ -20,7 +20,25 @@ type ManagerPropertySummary = {
   occupancy_status: string; unit_count: number; occupied_count: number; region_code?: string | null;
   property_type_label?: string | null; is_multi_unit?: boolean; shield_mode_enabled?: boolean;
 };
-type UnitSummary = { id: number; unit_label: string; occupancy_status: string; occupied_by?: string | null; invite_id?: string | null };
+type UnitSummary = {
+  id: number;
+  unit_label: string;
+  occupancy_status: string;
+  occupied_by?: string | null;
+  invite_id?: string | null;
+  current_tenant_name?: string | null;
+  current_tenant_email?: string | null;
+  lease_start_date?: string | null;
+  lease_end_date?: string | null;
+};
+
+function formatManagerUnitLeaseLine(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start) return '—';
+  const fmt = (s: string) =>
+    new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (end) return formatStayDuration(start, end);
+  return `${fmt(start)} – Open-ended`;
+}
 
 const ManagerPropertyDetail: React.FC<{
   propertyId: string;
@@ -583,7 +601,10 @@ const ManagerPropertyDetail: React.FC<{
           {contextMode === 'personal' && hasPersonalModeUnitHere && personalModeUnitId != null && (
             <Card className="p-6 border-slate-200">
               <h3 className="font-medium text-slate-900 mb-3">Presence</h3>
-              <p className="text-sm text-slate-600 mb-4">Let others know if you are at the property or away. This is visible to the owner and in all views (business and personal).</p>
+              <p className="text-sm text-slate-600 mb-4">
+                Let others know if you are at the property or away. Your status is visible to the property owner for oversight.
+                Tenant here/away presence is not shown to property managers in notifications or the event ledger.
+              </p>
               <div className="flex flex-wrap items-center gap-4">
                 <div className={`px-4 py-2 rounded-lg ${presence === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                   {presence === 'present' ? 'You are here' : presenceAwayStartedAt ? `Away since ${new Date(presenceAwayStartedAt).toLocaleDateString()}` : 'Away'}
@@ -618,7 +639,7 @@ const ManagerPropertyDetail: React.FC<{
               </div>
               {isOccupied && (
                 <p className="text-sm text-amber-700 mt-3">
-                  You can&apos;t change your presence (here/away) because a guest or tenant is currently staying at this property.
+                  You can&apos;t change your presence (here/away) while another authorized stay is active at this property.
                 </p>
               )}
               {presenceShowAwayConfirm && (
@@ -669,6 +690,29 @@ const ManagerPropertyDetail: React.FC<{
                   {statusBadge(u.occupancy_status)}
                   {contextMode === 'personal' && u.occupied_by && <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>}
                   {contextMode === 'personal' && u.invite_id && <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>}
+                  {(u.current_tenant_name || u.current_tenant_email || u.lease_start_date) && (
+                    <div className="mt-1 pt-2 border-t border-slate-200/90 space-y-1 text-xs text-slate-600">
+                      <p className="font-semibold text-slate-700 uppercase tracking-wide text-[10px]">Current tenant</p>
+                      {u.current_tenant_name ? (
+                        <p>
+                          <span className="text-slate-500">Name</span>{' '}
+                          <span className="font-medium text-slate-800">{u.current_tenant_name}</span>
+                        </p>
+                      ) : null}
+                      {u.current_tenant_email ? (
+                        <p className="break-all">
+                          <span className="text-slate-500">Email</span>{' '}
+                          <span className="font-medium text-slate-800">{u.current_tenant_email}</span>
+                        </p>
+                      ) : null}
+                      {u.lease_start_date ? (
+                        <p>
+                          <span className="text-slate-500">Lease</span>{' '}
+                          <span className="font-medium text-slate-800">{formatManagerUnitLeaseLine(u.lease_start_date, u.lease_end_date)}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                   {(u.occupancy_status || '').toLowerCase() === 'vacant' && u.id > 0 && (
                     <Button
                       variant="outline"

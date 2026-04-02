@@ -38,7 +38,8 @@ from app.services.notifications import send_email
 from app.services.dropbox_sign import send_signature_request, get_signed_pdf, get_embedded_sign_url
 from app.services.invitation_agreement_ledger import emit_invitation_agreement_signed_if_dropbox_complete
 from app.services.invitation_guest_completion import guest_invite_awaiting_account_after_sign
-from app.dependencies import require_owner
+from app.dependencies import require_owner, get_current_user
+from app.models.demo_account import is_demo_user_id
 
 router = APIRouter(prefix="/agreements", tags=["agreements"])
 
@@ -183,6 +184,46 @@ def get_invitation_agreement_pdf(
     pdf_bytes = agreement_content_to_pdf(doc.title, content)
     filename = f"DocuStay-Agreement-{invitation_code.strip().upper()}.pdf"
     return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
+
+
+@router.get("/invitation/{invitation_code}/demo-stored-unsigned-pdf")
+def get_demo_stored_unsigned_invitation_pdf(invitation_code: str, db: Session = Depends(get_db)):
+    """Public: unsigned guest agreement PDF for demo-originated invites (generated on demand; URL kept for clients)."""
+    code = (invitation_code or "").strip().upper()
+    inv = db.query(Invitation).filter(Invitation.invitation_code == code).first()
+    if not inv or (getattr(inv, "invitation_kind", None) or "guest").strip().lower() != "guest":
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    from app.services.demo_static_docs import build_demo_unsigned_guest_agreement_pdf_bytes
+
+    raw = build_demo_unsigned_guest_agreement_pdf_bytes(db, inv)
+    if not raw:
+        raise HTTPException(status_code=404, detail="Unsigned agreement not available for this invitation")
+    filename = f"DocuStay-Guest-Agreement-Unsigned-{code}.pdf"
+    return Response(
+        content=raw,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/demo/unsigned-poa")
+def get_demo_unsigned_poa_pdf(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Authenticated demo owners only: unsigned Master POA PDF (generated on demand)."""
+    if current_user.role != UserRole.owner or not is_demo_user_id(db, current_user.id):
+        raise HTTPException(status_code=403, detail="Demo owner access only")
+    from app.services.demo_static_docs import build_demo_owner_unsigned_poa_pdf_bytes
+
+    pdf_bytes = build_demo_owner_unsigned_poa_pdf_bytes(db, current_user)
+    if not pdf_bytes:
+        raise HTTPException(status_code=404, detail="Unsigned POA PDF not available")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="DocuStay-Master-POA-Unsigned-Demo.pdf"'},
+    )
 
 
 @router.post("/sign", response_model=AgreementSignResponse)

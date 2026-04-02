@@ -131,6 +131,22 @@ from app.services.agreements import fill_guest_signature_in_content, agreement_c
 from app.services.dropbox_sign import get_signed_pdf
 from app.services.invitation_agreement_ledger import emit_invitation_agreement_signed_if_dropbox_complete
 from app.models.unit import Unit
+
+
+def _unit_label_if_multi_unit(db: Session, property_id: int | None, unit_id: int | None) -> str | None:
+    """Return unit label for dashboard lists when the property is multi-unit."""
+    if not property_id or not unit_id:
+        return None
+    prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop or not bool(getattr(prop, "is_multi_unit", False)):
+        return None
+    u = db.query(Unit).filter(Unit.id == unit_id).first()
+    if not u:
+        return None
+    lab = (getattr(u, "unit_label", None) or "").strip()
+    return lab or None
+
+
 from app.models.guest_extension_request import GuestExtensionRequest
 from app.models.tenant_assignment import TenantAssignment
 from app.models.property_manager_assignment import PropertyManagerAssignment
@@ -163,6 +179,8 @@ from app.services.privacy_lanes import (
     filter_property_lane_invitations_for_manager,
     filter_property_lane_stays_for_manager,
     filter_tenant_lane_from_ledger_rows,
+    filter_tenant_presence_from_owner_manager_ledger,
+    filter_manager_presence_on_tenant_leased_units,
 )
 from app.services.display_names import label_for_stay, label_from_invitation
 from app.config import get_settings
@@ -658,6 +676,7 @@ def owner_tenants(
     current_user: User = Depends(require_owner_onboarding_complete),
 ):
     """List tenants (assigned + pending invitation) for the owner's properties. Business-mode safe."""
+    from app.services.state_resolver import resolve_tenant_state
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
         return []
@@ -683,7 +702,6 @@ def owner_tenants(
             unit = unit_map.get(ta.unit_id)
             prop = prop_map.get(unit.property_id) if unit else None
             today = date.today()
-            active = ta.end_date is None or ta.end_date >= today
             seen_unit_user.add((ta.unit_id, ta.user_id))
             start = ta.start_date
             end = ta.end_date
@@ -713,6 +731,9 @@ def owner_tenants(
                 start = start or inv.stay_start_date
                 end = end or inv.stay_end_date
                 inv_code = inv.invitation_code
+            resolved = resolve_tenant_state(db, tenant_assignment=ta, tenant_invitation=inv)
+            active = resolved.assignment_status == "active"
+            overall_status = resolved.assignment_status  # active | future | ended
             out.append({
                 "id": ta.id,
                 "invitation_id": inv.id if inv else None,
@@ -726,7 +747,11 @@ def owner_tenants(
                 "start_date": str(start) if start else None,
                 "end_date": str(end) if end else None,
                 "active": active,
-                "status": "active" if active else "ended",
+                # Source of truth is invite_status/assignment_status/stay_status.
+                "status": overall_status,
+                "invite_status": resolved.invite_status,
+                "assignment_status": resolved.assignment_status,
+                "stay_status": resolved.stay_status,
                 "invitation_code": inv_code,
                 "created_at": ta.created_at.isoformat() if ta.created_at else None,
             })
@@ -754,6 +779,7 @@ def owner_tenants(
             continue
         unit = unit_map.get(inv.unit_id) if inv.unit_id else None
         prop = prop_map.get(inv.property_id)
+        resolved = resolve_tenant_state(db, tenant_assignment=None, tenant_invitation=inv)
         out.append({
             "id": -inv.id,
             "invitation_id": inv.id,
@@ -768,6 +794,9 @@ def owner_tenants(
             "end_date": str(inv.stay_end_date) if inv.stay_end_date else None,
             "active": False,
             "status": "pending_signup",
+            "invite_status": resolved.invite_status,
+            "assignment_status": resolved.assignment_status,
+            "stay_status": resolved.stay_status,
             "invitation_code": inv.invitation_code,
             "created_at": inv.created_at.isoformat() if inv.created_at else None,
         })
@@ -800,6 +829,7 @@ def owner_invitations(
 
 def _invitations_to_owner_views(invs: list, db: Session, get_invitation_expire_cutoff_fn) -> list:
     """Build OwnerInvitationView list from invitation list. Shared by owner and manager."""
+    from app.services.state_resolver import resolve_invite_status
     threshold = get_invitation_expire_cutoff_fn()
     out = []
     for inv in invs:
@@ -823,23 +853,23 @@ def _invitations_to_owner_views(invs: list, db: Session, get_invitation_expire_c
                 and not guest_invitation_signing_started(db, inv.invitation_code)
             )
         )
-        has_stay = db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None
-        token_state = (getattr(inv, "token_state", None) or "STAGED").upper()
         is_tenant_inv = (getattr(inv, "invitation_kind", None) or "").strip().lower() == "tenant"
-        if inv.status == "cancelled":
-            display_status = "cancelled"
-        elif inv.status == "expired" or is_expired:
-            display_status = "expired"
-        elif is_tenant_inv:
+        if is_tenant_inv:
+            # Tenant invites: unify "accepted" with existence of an assignment (legacy CSV may leave inv.status=pending).
             has_assignment = db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).first() is not None
-            if inv.status == "accepted" or has_assignment:
-                display_status = "accepted"
+            invite_status = resolve_invite_status(inv)
+            display_status = "accepted" if has_assignment else ("pending" if invite_status in ("pending", "unknown") else invite_status)
+        else:
+            has_stay = db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None
+            token_state = (getattr(inv, "token_state", None) or "STAGED").upper()
+            if inv.status == "cancelled":
+                display_status = "cancelled"
+            elif inv.status == "expired" or is_expired:
+                display_status = "expired"
+            elif inv.status == "ongoing" or has_stay or inv.status == "accepted" or (token_state == "BURNED" and inv.status == "pending"):
+                display_status = "ongoing"
             else:
                 display_status = "pending"
-        elif inv.status == "ongoing" or has_stay or inv.status == "accepted" or (token_state == "BURNED" and inv.status == "pending"):
-            display_status = "ongoing"
-        else:
-            display_status = "pending"
         demo_flag = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
         out.append(
             OwnerInvitationView(
@@ -2773,20 +2803,20 @@ def guest_end_stay(
             db.add(inv)
     db.add(stay)
     db.flush()
-    # If no other checked-in active stay at this property, set occupancy to vacant
-    other_active = (
-        db.query(Stay)
-        .filter(
-            Stay.property_id == stay.property_id,
-            Stay.id != stay.id,
-            Stay.checked_in_at.isnot(None),
-            Stay.checked_out_at.is_(None),
-            Stay.cancelled_at.is_(None),
-        )
-        .first()
+    from app.services.guest_stay_overlap import (
+        other_checked_in_guest_stay_on_property,
+        other_checked_in_guest_stay_on_same_unit,
+    )
+
+    uid = getattr(stay, "unit_id", None)
+    other_in_prop = other_checked_in_guest_stay_on_property(
+        db, property_id=stay.property_id, exclude_stay_id=stay.id
+    )
+    other_on_unit = other_checked_in_guest_stay_on_same_unit(
+        db, property_id=stay.property_id, unit_id=uid, exclude_stay_id=stay.id
     )
     occ_prev = None
-    if not other_active:
+    if not other_in_prop:
         prop = db.query(Property).filter(Property.id == stay.property_id).first()
         if prop:
             occ_prev = getattr(prop, "occupancy_status", None) or "unknown"
@@ -2795,12 +2825,11 @@ def guest_end_stay(
                 prop.usat_token_released_at = None
             prop.occupancy_status = OccupancyStatus.vacant.value
             db.add(prop)
-        unit_id = getattr(stay, "unit_id", None)
-        if unit_id:
-            unit = db.query(Unit).filter(Unit.id == unit_id).first()
-            if unit:
-                unit.occupancy_status = OccupancyStatus.vacant.value
-                db.add(unit)
+    if uid and not other_on_unit:
+        unit = db.query(Unit).filter(Unit.id == uid).first()
+        if unit:
+            unit.occupancy_status = OccupancyStatus.vacant.value
+            db.add(unit)
     db.commit()
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "").strip() or None
@@ -2914,19 +2943,20 @@ def guest_cancel_stay(
             db.add(inv)
     db.add(stay)
     db.flush()
-    # If no other active stay at this property, revoke USAT and set status to VACANT
-    other_active = (
-        db.query(Stay)
-        .filter(
-            Stay.property_id == stay.property_id,
-            Stay.id != stay.id,
-            Stay.checked_out_at.is_(None),
-            Stay.cancelled_at.is_(None),
-        )
-        .first()
+    from app.services.guest_stay_overlap import (
+        other_checked_in_guest_stay_on_property,
+        other_checked_in_guest_stay_on_same_unit,
+    )
+
+    cancel_uid = getattr(stay, "unit_id", None)
+    other_in_prop = other_checked_in_guest_stay_on_property(
+        db, property_id=stay.property_id, exclude_stay_id=stay.id
+    )
+    other_on_unit = other_checked_in_guest_stay_on_same_unit(
+        db, property_id=stay.property_id, unit_id=cancel_uid, exclude_stay_id=stay.id
     )
     occ_prev = None
-    if not other_active:
+    if not other_in_prop:
         prop = db.query(Property).filter(Property.id == stay.property_id).first()
         if prop:
             occ_prev = getattr(prop, "occupancy_status", None) or "unknown"
@@ -2935,12 +2965,11 @@ def guest_cancel_stay(
                 prop.usat_token_released_at = None
             prop.occupancy_status = OccupancyStatus.vacant.value
             db.add(prop)
-        unit_id = getattr(stay, "unit_id", None)
-        if unit_id:
-            unit = db.query(Unit).filter(Unit.id == unit_id).first()
-            if unit:
-                unit.occupancy_status = OccupancyStatus.vacant.value
-                db.add(unit)
+    if cancel_uid and not other_on_unit:
+        unit = db.query(Unit).filter(Unit.id == cancel_uid).first()
+        if unit:
+            unit.occupancy_status = OccupancyStatus.vacant.value
+            db.add(unit)
     db.commit()
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "").strip() or None
@@ -4084,12 +4113,14 @@ def tenant_invitations(
         else:
             display_status = "pending"
         demo_flag = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
+        unit_label = _unit_label_if_multi_unit(db, inv.property_id, getattr(inv, "unit_id", None))
         out.append(
             OwnerInvitationView(
                 id=inv.id,
                 invitation_code=inv.invitation_code,
                 property_id=inv.property_id,
                 property_name=property_name,
+                unit_label=unit_label,
                 guest_name=inv.guest_name,
                 guest_email=inv.guest_email,
                 stay_start_date=inv.stay_start_date,
@@ -4184,14 +4215,19 @@ def tenant_guest_history(
         show_confirm_ui = False
         invite_id_val = None
         token_state_val = None
+        inv_for_stay = None
         if getattr(s, "invitation_id", None):
-            inv = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
-            if inv:
-                invite_id_val = inv.invitation_code
-                token_state_val = getattr(inv, "token_state", None) or "BURNED"
+            inv_for_stay = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
+            if inv_for_stay:
+                invite_id_val = inv_for_stay.invitation_code
+                token_state_val = getattr(inv_for_stay, "token_state", None) or "BURNED"
+        unit_id_for_label = getattr(s, "unit_id", None) or (
+            getattr(inv_for_stay, "unit_id", None) if inv_for_stay else None
+        )
+        stay_unit_label = _unit_label_if_multi_unit(db, s.property_id, unit_id_for_label)
         out.append(OwnerStayView(
             stay_id=s.id, property_id=s.property_id, invite_id=invite_id_val, token_state=token_state_val, invitation_only=False,
-            guest_name=guest_name, property_name=property_name, stay_start_date=s.stay_start_date, stay_end_date=s.stay_end_date,
+            guest_name=guest_name, property_name=property_name, unit_label=stay_unit_label, stay_start_date=s.stay_start_date, stay_end_date=s.stay_end_date,
             region_code=s.region_code, legal_classification=classification, max_stay_allowed_days=max_days, risk_indicator=risk, applicable_laws=statutes,
             revoked_at=getattr(s, "revoked_at", None), checked_in_at=getattr(s, "checked_in_at", None), checked_out_at=getattr(s, "checked_out_at", None), cancelled_at=getattr(s, "cancelled_at", None),
             usat_token_released_at=getattr(s, "usat_token_released_at", None), dead_mans_switch_enabled=dms_on,
@@ -4222,9 +4258,10 @@ def tenant_guest_history(
         token_state = (getattr(inv, "token_state", None) or "BURNED").upper()
         is_expired = token_state == "EXPIRED"
         checked_out_dt = datetime.combine(end, dt_time.min, tzinfo=timezone.utc) if is_expired and end else None
+        inv_only_label = _unit_label_if_multi_unit(db, inv.property_id, getattr(inv, "unit_id", None))
         out.append(OwnerStayView(
             stay_id=-inv.id, property_id=inv.property_id, invite_id=inv.invitation_code, token_state=token_state, invitation_only=True,
-            guest_name=label_from_invitation(db, inv), property_name=property_name, stay_start_date=start, stay_end_date=end,
+            guest_name=label_from_invitation(db, inv), property_name=property_name, unit_label=inv_only_label, stay_start_date=start, stay_end_date=end,
             region_code=region, legal_classification=classification, max_stay_allowed_days=max_days, risk_indicator=risk, applicable_laws=statutes,
             revoked_at=None, checked_in_at=None, checked_out_at=checked_out_dt, cancelled_at=None, usat_token_released_at=None,
             dead_mans_switch_enabled=bool(getattr(inv, "dead_mans_switch_enabled", 0)), needs_occupancy_confirmation=False, show_occupancy_confirmation_ui=False, confirmation_deadline_at=None, occupancy_confirmation_response=None,
@@ -4257,9 +4294,10 @@ def tenant_guest_history(
         statutes = (jle.applicable_statutes if jle else []) or ([rule.statute_reference] if rule and rule.statute_reference else [])
         ts = (getattr(inv, "token_state", None) or "REVOKED").upper()
         cancelled_ts = inv.created_at if getattr(inv, "created_at", None) else datetime.now(timezone.utc)
+        cancelled_inv_label = _unit_label_if_multi_unit(db, inv.property_id, getattr(inv, "unit_id", None))
         out.append(OwnerStayView(
             stay_id=-inv.id, property_id=inv.property_id, invite_id=inv.invitation_code, token_state=ts, invitation_only=True,
-            guest_name=label_from_invitation(db, inv), property_name=property_name, stay_start_date=start, stay_end_date=end,
+            guest_name=label_from_invitation(db, inv), property_name=property_name, unit_label=cancelled_inv_label, stay_start_date=start, stay_end_date=end,
             region_code=region, legal_classification=classification, max_stay_allowed_days=max_days, risk_indicator=risk, applicable_laws=statutes,
             revoked_at=None, checked_in_at=None, checked_out_at=None, cancelled_at=cancelled_ts, usat_token_released_at=None,
             dead_mans_switch_enabled=bool(getattr(inv, "dead_mans_switch_enabled", 0)), needs_occupancy_confirmation=False, show_occupancy_confirmation_ui=False, confirmation_deadline_at=None, occupancy_confirmation_response=None,
@@ -4861,6 +4899,9 @@ def owner_billing(
     import stripe
 
     stripe.api_key = settings.stripe_secret_key
+    # Copy before sync: commit() inside sync_subscription_quantities expires ORM state; lazy-loading
+    # stripe_customer_id during a long Stripe.list iteration can stall on the pool (QueuePool timeout).
+    stripe_customer_id = profile.stripe_customer_id
     if profile.stripe_subscription_id:
         try:
             sync_subscription_quantities(db, profile)
@@ -4871,10 +4912,14 @@ def owner_billing(
                 e,
                 exc_info=True,
             )
+    try:
+        db.refresh(profile)
+    except Exception:
+        logger.warning("owner_billing: db.refresh(profile) after sync failed", exc_info=True)
     invoices: list[BillingInvoiceView] = []
     payments: list[BillingPaymentView] = []
     try:
-        for inv in stripe.Invoice.list(customer=profile.stripe_customer_id, limit=100).auto_paging_iter():
+        for inv in stripe.Invoice.list(customer=stripe_customer_id, limit=100).auto_paging_iter():
             # Auto-finalize drafts so user gets a payable invoice; skip if finalize fails
             if inv.status == "draft":
                 try:
@@ -4933,7 +4978,11 @@ def owner_billing(
                     )
                 )
     except stripe.StripeError as e:
-        print(f"[Billing] StripeError fetching invoices for customer={profile.stripe_customer_id}: {e}", flush=True)
+        print(f"[Billing] StripeError fetching invoices for customer={stripe_customer_id}: {e}", flush=True)
+        try:
+            db.refresh(profile)
+        except Exception:
+            pass
         can_invite = profile.onboarding_billing_completed_at is None or profile.onboarding_invoice_paid_at is not None
         sub_status, trial_end_at, trial_days_remaining = None, None, None
         if profile.stripe_subscription_id:
@@ -4956,6 +5005,10 @@ def owner_billing(
     # Sort invoices by created desc, payments by paid_at desc
     invoices.sort(key=lambda x: x.created, reverse=True)
     payments.sort(key=lambda x: x.paid_at, reverse=True)
+    try:
+        db.refresh(profile)
+    except Exception:
+        logger.warning("owner_billing: db.refresh(profile) after invoice loop failed", exc_info=True)
     # Recompute property counts (billing units) and can_invite (may have been set by self-heal above)
     _units, _shield = _count_properties_and_shield(db, profile)
     can_invite = profile.onboarding_billing_completed_at is None or profile.onboarding_invoice_paid_at is not None
@@ -4983,7 +5036,7 @@ def sync_owner_billing_subscription(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_owner_onboarding_complete),
 ):
-    """Reconcile Stripe subscription amount with active property count (call before opening Customer Portal from Settings)."""
+    """Reconcile Stripe subscription amount with active property count. Optional: opening the billing portal runs sync internally — avoid chaining both before redirect (doubles latency)."""
     if current_user.role == UserRole.property_manager:
         raise HTTPException(status_code=403, detail="Property managers cannot modify billing. Contact the property owner.")
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
@@ -5055,7 +5108,9 @@ def create_billing_portal_session(
     settings = get_settings()
     if not (settings.stripe_secret_key or "").strip():
         raise HTTPException(status_code=501, detail="Stripe is not configured")
-    # Match Stripe line item to current property count before opening Customer Portal (most common entrypoint).
+    # Copy before sync: commits inside sync_subscription_quantities expire ORM state; avoid lazy-load of customer id under pool pressure.
+    stripe_customer_id = profile.stripe_customer_id
+    # Match Stripe line item to current property count before opening Customer Portal (single sync here — do not duplicate from the client).
     try:
         sync_subscription_quantities(db, profile)
     except Exception as e:
@@ -5065,6 +5120,10 @@ def create_billing_portal_session(
             e,
             exc_info=True,
         )
+    try:
+        db.refresh(profile)
+    except Exception:
+        logger.warning("billing portal: db.refresh(profile) after sync failed", exc_info=True)
     base = (settings.stripe_identity_return_url or settings.frontend_base_url or "").strip().split("#")[0].rstrip("/")
     if not base:
         raise HTTPException(status_code=501, detail="Billing return URL not configured. Set STRIPE_IDENTITY_RETURN_URL or FRONTEND_BASE_URL in .env.")
@@ -5074,7 +5133,7 @@ def create_billing_portal_session(
     stripe.api_key = settings.stripe_secret_key
     try:
         session = stripe.billing_portal.Session.create(
-            customer=profile.stripe_customer_id,
+            customer=stripe_customer_id,
             return_url=return_url,
         )
         return BillingPortalSessionResponse(url=session.url)
@@ -5242,6 +5301,7 @@ def owner_logs(
     q = q.order_by(desc(EventLedger.created_at))
     rows = q.all()
     rows = filter_tenant_lane_from_ledger_rows(db, rows)
+    rows = filter_tenant_presence_from_owner_manager_ledger(db, rows)
 
     prop_ids = {r.property_id for r in rows if r.property_id}
     props = {}
@@ -5327,6 +5387,8 @@ def manager_logs(
         q = q.filter((EventLedger.action_type.ilike(term)) | (cast(EventLedger.meta, String).ilike(term)))
     rows = q.order_by(desc(EventLedger.created_at)).all()
     rows = filter_tenant_lane_from_ledger_rows(db, rows)
+    rows = filter_tenant_presence_from_owner_manager_ledger(db, rows)
+    rows = filter_manager_presence_on_tenant_leased_units(db, rows)
 
     prop_ids = {r.property_id for r in rows if r.property_id}
     props = {}

@@ -1,6 +1,6 @@
 """Billing service: Stripe subscription for owners.
 
-Pricing: $10/month per property. New subscriptions include a 7-day free trial;
+Pricing: $10/month per UNIT. New subscriptions include a 7-day free trial;
 recurring charges begin after the trial unless cancelled.
 
 Legacy: some accounts may still have the old two-line subscription (baseline + Shield);
@@ -67,18 +67,40 @@ def get_or_create_stripe_customer(profile: OwnerProfile, user: User) -> str | No
 
 
 def _count_properties_and_shield(db: Session, profile: OwnerProfile) -> tuple[int, int]:
-    """Return (billing_unit_count, shield_count). Billing unit count = non-deleted properties (1 property = 1 unit)."""
-    q = db.query(Property).filter(
+    """Return (billing_unit_count, shield_property_count).
+
+    Billing units = total units across active properties.
+    If a property has no Unit rows (common for single-unit properties), it counts as 1 unit.
+    """
+    from sqlalchemy import func
+    from app.models.unit import Unit
+
+    q = db.query(Property.id, Property.shield_mode_enabled).filter(
         Property.owner_profile_id == profile.id,
         Property.deleted_at.is_(None),
     )
-    property_count = q.count()
+    prop_rows = q.all()
+    if not prop_rows:
+        return 0, 0
+    prop_ids = [r[0] for r in prop_rows]
+    property_count = len(prop_ids)
+
+    unit_counts = (
+        db.query(Unit.property_id, func.count(Unit.id).label("cnt"))
+        .filter(Unit.property_id.in_(prop_ids))
+        .group_by(Unit.property_id)
+        .all()
+    )
+    unit_count_map = {r.property_id: int(r.cnt or 0) for r in unit_counts}
+    billing_units = sum((unit_count_map.get(pid) or 0) or 1 for pid in prop_ids)
     from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON
 
     if SHIELD_MODE_ALWAYS_ON:
-        return property_count, property_count
-    shield_count = q.filter(Property.shield_mode_enabled == 1).count()
-    return property_count, shield_count
+        return billing_units, property_count
+
+    shield_prop_ids = [pid for (pid, shield_on) in prop_rows if bool(shield_on)]
+    shield_property_count = len(shield_prop_ids)
+    return billing_units, shield_property_count
 
 
 def stripe_subscription_status_and_trial(
@@ -175,7 +197,7 @@ def ensure_subscription(
     *,
     allow_trial: bool = True,
 ) -> None:
-    """Create Stripe subscription ($10/mo per property) if not already created. Idempotent.
+    """Create Stripe subscription ($10/mo per unit) if not already created. Idempotent.
 
     If allow_trial is True (default), new subscriptions get SUBSCRIPTION_TRIAL_DAYS free days.
     Set allow_trial False when recreating after cancel or after a legacy paid onboarding invoice.
@@ -228,7 +250,7 @@ def ensure_subscription(
             {
                 "price_data": {
                     "currency": "usd",
-                    # Single flat line: $10 * number of properties (quantity=1).
+                    # Single flat line: $10 * number of units (quantity=1).
                     "unit_amount": total_cents,
                     "recurring": {"interval": "month"},
                     "product": flat_prod_id,
@@ -258,7 +280,7 @@ def ensure_subscription(
         profile.stripe_subscription_shield_item_id = None
         db.commit()
         logger.info(
-            "Subscription created for profile_id=%s ($10/mo per property, properties=%s, trial=%s)",
+            "Subscription created for profile_id=%s ($10/mo per unit, units=%s, trial=%s)",
             profile.id,
             units,
             allow_trial,
@@ -336,7 +358,7 @@ def sync_subscription_quantities(
 ) -> None:
     """Update Stripe subscription to match account state.
 
-    Single line item: amount = $10 * properties (quantity=1). Multi-line (legacy) subs are consolidated here.
+    Single line item: amount = $10 * units (quantity=1). Multi-line (legacy) subs are consolidated here.
 
     If ``stripe_request_trace`` is a list, append JSON-serializable copies of Stripe API payloads (for client console debugging).
     """
@@ -415,7 +437,7 @@ def sync_subscription_quantities(
             profile.stripe_subscription_shield_item_id = None
             db.commit()
             logger.info(
-                "Subscription consolidated to flat total ($10*properties) for profile_id=%s (properties=%s)",
+                "Subscription consolidated to flat total ($10*units) for profile_id=%s (units=%s)",
                 profile.id,
                 units,
             )
@@ -438,9 +460,9 @@ def sync_subscription_quantities(
                         stripe_request_trace.append(
                             {
                                 "note": "no_stripe_write",
-                                "reason": "subscription_item_unit_amount_already_matches_property_count",
+                                "reason": "subscription_item_unit_amount_already_matches_unit_count",
                                 "expected_unit_amount_cents": new_total_cents,
-                                "properties_billed": units,
+                                "units_billed": units,
                             }
                         )
                     db.commit()
@@ -479,7 +501,7 @@ def sync_subscription_quantities(
                 profile.stripe_subscription_id,
                 items=modify_items,
             )
-            logger.info("Subscription synced ($10*properties) for profile_id=%s (properties=%s)", profile.id, units)
+            logger.info("Subscription synced ($10*units) for profile_id=%s (units=%s)", profile.id, units)
             db.commit()
     except stripe.StripeError as e:
         if stripe_request_trace is not None:
@@ -553,7 +575,7 @@ def charge_onboarding_fee(
         db,
         CATEGORY_BILLING,
         "Subscription started",
-        "7-day free trial started. Billing is $10/month per property after the trial. Add a default payment method before the trial ends.",
+        "7-day free trial started. Billing is $10/month per unit after the trial. Add a default payment method before the trial ends.",
         property_id=None,
         actor_user_id=user.id,
         actor_email=user.email,

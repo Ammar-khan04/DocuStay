@@ -31,6 +31,7 @@ from app.services.event_ledger import (
 )
 from app.services.property_live_ledger import merged_public_property_ledger_rows
 from app.services.shield_mode_policy import effective_shield_mode_enabled
+from app.services.occupancy import get_property_display_occupancy_status
 from app.services.display_names import (
     label_for_stay,
     label_from_invitation,
@@ -402,6 +403,8 @@ def get_live_property_page(
     ]
 
     token_state = getattr(prop, "usat_token_state", None) or "staged"
+    units_for_live = db.query(Unit).filter(Unit.property_id == prop.id).all()
+    display_occupancy = get_property_display_occupancy_status(db, prop, units_for_live)
     prop_info = LivePropertyInfo(
         name=prop.name,
         street=prop.street,
@@ -409,7 +412,7 @@ def get_live_property_page(
         state=prop.state,
         zip_code=prop.zip_code,
         region_code=prop.region_code,
-        occupancy_status=getattr(prop, "occupancy_status", None) or "unknown",
+        occupancy_status=display_occupancy,
         shield_mode_enabled=effective_shield_mode_enabled(prop),
         token_state=token_state,
         tax_id=getattr(prop, "tax_id", None) or None,

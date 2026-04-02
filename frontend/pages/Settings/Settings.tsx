@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Input } from '../../components/UI';
 import { ModeSwitcher } from '../../components/ModeSwitcher';
 import { UserSession } from '../../types';
-import { ownerPoaApi, dashboardApi, API_URL } from '../../services/api';
+import { ownerPoaApi, dashboardApi, API_URL, demoUnsignedPoaPdfRequestPath } from '../../services/api';
 import type { OwnerPOASignatureResponse } from '../../services/api';
 import type { BillingResponse } from '../../services/api';
 import { copyToClipboard } from '../../utils/clipboard';
@@ -82,6 +82,23 @@ const Settings: React.FC<{
       .catch(() => {});
   };
 
+  const openDemoUnsignedPoaPdf = () => {
+    if (!user?.is_demo || user.user_type !== 'PROPERTY_OWNER') return;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('docustay_token') : null;
+    if (!token) return;
+    const url = `${API_URL}${demoUnsignedPoaPdfRequestPath()}`;
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => {
+        if (!r.ok) throw new Error('pdf');
+        return r.blob();
+      })
+      .then((blob) => {
+        const u = URL.createObjectURL(blob);
+        window.open(u, '_blank');
+      })
+      .catch(() => {});
+  };
+
   return (
     <div className="w-full max-w-5xl py-4 md:py-6">
       {!embedded && (
@@ -112,7 +129,7 @@ const Settings: React.FC<{
               : billing.trial_days_remaining === 1
                 ? '1 day left in your free trial.'
                 : 'Your free trial ends today.'}{' '}
-            Billing is $10/month per property after the trial. Trial ends{' '}
+            Billing is $10/month per unit after the trial. Trial ends{' '}
             <time dateTime={billing.trial_end_at}>
               {new Date(billing.trial_end_at).toLocaleString(undefined, {
                 weekday: 'short',
@@ -177,23 +194,23 @@ const Settings: React.FC<{
                 <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
                   <p className="text-sm font-medium text-gray-800 mb-1">Subscription</p>
                   <p className="text-sm text-gray-600">
-                    <strong className="text-gray-900">$10/month per property</strong> after a <strong className="text-gray-900">7-day free trial</strong>. Add a default payment method before the trial ends to avoid interruption.
+                    <strong className="text-gray-900">$10/month per unit</strong> after a <strong className="text-gray-900">7-day free trial</strong>. Add a default payment method before the trial ends to avoid interruption.
                   </p>
                 </div>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Active properties</p>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Active units</p>
                     <p className="text-2xl font-bold text-gray-900">{billing.current_unit_count ?? 0}</p>
-                    <p className="text-sm text-gray-600 mt-1">Billed per property</p>
+                    <p className="text-sm text-gray-600 mt-1">Billed per unit</p>
                   </div>
                   <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                     <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Shield monitoring</p>
                     <p className="text-2xl font-bold text-gray-900">{billing.current_shield_count ?? 0}</p>
-                    <p className="text-sm text-gray-600 mt-1">Always on</p>
+                    <p className="text-sm text-gray-600 mt-1">Counted per property (always on)</p>
                   </div>
                 </div>
                 {(billing.current_unit_count ?? 0) === 0 && (
-                  <p className="text-gray-500 text-sm">Add a property to start your subscription and trial.</p>
+                  <p className="text-gray-500 text-sm">Add a unit (by adding a property) to start your subscription and trial.</p>
                 )}
                 {billing.can_invite === false && (
                   <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
@@ -209,16 +226,7 @@ const Settings: React.FC<{
                     onClick={async () => {
                       setBillingPortalOpening(true);
                       try {
-                        const syncResult = await dashboardApi.syncBillingSubscription().catch((err) => {
-                          console.warn('[billing] sync failed', err);
-                          return null;
-                        });
-                        if (syncResult) {
-                          console.log(
-                            '[billing] Stripe subscription amount sync — echoed API payloads (copy/paste):',
-                            JSON.stringify(syncResult.stripe_modification_requests, null, 2)
-                          );
-                        }
+                        // Portal endpoint runs subscription sync once; avoid calling sync + portal (doubles Stripe latency and can hit proxy timeouts).
                         const { url } = await dashboardApi.billingPortalSession();
                         if (url) window.location.href = url;
                       } catch (e) {
@@ -303,6 +311,14 @@ const Settings: React.FC<{
               </div>
             ) : (
               <p className="text-sm text-gray-500">No Master POA signature on file for this account.</p>
+            )}
+            {user?.is_demo && user.user_type === 'PROPERTY_OWNER' && (
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <p className="text-xs text-gray-500 mb-2">Demo: view the unsigned Master POA PDF (same template as production, no signature overlay).</p>
+                <Button variant="outline" type="button" onClick={openDemoUnsignedPoaPdf}>
+                  Download unsigned POA (demo)
+                </Button>
+              </div>
             )}
           </Card>
         )}

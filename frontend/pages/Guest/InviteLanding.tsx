@@ -102,7 +102,7 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
   ]);
 
   // Demo behavior: guest invites should be accepted automatically (no signup/agreement flow).
-  // Backend will auto-generate a demo agreement signature.
+  // Backend records the same agreement document + PDF as production typed signing.
   useEffect(() => {
     if (loadingDetails) return;
     if (!sessionIsDemo) return;

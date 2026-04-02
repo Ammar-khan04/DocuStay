@@ -5,7 +5,7 @@ import { InviteGuestModal } from '../../components/InviteGuestModal';
 import { InviteTenantModal } from '../../components/InviteTenantModal';
 import { SendTenantInviteEmailModal } from '../../components/SendTenantInviteEmailModal';
 import { UserSession } from '../../types';
-import { dashboardApi, propertiesApi, getContextMode, setContextMode, onPropertiesChanged, buildGuestInviteUrl, type OwnerStayView, type OwnerInvitationView, type OwnerAuditLogEntry, type Property, type BulkUploadResult, type BillingResponse, type BillingInvoiceView, type BillingPaymentView, type OwnerTenantView } from '../../services/api';
+import { dashboardApi, propertiesApi, getContextMode, setContextMode, onPropertiesChanged, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, type OwnerStayView, type OwnerInvitationView, type OwnerAuditLogEntry, type Property, type BulkUploadResult, type BillingResponse, type BillingInvoiceView, type BillingPaymentView, type OwnerTenantView } from '../../services/api';
 import { copyToClipboard } from '../../utils/clipboard';
 import { getTodayLocal, formatStayDuration } from '../../utils/dateUtils';
 import { toUserFriendlyInvitationError } from '../../utils/invitationErrors';
@@ -54,6 +54,27 @@ function TokenStateBadge({ tokenState }: { tokenState?: string | null }) {
       {displayLabel}
     </span>
   );
+}
+
+function propertyStatusSummary(prop: Property): { badgeText: string; badgeTone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown'; detailText: string | null } {
+  const status = (prop.occupancy_status || 'unknown').toLowerCase();
+  const tone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown' =
+    status === 'occupied' ? 'occupied' :
+    status === 'vacant' ? 'vacant' :
+    status === 'unconfirmed' ? 'unconfirmed' :
+    'unknown';
+
+  if (prop.is_multi_unit) {
+    const occ = prop.occupied_unit_count ?? null;
+    const vac = prop.vacant_unit_count ?? null;
+    const parts: string[] = [];
+    if (occ != null) parts.push(`${occ} occupied`);
+    if (vac != null) parts.push(`${vac} vacant`);
+    const badgeText = parts.length > 0 ? parts.join(' · ') : 'MULTI-UNIT';
+    return { badgeText, badgeTone: tone, detailText: parts.length > 0 ? parts.join(' • ') : null };
+  }
+
+  return { badgeText: status.toUpperCase(), badgeTone: tone, detailText: null };
 }
 
 const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => void; setLoading?: (l: boolean) => void; notify?: (t: 'success' | 'error', m: string) => void; initialTab?: string }> = ({ user, navigate, setLoading = (_l: boolean) => {}, notify = (_t: 'success' | 'error', _m: string) => {}, initialTab }) => {
@@ -589,18 +610,30 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                             )}
                           </td>
                           <td className="px-6 py-5 text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                const url = buildGuestInviteUrl(inv.invitation_code, { isDemo: Boolean(inv.is_demo) });
-                                const ok = await copyToClipboard(url);
-                                if (ok) notify('success', 'Invitation link copied to clipboard.');
-                                else notify('error', 'Could not copy. Please copy the link manually.');
-                              }}
-                            >
-                              Copy link
-                            </Button>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {inv.is_demo && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  type="button"
+                                  onClick={() => window.open(demoStoredUnsignedGuestAgreementPdfUrl(inv.invitation_code), '_blank')}
+                                >
+                                  Unsigned PDF
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  const url = buildGuestInviteUrl(inv.invitation_code, { isDemo: Boolean(inv.is_demo) });
+                                  const ok = await copyToClipboard(url);
+                                  if (ok) notify('success', 'Invitation link copied to clipboard.');
+                                  else notify('error', 'Could not copy. Please copy the link manually.');
+                                }}
+                              >
+                                Copy link
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -837,14 +870,16 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                           <td className="px-6 py-5 text-sm text-slate-600 whitespace-nowrap">
                             {t.start_date && t.end_date ? formatStayDuration(t.start_date, t.end_date) : t.start_date ? `From ${new Date(t.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '—'}
                             {t.status === 'active' && !t.end_date && <span className="ml-1 text-xs text-slate-400">(ongoing)</span>}
+                            {t.status === 'future' && t.start_date && <span className="ml-1 text-xs text-slate-400">(future)</span>}
                           </td>
                           <td className="px-6 py-5">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
                               t.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                              t.status === 'future' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
                               t.status === 'pending_signup' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
                               'bg-slate-100 text-slate-500 border border-slate-200'
                             }`}>
-                              {t.status === 'active' ? 'Active' : t.status === 'pending_signup' ? 'Pending signup' : 'Ended'}
+                              {t.status === 'active' ? 'Active' : t.status === 'future' ? 'Future' : t.status === 'pending_signup' ? 'Pending signup' : 'Ended'}
                             </span>
                           </td>
                           <td className="px-6 py-5 text-xs font-mono text-slate-500">
@@ -1024,11 +1059,10 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                   const displayName = prop.name || address || `Property #${prop.id}`;
                   // Business mode: use property status only (no guest data). Personal mode: can use stays for occupancy.
                   const activeStayForProp = contextMode === 'personal' ? activeStays.find((s) => s.property_id === prop.id) : null;
-                  const isOccupied = contextMode === 'business'
-                    ? (prop.occupancy_status || '').toLowerCase() === 'occupied'
-                    : !!activeStayForProp;
+                  const isOccupied = (prop.occupancy_status || '').toLowerCase() === 'occupied';
                   const shieldStatus = isOccupied ? 'PASSIVE GUARD' : 'ACTIVE MONITORING';
                   const isSelected = selectedPropertyIds.has(prop.id);
+                  const statusSummary = propertyStatusSummary(prop);
                   return (
                     <Card key={prop.id} className="p-6 border border-slate-200">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
@@ -1056,18 +1090,18 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                           <div className="flex flex-wrap items-center gap-2 gap-y-1">
                             <h3 className="text-lg font-bold text-slate-800 truncate">{displayName}</h3>
                             {(() => {
-                              const displayStatus = isOccupied ? 'OCCUPIED' : (prop.occupancy_status ?? 'unknown').toUpperCase();
+                              const displayStatus = isOccupied ? (prop.is_multi_unit ? statusSummary.badgeText : 'OCCUPIED') : statusSummary.badgeText;
                               return (
                                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold uppercase ${
-                                  displayStatus === 'OCCUPIED' ? 'bg-emerald-100 text-emerald-800' :
-                                  displayStatus === 'VACANT' ? 'bg-slate-200 text-slate-700' :
-                                  displayStatus === 'UNCONFIRMED' ? 'bg-amber-100 text-amber-800' :
+                                  statusSummary.badgeTone === 'occupied' ? 'bg-emerald-100 text-emerald-800' :
+                                  statusSummary.badgeTone === 'vacant' ? 'bg-slate-200 text-slate-700' :
+                                  statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-100 text-amber-800' :
                                   'bg-slate-100 text-slate-600'
                                 }`}>
                                   <span className={`w-1.5 h-1.5 rounded-full ${
-                                    displayStatus === 'OCCUPIED' ? 'bg-emerald-500' :
-                                    displayStatus === 'VACANT' ? 'bg-slate-400' :
-                                    displayStatus === 'UNCONFIRMED' ? 'bg-amber-500' : 'bg-slate-400'
+                                    statusSummary.badgeTone === 'occupied' ? 'bg-emerald-500' :
+                                    statusSummary.badgeTone === 'vacant' ? 'bg-slate-400' :
+                                    statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-500' : 'bg-slate-400'
                                   }`} />
                                   {displayStatus}
                                 </span>
@@ -1114,23 +1148,26 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                         <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Occupancy status</p>
                         <div className="flex items-center gap-3 flex-wrap">
                           {(() => {
-                            const displayStatus = isOccupied ? 'OCCUPIED' : (prop.occupancy_status ?? 'unknown').toUpperCase();
+                            const displayStatus = isOccupied ? (prop.is_multi_unit ? statusSummary.badgeText : 'OCCUPIED') : statusSummary.badgeText;
                             return (
                           <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
-                            displayStatus === 'OCCUPIED' ? 'bg-emerald-100 text-emerald-800' :
-                            displayStatus === 'VACANT' ? 'bg-slate-200 text-slate-700' :
-                            displayStatus === 'UNCONFIRMED' ? 'bg-amber-100 text-amber-800' :
+                            statusSummary.badgeTone === 'occupied' ? 'bg-emerald-100 text-emerald-800' :
+                            statusSummary.badgeTone === 'vacant' ? 'bg-slate-200 text-slate-700' :
+                            statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-100 text-amber-800' :
                             'bg-slate-100 text-slate-600'
                           }`}>
                             <span className={`w-2 h-2 rounded-full ${
-                              displayStatus === 'OCCUPIED' ? 'bg-emerald-500' :
-                              displayStatus === 'VACANT' ? 'bg-slate-400' :
-                              displayStatus === 'UNCONFIRMED' ? 'bg-amber-500' : 'bg-slate-400'
+                              statusSummary.badgeTone === 'occupied' ? 'bg-emerald-500' :
+                              statusSummary.badgeTone === 'vacant' ? 'bg-slate-400' :
+                              statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-500' : 'bg-slate-400'
                             }`} />
                             {displayStatus}
                           </span>
                             );
                           })()}
+                          {prop.is_multi_unit && statusSummary.detailText ? (
+                            <span className="text-sm text-slate-600">{statusSummary.detailText}</span>
+                          ) : null}
                           {contextMode === 'personal' && isOccupied && activeStayForProp && (
                             <span className="text-sm text-slate-600">
                               Current guest: <span className="font-medium text-slate-800">{activeStayForProp.guest_name}</span>
@@ -1394,9 +1431,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                                         type="button"
                                         onClick={() => {
                                           dashboardApi
-                                            .syncBillingSubscription()
-                                            .catch(() => {})
-                                            .then(() => dashboardApi.billingPortalSession())
+                                            .billingPortalSession()
                                             .then((data) => {
                                               window.location.href = data.url;
                                             })
@@ -1907,10 +1942,11 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                   window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
                   const created = result.created ?? 0;
                   const updated = result.updated ?? 0;
+                  const unitsCreated = (result as any).units_created ?? 0;
                   if (created > 0 || updated > 0) {
                     notify('success', result.failed_from_row == null
-                      ? `${created + updated} propert${created + updated === 1 ? 'y' : 'ies'} updated.`
-                      : `Uploaded ${created + updated} propert${created + updated === 1 ? 'y' : 'ies'}; some rows failed.`);
+                      ? `${created} propert${created === 1 ? 'y' : 'ies'} created, ${updated} updated, ${unitsCreated} unit${unitsCreated === 1 ? '' : 's'} added.`
+                      : `Uploaded ${created} created, ${updated} updated, ${unitsCreated} unit${unitsCreated === 1 ? '' : 's'} added; some rows failed.`);
                   }
                 } catch (err) {
                   notify('error', (err as Error)?.message ?? 'Bulk upload failed.');
@@ -1934,7 +1970,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
           {bulkUploadResult != null && (
             bulkUploadResult.failed_from_row == null ? (
               <p className="text-slate-600 text-sm">
-                <strong>{bulkUploadResult.created}</strong> propert{bulkUploadResult.created === 1 ? 'y' : 'ies'} created, <strong>{bulkUploadResult.updated}</strong> updated.
+                <strong>{bulkUploadResult.created}</strong> propert{bulkUploadResult.created === 1 ? 'y' : 'ies'} created, <strong>{bulkUploadResult.updated}</strong> updated, <strong>{(bulkUploadResult as any).units_created ?? 0}</strong> unit{((bulkUploadResult as any).units_created ?? 0) === 1 ? '' : 's'} added.
               </p>
             ) : bulkUploadResult.created === 0 && bulkUploadResult.updated === 0 ? (
               <p className="text-slate-600 text-sm">
@@ -2003,7 +2039,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                 />
               </div>
               <p className="text-sm text-slate-600 text-center">
-                {bulkProgress.processed} of {bulkProgress.total} properties processed ({Math.round((bulkProgress.processed / bulkProgress.total) * 100)}%)
+                {bulkProgress.processed} of {bulkProgress.total} rows processed ({Math.round((bulkProgress.processed / bulkProgress.total) * 100)}%)
               </p>
             </>
           ) : (

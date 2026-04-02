@@ -4,7 +4,7 @@ import { InviteGuestModal } from '../../components/InviteGuestModal';
 import HelpCenter from '../Support/HelpCenter';
 import { DashboardAlertsPanel, DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlertsPanel';
 import { UserSession } from '../../types';
-import { dashboardApi, authApi, invitationsApi, APP_ORIGIN, API_URL, buildGuestInviteUrl, resolveBackendMediaUrl } from '../../services/api';
+import { dashboardApi, authApi, invitationsApi, APP_ORIGIN, API_URL, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, resolveBackendMediaUrl } from '../../services/api';
 import type {
   OwnerInvitationView,
   OwnerStayView,
@@ -425,10 +425,8 @@ const TenantDashboard: React.FC<{
   const openTenantGuestSignedAgreementForSignature = useCallback(
     async (signatureId: number) => {
       try {
-        const blob = await dashboardApi.tenantInvitedGuestSignatureSignedAgreementBlob(signatureId);
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank', 'noopener,noreferrer');
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        // Use the same endpoint as the Documents tab to avoid state/permission mismatches.
+        window.open(`${API_URL}/agreements/signature/${signatureId}/signed-pdf`, '_blank', 'noopener,noreferrer');
       } catch (e) {
         notify('error', (e as Error)?.message ?? 'Could not open agreement.');
       }
@@ -1458,15 +1456,17 @@ const TenantDashboard: React.FC<{
                     const ed = card.stay_end_date ?? null;
                     const isCancelled = card.token_state === 'REVOKED' || card.token_state === 'CANCELLED';
                     const isFuture = sd && td < sd && !isCancelled;
-                    const isUpcoming = sd && ed && td >= sd && td <= ed && !isCancelled;
-                    const statusLabel = isCancelled ? 'CANCELLED' : isFuture ? 'FUTURE' : isUpcoming ? 'UPCOMING' : 'ONGOING';
+                    const isOngoing = !isCancelled && (
+                      (sd && ed && td >= sd && td <= ed) ||
+                      (sd && !ed && td >= sd) ||
+                      (!sd && !isFuture)
+                    );
+                    const statusLabel = isCancelled ? 'CANCELLED' : isFuture ? 'FUTURE' : isOngoing ? 'ONGOING' : 'ONGOING';
                     const statusClass = isCancelled
                       ? 'bg-slate-100 text-slate-600 border border-slate-200'
                       : isFuture
                         ? 'bg-sky-200 text-white border-0'
-                        : isUpcoming
-                          ? 'bg-[#FFC107] text-white border-0'
-                          : 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+                        : 'bg-emerald-50 text-emerald-700 border border-emerald-100';
                     const isSelected = !selectedStay && selected?.unit_id === card.unit_id;
                     const cardUnitData = unitsData.find((u) => u.unit?.id === card.unit_id);
                     const addressDisplay = card.property_address || `${card.property_name}${card.unit_label ? ` — Unit ${card.unit_label}` : ''}`;
@@ -1965,19 +1965,43 @@ const TenantDashboard: React.FC<{
                             <div>
                               <span className="font-medium text-slate-900">{row.stay.guest_name}</span>
                               <span className="text-slate-500"> · {formatDate(row.stay.stay_start_date)} – {formatDate(row.stay.stay_end_date)}</span>
+                              {row.stay.unit_label ? (
+                                <span className="text-slate-500"> · Unit {row.stay.unit_label}</span>
+                              ) : null}
                               <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">Accepted</span>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 shrink-0">
-                              {!row.stay.invitation_only && row.stay.stay_id > 0 && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="text-xs h-8 px-3 shrink-0"
-                                  onClick={() => openTenantGuestSignedAgreementForStay(row.stay.stay_id)}
-                                >
-                                  View agreement
-                                </Button>
-                              )}
+                              {(() => {
+                                // Single source of truth: if it's in Signed documents, open that same PDF here.
+                                const code = (row.stay.invite_id || '').trim();
+                                const sigDoc = code ? tenantSignedAgreementForInviteCode(code, signedDocs) : undefined;
+                                if (sigDoc) {
+                                  return (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="text-xs h-8 px-3 shrink-0"
+                                      onClick={() => openTenantGuestSignedAgreementForSignature(sigDoc.signature_id)}
+                                    >
+                                      View agreement
+                                    </Button>
+                                  );
+                                }
+                                // Fallback: if we have a real stay row, open by stay_id.
+                                if (!row.stay.invitation_only && row.stay.stay_id > 0) {
+                                  return (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="text-xs h-8 px-3 shrink-0"
+                                      onClick={() => openTenantGuestSignedAgreementForStay(row.stay.stay_id)}
+                                    >
+                                      View agreement
+                                    </Button>
+                                  );
+                                }
+                                return null;
+                              })()}
                               {tenantCanRevokeGuestStay(row.stay) && (
                                 <Button type="button" variant="outline" className="text-xs h-8 px-3 text-red-600 border-red-200 hover:bg-red-50 shrink-0" onClick={() => setRevokeConfirmStay(row.stay)}>
                                   Revoke stay
@@ -1989,6 +2013,9 @@ const TenantDashboard: React.FC<{
                           <li key={row.key} className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-slate-100 last:border-0 text-sm">
                             <span className="text-slate-700">
                               {row.inv.guest_name || row.inv.guest_email || '—'} · {row.inv.status}
+                              {row.inv.unit_label ? (
+                                <span className="text-slate-500"> · Unit {row.inv.unit_label}</span>
+                              ) : null}
                               {row.inv.stay_start_date && row.inv.stay_end_date && (
                                 <span className="text-slate-500 text-xs block"> {formatDate(row.inv.stay_start_date)} – {formatDate(row.inv.stay_end_date)}</span>
                               )}
@@ -2008,6 +2035,17 @@ const TenantDashboard: React.FC<{
                                   </Button>
                                 ) : null;
                               })()}
+                              {row.inv.is_demo && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-lg text-xs h-8 px-3"
+                                  onClick={() => window.open(demoStoredUnsignedGuestAgreementPdfUrl(row.inv.invitation_code), '_blank')}
+                                >
+                                  Unsigned PDF
+                                </Button>
+                              )}
                               <Button
                                 type="button"
                                 variant="outline"
@@ -2047,6 +2085,9 @@ const TenantDashboard: React.FC<{
                           <div>
                             <span className="font-medium text-slate-900">{h.guest_name}</span>
                             <span className="text-slate-500"> · {formatDate(h.stay_start_date)} – {formatDate(h.stay_end_date)}</span>
+                            {h.unit_label ? (
+                              <span className="text-slate-500"> · Unit {h.unit_label}</span>
+                            ) : null}
                             {(() => {
                               const b = endedGuestAuthorizationBadge(h);
                               return (
@@ -2056,16 +2097,35 @@ const TenantDashboard: React.FC<{
                               );
                             })()}
                           </div>
-                          {!h.invitation_only && h.stay_id > 0 && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="text-xs h-8 px-3 shrink-0"
-                              onClick={() => openTenantGuestSignedAgreementForStay(h.stay_id)}
-                            >
-                              View agreement
-                            </Button>
-                          )}
+                          {(() => {
+                            const code = (h.invite_id || '').trim();
+                            const sigDoc = code ? tenantSignedAgreementForInviteCode(code, signedDocs) : undefined;
+                            if (sigDoc) {
+                              return (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="text-xs h-8 px-3 shrink-0"
+                                  onClick={() => openTenantGuestSignedAgreementForSignature(sigDoc.signature_id)}
+                                >
+                                  View agreement
+                                </Button>
+                              );
+                            }
+                            if (!h.invitation_only && h.stay_id > 0) {
+                              return (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="text-xs h-8 px-3 shrink-0"
+                                  onClick={() => openTenantGuestSignedAgreementForStay(h.stay_id)}
+                                >
+                                  View agreement
+                                </Button>
+                              );
+                            }
+                            return null;
+                          })()}
                         </li>
                       ))}
                     </ul>
