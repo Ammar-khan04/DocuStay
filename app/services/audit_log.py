@@ -74,7 +74,15 @@ def create_log(
     cat = (category or "")[: _CATEGORY_LEN].strip() or "status_change"
     tit = (title or "")[: _TITLE_LEN].strip() or "—"
     msg = (message or "")[: _MESSAGE_LEN].strip() or "—"
-    actor_em = (actor_email[: _ACTOR_EMAIL_LEN] if actor_email else None) or None
+    actor_em: str | None = None
+    if actor_user_id:
+        from app.services.event_ledger import get_actor_display_name
+
+        actor_em = (get_actor_display_name(db, actor_user_id) or "")[: _ACTOR_EMAIL_LEN] or None
+    if not actor_em and actor_email:
+        from app.services.event_ledger import _display_name_for_email
+
+        actor_em = (_display_name_for_email(db, actor_email) or "")[: _ACTOR_EMAIL_LEN] or None
     ip = (ip_address[: _IP_LEN] if ip_address else None) or None
     ua = (str(user_agent)[: _USER_AGENT_LEN] if user_agent else None) or None
     safe_meta = _sanitize_meta(meta)

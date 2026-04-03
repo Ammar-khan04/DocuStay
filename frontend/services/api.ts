@@ -696,6 +696,7 @@ export interface OwnerAuditLogEntry {
   title: string;
   message: string;
   actor_user_id: number | null;
+  /** Display name for the actor (legacy API key `actor_email`; not a mailbox). */
   actor_email: string | null;
   ip_address: string | null;
   created_at: string;
@@ -1655,13 +1656,16 @@ export const propertiesApi = {
       body: JSON.stringify({ email: data.email.trim().toLowerCase(), tenant_name: data.tenant_name.trim() }),
     }),
   /** Invite a property manager to manage this property. In test mode, response includes invite_link for console display. */
-  inviteManager: (propertyId: number, email: string) =>
+  inviteManager: (propertyId: number, email: string, options?: { confirmRemoveOtherManagers?: boolean }) =>
     request<{ status: string; message?: string; invite_link?: string }>(`/owners/properties/${propertyId}/invite-manager`, {
       method: "POST",
-      body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        confirm_remove_other_managers: options?.confirmRemoveOtherManagers === true,
+      }),
     }),
   listAssignedManagers: (propertyId: number) =>
-    request<{ user_id: number; email: string; full_name: string | null; has_resident_mode: boolean; resident_unit_id: number | null; resident_unit_label: string | null; presence_status: string | null; presence_away_started_at: string | null }[]>(
+    request<{ user_id: number; email: string; full_name: string | null; has_resident_mode: boolean; resident_unit_id: number | null; resident_unit_label: string | null; resident_unit_ids?: number[]; presence_status: string | null; presence_away_started_at: string | null }[]>(
       `/owners/properties/${propertyId}/assigned-managers`
     ),
   removePropertyManager: (propertyId: number, managerUserId: number) =>
@@ -1669,11 +1673,31 @@ export const propertiesApi = {
       method: "POST",
       body: JSON.stringify({ manager_user_id: managerUserId }),
     }),
-  addManagerResidentMode: (propertyId: number, managerUserId: number, unitId: number) =>
-    request<{ status: string; message?: string }>(`/owners/properties/${propertyId}/managers/add-resident-mode`, {
-      method: "POST",
-      body: JSON.stringify({ manager_user_id: managerUserId, unit_id: unitId }),
-    }),
+  addManagerResidentMode: (
+    propertyId: number,
+    managerUserId: number,
+    unitId: number | null,
+    options?: { allUnits?: boolean; confirmRemoveOtherManagers?: boolean },
+  ) =>
+    request<{ status: string; message?: string; unit_ids?: number[]; removed_other_managers?: number }>(
+      `/owners/properties/${propertyId}/managers/add-resident-mode`,
+      {
+        method: "POST",
+        body: JSON.stringify(
+          options?.allUnits
+            ? {
+                manager_user_id: managerUserId,
+                all_units: true,
+                confirm_remove_other_managers: options.confirmRemoveOtherManagers === true,
+              }
+            : {
+                manager_user_id: managerUserId,
+                unit_id: unitId,
+                confirm_remove_other_managers: options.confirmRemoveOtherManagers === true,
+              },
+        ),
+      },
+    ),
   removeManagerResidentMode: (propertyId: number, managerUserId: number) =>
     request<{ status: string; message?: string }>(`/owners/properties/${propertyId}/managers/remove-resident-mode`, {
       method: "POST",

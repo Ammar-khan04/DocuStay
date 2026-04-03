@@ -92,7 +92,12 @@ from app.services.dropbox_sign import get_signed_pdf
 from app.services.billing import on_onboarding_properties_completed, ensure_subscription, sync_subscription_quantities
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON, persisted_shield_row_int
 from app.services.permissions import can_perform_action, can_assign_property_manager, Action, can_access_property, get_owner_personal_mode_units
-from app.services.manager_resident import add_manager_onsite_resident, remove_manager_onsite_resident
+from app.services.manager_resident import (
+    add_manager_onsite_resident,
+    add_manager_onsite_resident_all_units,
+    remove_all_property_managers_from_property,
+    remove_manager_onsite_resident,
+)
 from app.services.jle import validate_stay_duration_for_property, get_max_stay_days_for_property
 from app.services.occupancy import (
     get_unit_display_occupancy_status,
@@ -647,6 +652,15 @@ def _next_auto_unit_label(existing_labels: set[str]) -> str:
     return str(max_n + 1 if max_n >= 1 else 1)
 
 
+def _mark_unit_occupied_after_csv_tenant_invite(db: Session, unit_id: int | None) -> None:
+    """Ensure the unit row reflects tenant occupancy after a CSV BURNED tenant invite (may reuse a unit created as vacant/unknown)."""
+    if unit_id is None or unit_id <= 0:
+        return
+    u = db.query(Unit).filter(Unit.id == unit_id).first()
+    if u:
+        u.occupancy_status = OccupancyStatus.occupied.value
+
+
 @router.post("/properties/bulk-upload", response_model=BulkUploadResult)
 def bulk_upload_properties(
     request: Request,
@@ -990,6 +1004,7 @@ def bulk_upload_properties(
                 )
                 db.add(inv)
                 db.flush()
+                _mark_unit_occupied_after_csv_tenant_invite(db, inv_unit_id)
                 create_log(
                     db,
                     CATEGORY_STATUS_CHANGE,
@@ -1188,6 +1203,7 @@ def bulk_upload_properties(
                     )
                     db.add(inv)
                     db.flush()
+                    _mark_unit_occupied_after_csv_tenant_invite(db, inv_unit_id_upd)
                     create_log(
                         db,
                         CATEGORY_STATUS_CHANGE,
@@ -1247,7 +1263,7 @@ def bulk_upload_properties(
                 u = Unit(
                     property_id=prop_for_units.id,
                     unit_label=unit_label,
-                    occupancy_status=OccupancyStatus.unknown.value,
+                    occupancy_status=OccupancyStatus.occupied.value if occupied else OccupancyStatus.vacant.value,
                     is_primary_residence=0,
                 )
                 db.add(u)
@@ -1602,6 +1618,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     )
                     db.add(inv)
                     db.flush()
+                    _mark_unit_occupied_after_csv_tenant_invite(db, inv_unit_id)
                     create_log(
                         db,
                         CATEGORY_STATUS_CHANGE,
@@ -1786,6 +1803,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         )
                         db.add(inv)
                         db.flush()
+                        _mark_unit_occupied_after_csv_tenant_invite(db, inv_unit_id_upd)
                         create_log(
                             db,
                             CATEGORY_STATUS_CHANGE,
@@ -1839,7 +1857,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     u = Unit(
                         property_id=existing_match.id,
                         unit_label=unit_label,
-                        occupancy_status=OccupancyStatus.unknown.value,
+                        occupancy_status=OccupancyStatus.occupied.value if occupied else OccupancyStatus.vacant.value,
                         is_primary_residence=0,
                     )
                     db.add(u)
@@ -2114,6 +2132,7 @@ def list_property_units(
 
 class InviteManagerRequest(BaseModel):
     email: str
+    confirm_remove_other_managers: bool = False
 
 
 @router.post("/properties/{property_id}/invite-manager")
@@ -2124,7 +2143,7 @@ def invite_property_manager(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_owner_onboarding_complete),
 ):
-    """Owner invites a property manager by email. Manager receives an email with signup link."""
+    """Owner invites a property manager by email. Manager receives a link to register or, if they already have a manager account, to sign in and accept the assignment."""
     if not can_assign_property_manager(db, current_user, property_id):
         raise HTTPException(status_code=403, detail="Only the property owner can invite managers.")
     prop = db.query(Property).filter(
@@ -2139,10 +2158,9 @@ def invite_property_manager(
     email = (data.email or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Valid email is required")
-    from app.services.permissions import validate_invite_email_role, email_conflicts_with_property_as_tenant_or_guest
-    role_err = validate_invite_email_role(db, email, UserRole.property_manager)
-    if role_err:
-        raise HTTPException(status_code=409, detail=role_err)
+    from app.services.permissions import email_conflicts_with_property_as_tenant_or_guest
+
+    # Do not block emails that already have a property-manager user: they can log in and accept via the invite token.
     if email_conflicts_with_property_as_tenant_or_guest(db, email=email, property_id=property_id):
         raise HTTPException(
             status_code=409,
@@ -2156,6 +2174,31 @@ def invite_property_manager(
         ).first()
         if existing_assignment:
             raise HTTPException(status_code=400, detail="This manager is already assigned to this property.")
+    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    sole_manager_property = (not bool(prop.is_multi_unit)) or len(units) <= 1
+    other_manager_count = (
+        db.query(PropertyManagerAssignment)
+        .filter(PropertyManagerAssignment.property_id == property_id)
+        .count()
+    )
+    if sole_manager_property and other_manager_count > 0:
+        if not data.confirm_remove_other_managers:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "OTHER_MANAGERS_PRESENT: This property allows only one property manager. "
+                    "Inviting a new manager removes every current manager from this property. "
+                    "Resend the request with confirm_remove_other_managers set to true to proceed."
+                ),
+            )
+        remove_all_property_managers_from_property(
+            db,
+            property_id,
+            actor_user_id=current_user.id,
+            request=request,
+            prop=prop,
+        )
+        db.flush()
     # Create invitation
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(days=MANAGER_INVITE_EXPIRE_DAYS)
@@ -2210,6 +2253,7 @@ class AssignedManagerItem(BaseModel):
     has_resident_mode: bool = False
     resident_unit_id: int | None = None
     resident_unit_label: str | None = None
+    resident_unit_ids: list[int] = Field(default_factory=list)
     presence_status: str | None = None  # "present" | "away" when has_resident_mode
     presence_away_started_at: str | None = None
 
@@ -2236,9 +2280,9 @@ def list_assigned_managers(
     out = []
     for a in assignments:
         u = db.query(User).filter(User.id == a.user_id).first()
-        if not u or u.role != UserRole.property_manager:
+        if not u:
             continue
-        resident = (
+        residents = (
             db.query(ResidentMode)
             .join(Unit, ResidentMode.unit_id == Unit.id)
             .filter(
@@ -2246,8 +2290,11 @@ def list_assigned_managers(
                 ResidentMode.mode == ResidentModeType.manager_personal,
                 Unit.property_id == property_id,
             )
-            .first()
+            .order_by(Unit.id)
+            .all()
         )
+        resident_unit_ids = [r.unit_id for r in residents]
+        resident = residents[0] if residents else None
         unit_row = db.query(Unit).filter(Unit.id == resident.unit_id).first() if resident else None
         presence_status = None
         presence_away_started_at = None
@@ -2261,13 +2308,21 @@ def list_assigned_managers(
                 presence_away_started_at = pres.away_started_at.isoformat() if pres.away_started_at else None
             else:
                 presence_status = "away"  # default before manager has set presence
+        multi_label = None
+        if len(resident_unit_ids) > 1:
+            labels: list[str] = []
+            for uid in resident_unit_ids:
+                ur = db.query(Unit).filter(Unit.id == uid).first()
+                labels.append((ur.unit_label or "").strip() if ur else str(uid))
+            multi_label = ", ".join(labels)
         out.append(AssignedManagerItem(
             user_id=u.id,
             email=u.email or "",
             full_name=getattr(u, "full_name", None),
             has_resident_mode=resident is not None,
             resident_unit_id=resident.unit_id if resident else None,
-            resident_unit_label=unit_row.unit_label if unit_row else None,
+            resident_unit_label=multi_label if multi_label else (unit_row.unit_label if unit_row else None),
+            resident_unit_ids=resident_unit_ids,
             presence_status=presence_status,
             presence_away_started_at=presence_away_started_at,
         ))
@@ -2331,7 +2386,9 @@ def remove_property_manager(
 
 class AddResidentModeRequest(BaseModel):
     manager_user_id: int
-    unit_id: int
+    unit_id: int | None = None
+    all_units: bool = False
+    confirm_remove_other_managers: bool = False
 
 
 @router.post("/properties/{property_id}/managers/add-resident-mode")
@@ -2342,7 +2399,7 @@ def add_manager_resident_mode(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_owner_onboarding_complete),
 ):
-    """Grant a property manager Personal Mode for a unit (manager lives on-site). Owner only. Managers can also self-register via POST /managers/properties/{id}/my-resident-mode."""
+    """Grant a property manager Personal Mode for a unit (manager lives on-site). Owner only. Managers can also self-register via POST /managers/properties/{id}/my-resident-mode. Use all_units=true for every unit on a multi-unit property."""
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Owner profile not found")
@@ -2354,6 +2411,18 @@ def add_manager_resident_mode(
     ).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
+    if data.all_units:
+        return add_manager_onsite_resident_all_units(
+            db,
+            property_id,
+            data.manager_user_id,
+            actor_user_id=current_user.id,
+            initiator="owner",
+            request=request,
+            confirm_remove_other_managers=data.confirm_remove_other_managers,
+        )
+    if data.unit_id is None or data.unit_id <= 0:
+        raise HTTPException(status_code=400, detail="unit_id is required unless all_units is true.")
     return add_manager_onsite_resident(
         db,
         property_id,
@@ -2362,6 +2431,7 @@ def add_manager_resident_mode(
         actor_user_id=current_user.id,
         initiator="owner",
         request=request,
+        confirm_remove_other_managers=data.confirm_remove_other_managers,
     )
 
 
@@ -2906,6 +2976,20 @@ def _snapshot_property(prop: Property) -> dict:
     }
 
 
+def _ensure_primary_unit_for_owner_occupied_multi(db: Session, prop: Property) -> None:
+    """If owner lives on a multi-unit property but no unit is marked primary, default to the first unit."""
+    if not getattr(prop, "owner_occupied", False) or not getattr(prop, "is_multi_unit", False):
+        return
+    units_list = db.query(Unit).filter(Unit.property_id == prop.id).order_by(Unit.id).all()
+    if not units_list:
+        return
+    if any(int(getattr(u, "is_primary_residence", 0) or 0) == 1 for u in units_list):
+        return
+    for u in units_list:
+        u.is_primary_residence = 0
+    units_list[0].is_primary_residence = 1
+
+
 @router.put("/properties/{property_id}", response_model=PropertyResponse)
 def update_property(
     request: Request,
@@ -2913,7 +2997,7 @@ def update_property(
     data: PropertyUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_owner_onboarding_complete),
-    context_mode: str = Depends(get_context_mode),
+    _context_mode: str = Depends(get_context_mode),
 ):
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
@@ -2921,15 +3005,6 @@ def update_property(
     prop = _get_owner_property(property_id, profile, db)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
-    if context_mode != "personal":
-        # Owners set primary residence only in Personal Mode; business updates cannot change it.
-        data = data.model_copy(
-            update={
-                "is_primary_residence": None,
-                "owner_occupied": None,
-                "primary_residence_unit": None,
-            }
-        )
     old = _snapshot_property(prop)
 
     if data.property_name is not None:
@@ -3039,6 +3114,8 @@ def update_property(
     # CR-1a: heal stale DB rows (DO NOT REMOVE — keeps column aligned with always-on policy).
     if SHIELD_MODE_ALWAYS_ON and getattr(prop, "shield_mode_enabled", 0) != 1:
         prop.shield_mode_enabled = 1
+
+    _ensure_primary_unit_for_owner_occupied_multi(db, prop)
 
     new = _snapshot_property(prop)
     changes = []

@@ -2,6 +2,8 @@
 
 Units are considered effectively "occupied" when:
 - the unit's stored occupancy_status is "occupied", or
+- the unit has an active tenant assignment, or
+- the unit has an in-window tenant invitation (e.g. CSV BURNED invite before tenant signup), or
 - the unit has an on-site resident (ResidentMode with manager_personal).
 
 This ensures both owner and manager see the same status for units where
@@ -9,7 +11,7 @@ a property manager is assigned as on-site resident.
 """
 from datetime import date
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.owner import OccupancyStatus
@@ -21,6 +23,23 @@ from app.models.user import User
 from app.models.tenant_assignment import TenantAssignment
 from app.services.privacy_lanes import is_tenant_lane_invitation, is_tenant_lane_stay
 from app.services.display_names import label_from_invitation, label_from_user_id
+
+
+def _unit_has_in_window_tenant_invitation(db: Session, unit_id: int, today: date) -> bool:
+    """True when a non-revoked tenant invitation covers today (lease window), including pending signup."""
+    return (
+        db.query(Invitation)
+        .filter(
+            Invitation.unit_id == unit_id,
+            func.lower(func.coalesce(Invitation.invitation_kind, "guest")) == "tenant",
+            Invitation.token_state.notin_(["REVOKED", "CANCELLED"]),
+            Invitation.stay_start_date.isnot(None),
+            Invitation.stay_start_date <= today,
+            or_(Invitation.stay_end_date.is_(None), Invitation.stay_end_date >= today),
+        )
+        .first()
+        is not None
+    )
 
 
 def is_unit_effectively_occupied(db: Session, unit: Unit) -> bool:
@@ -43,6 +62,8 @@ def is_unit_effectively_occupied(db: Session, unit: Unit) -> bool:
         is not None
     )
     if has_active_tenant_assignment:
+        return True
+    if _unit_has_in_window_tenant_invitation(db, unit.id, today):
         return True
     return (
         db.query(ResidentMode)
@@ -75,6 +96,8 @@ def get_unit_display_occupancy_status(db: Session, unit: Unit) -> str:
         is not None
     )
     if has_active_tenant_assignment:
+        return OccupancyStatus.occupied.value
+    if _unit_has_in_window_tenant_invitation(db, unit.id, today):
         return OccupancyStatus.occupied.value
     if (
         db.query(ResidentMode)

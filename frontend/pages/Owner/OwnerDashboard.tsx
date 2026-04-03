@@ -56,6 +56,36 @@ function TokenStateBadge({ tokenState }: { tokenState?: string | null }) {
   );
 }
 
+/** Aggregate unit counts for dashboard cards (API sets per-property counts from effective occupancy). */
+function totalOccupiedUnitsAcrossProperties(properties: Property[]): number {
+  return properties.reduce((sum, p) => {
+    if (p.occupied_unit_count != null) return sum + p.occupied_unit_count;
+    const st = (p.occupancy_status || '').toLowerCase();
+    if (st === 'occupied') return sum + (p.unit_count ?? 1);
+    return sum;
+  }, 0);
+}
+
+function totalVacantUnitsAcrossProperties(properties: Property[]): number {
+  return properties.reduce((sum, p) => {
+    if (p.vacant_unit_count != null) return sum + p.vacant_unit_count;
+    const st = (p.occupancy_status || '').toLowerCase();
+    if (st === 'vacant') return sum + (p.unit_count ?? 1);
+    return sum;
+  }, 0);
+}
+
+/** Merge PUT /properties response into list row without dropping list-only counts when API omits them. */
+function mergePropertyAfterUpdate(prev: Property, updated: Property): Property {
+  return {
+    ...prev,
+    ...updated,
+    unit_count: updated.unit_count ?? prev.unit_count,
+    occupied_unit_count: updated.occupied_unit_count ?? prev.occupied_unit_count,
+    vacant_unit_count: updated.vacant_unit_count ?? prev.vacant_unit_count,
+  };
+}
+
 function propertyStatusSummary(prop: Property): { badgeText: string; badgeTone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown'; detailText: string | null } {
   const status = (prop.occupancy_status || 'unknown').toLowerCase();
   const tone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown' =
@@ -122,6 +152,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
   const [propertyManagersMap, setPropertyManagersMap] = useState<Record<number, AssignedManagerItem[]>>({});
   const [removingManager, setRemovingManager] = useState<{ propertyId: number; userId: number } | null>(null);
   const [removingResidentMode, setRemovingResidentMode] = useState<{ propertyId: number; userId: number } | null>(null);
+  const [primaryResidenceTogglingId, setPrimaryResidenceTogglingId] = useState<number | null>(null);
   /** CR-1a: only All | Shield ON in UI; OFF removed while Shield is always on (DO NOT REMOVE 'off' type if policy reverts). */
   const [shieldFilter, setShieldFilter] = useState<'all' | 'on'>('all');
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<number>>(new Set());
@@ -911,15 +942,15 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
               <div>
                 {contextMode === 'business' && (() => {
                   const totalUnits = properties.reduce((s, p) => s + (p.unit_count ?? 1), 0);
-                  const occupiedCount = properties.filter((p) => (p.occupancy_status || '').toLowerCase() === 'occupied').length;
-                  const vacantCount = properties.filter((p) => (p.occupancy_status || '').toLowerCase() === 'vacant').length;
+                  const occupiedUnitsCount = totalOccupiedUnitsAcrossProperties(properties);
+                  const vacantUnitsCount = totalVacantUnitsAcrossProperties(properties);
                   const unknownCount = properties.filter((p) => !['occupied', 'vacant', 'unconfirmed'].includes((p.occupancy_status || '').toLowerCase())).length;
                   const shieldOnCount = properties.filter((p) => p.shield_mode_enabled).length;
                   const filters: { key: typeof propertiesTabFilter; label: string; count: number; border: string }[] = [
                     { key: 'all', label: 'Properties', count: properties.length, border: 'border-blue-500' },
                     { key: 'units', label: 'Units', count: totalUnits, border: 'border-indigo-500' },
-                    { key: 'occupied', label: 'Occupied', count: occupiedCount, border: 'border-emerald-500' },
-                    { key: 'vacant', label: 'Vacant', count: vacantCount, border: 'border-sky-500' },
+                    { key: 'occupied', label: 'Occupied', count: occupiedUnitsCount, border: 'border-emerald-500' },
+                    { key: 'vacant', label: 'Vacant', count: vacantUnitsCount, border: 'border-sky-500' },
                     { key: 'unknown', label: 'Unknown', count: unknownCount, border: 'border-slate-400' },
                     { key: 'shield_on', label: 'Shield On', count: shieldOnCount, border: 'border-amber-500' },
                   ];
@@ -1175,6 +1206,60 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                               Lease end: <span className="font-medium text-slate-800">{activeStayForProp.stay_end_date}</span>
                             </span>
                           )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Primary residence</p>
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-slate-800">Show in Personal mode</p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Turn on to include this property when you use Personal mode (your home and guest invites).
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={!!prop.owner_occupied}
+                            aria-busy={primaryResidenceTogglingId === prop.id}
+                            disabled={primaryResidenceTogglingId === prop.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const next = !prop.owner_occupied;
+                              setPrimaryResidenceTogglingId(prop.id);
+                              try {
+                                const updated = await propertiesApi.update(prop.id, { owner_occupied: next });
+                                setProperties((list) =>
+                                  list.map((p) => (p.id === prop.id ? mergePropertyAfterUpdate(p, updated) : p)),
+                                );
+                                dashboardApi
+                                  .ownerPersonalModeUnits()
+                                  .then((pm) =>
+                                    setPersonalModeUnits((pm as { unit_ids: number[] }).unit_ids || []),
+                                  )
+                                  .catch(() => {});
+                                notify(
+                                  'success',
+                                  next ? 'This property will appear in Personal mode.' : 'Removed from Personal mode.',
+                                );
+                                window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+                              } catch (err) {
+                                notify('error', (err as Error)?.message ?? 'Could not update primary residence.');
+                              } finally {
+                                setPrimaryResidenceTogglingId(null);
+                              }
+                            }}
+                            className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                              prop.owner_occupied ? 'bg-emerald-600' : 'bg-slate-200'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                                prop.owner_occupied ? 'translate-x-5' : 'translate-x-0.5'
+                              }`}
+                            />
+                          </button>
                         </div>
                       </div>
 
@@ -1721,15 +1806,15 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                 <p className="text-slate-500 text-sm">Property and unit status. Switch to Personal mode to view guest invitations, stays, and overstays.</p>
                 {(() => {
                   const totalUnits = properties.reduce((s, p) => s + (p.unit_count ?? 1), 0);
-                  const occupiedCount = properties.filter((p) => (p.occupancy_status || '').toLowerCase() === 'occupied').length;
-                  const vacantCount = properties.filter((p) => (p.occupancy_status || '').toLowerCase() === 'vacant').length;
+                  const occupiedUnitsCount = totalOccupiedUnitsAcrossProperties(properties);
+                  const vacantUnitsCount = totalVacantUnitsAcrossProperties(properties);
                   const unknownCount = properties.filter((p) => !['occupied', 'vacant', 'unconfirmed'].includes((p.occupancy_status || '').toLowerCase())).length;
                   const shieldOnCount = properties.filter((p) => p.shield_mode_enabled).length;
                   const cards: { key: OverviewFilter; label: string; count: number; border: string }[] = [
                     { key: 'properties', label: 'Properties', count: properties.length, border: 'border-blue-500' },
                     { key: 'units', label: 'Units', count: totalUnits, border: 'border-indigo-500' },
-                    { key: 'occupied', label: 'Occupied', count: occupiedCount, border: 'border-emerald-500' },
-                    { key: 'vacant', label: 'Vacant', count: vacantCount, border: 'border-sky-500' },
+                    { key: 'occupied', label: 'Occupied', count: occupiedUnitsCount, border: 'border-emerald-500' },
+                    { key: 'vacant', label: 'Vacant', count: vacantUnitsCount, border: 'border-sky-500' },
                     { key: 'unknown', label: 'Unknown', count: unknownCount, border: 'border-slate-400' },
                     { key: 'shield_on', label: 'Shield On', count: shieldOnCount, border: 'border-amber-500' },
                   ];

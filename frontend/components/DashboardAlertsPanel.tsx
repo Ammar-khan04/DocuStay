@@ -75,7 +75,7 @@ function formatAlertTime(iso: string): string {
 export type NotificationsRole = 'owner' | 'property_manager' | 'tenant' | 'guest';
 
 interface DashboardAlertsPanelProps {
-  /** When set, notifications show event ledger data (same API as Event ledger) in notification format. Per-role and context mode (business/personal) use the same filtered data as the ledger. */
+  /** When set, notifications show event ledger data (same API as Event ledger). Owner/manager Personal mode uses a guest-residence-only ledger slice (no portfolio/tenant/manager rows). */
   role?: NotificationsRole;
   /** Max items to show (default 50). */
   limit?: number;

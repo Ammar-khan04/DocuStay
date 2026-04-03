@@ -154,16 +154,39 @@ export const Modal: React.FC<{
 export const ErrorModal: React.FC<{
   open: boolean;
   title?: string;
-  message: string;
+  message: React.ReactNode;
   onClose: () => void;
-  /** Optional primary action (e.g. "Go to login") — when set, shown next to OK. */
+  /**
+   * When both are set, footer is [Cancel] [actionLabel] (error-style destructive primary).
+   * When omitted, a single OK button is shown.
+   */
   actionLabel?: string;
-  onAction?: () => void;
-}> = ({ open, title = "Error", message, onClose, actionLabel, onAction }) => {
+  onAction?: () => void | Promise<void>;
+  cancelLabel?: string;
+  /** Block backdrop / header close while e.g. a request is in flight */
+  disableBackdropClose?: boolean;
+  /** Disable footer buttons (e.g. while submitting) */
+  primaryDisabled?: boolean;
+}> = ({
+  open,
+  title = "Error",
+  message,
+  onClose,
+  actionLabel,
+  onAction,
+  cancelLabel = "Cancel",
+  disableBackdropClose = false,
+  primaryDisabled = false,
+}) => {
   if (!open) return null;
+  const hasDualFooter = Boolean(actionLabel && onAction);
   return createPortal(
     <div className="fixed inset-0 z-[200]">
-      <div className="absolute inset-0 bg-slate-900/60" onClick={onClose} aria-hidden />
+      <div
+        className="absolute inset-0 bg-slate-900/60"
+        onClick={disableBackdropClose ? undefined : onClose}
+        aria-hidden
+      />
       <div className="absolute inset-0 p-4 flex items-center justify-center">
         <div
           className="w-full max-w-md bg-white border border-red-200 rounded-xl shadow-lg overflow-hidden"
@@ -181,7 +204,8 @@ export const ErrorModal: React.FC<{
             <button
               type="button"
               onClick={onClose}
-              className="ml-auto p-2 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-100 transition-colors"
+              disabled={disableBackdropClose}
+              className="ml-auto p-2 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-100 transition-colors disabled:opacity-40 disabled:pointer-events-none"
               aria-label="Close"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -190,16 +214,36 @@ export const ErrorModal: React.FC<{
             </button>
           </div>
           <div className="px-6 py-4">
-            <p id="error-modal-desc" className="text-slate-700 leading-relaxed">{message}</p>
-            <div className="mt-6 flex justify-end gap-3">
-              {actionLabel && onAction && (
-                <Button variant="primary" onClick={() => { onAction(); onClose(); }} className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-500">
-                  {actionLabel}
+            {typeof message === "string" ? (
+              <p id="error-modal-desc" className="text-slate-700 leading-relaxed whitespace-pre-line">
+                {message}
+              </p>
+            ) : (
+              <div id="error-modal-desc" className="text-slate-700 leading-relaxed">
+                {message}
+              </div>
+            )}
+            <div className="mt-6 flex justify-end gap-3 flex-wrap">
+              {hasDualFooter ? (
+                <>
+                  <Button variant="outline" onClick={onClose} disabled={primaryDisabled}>
+                    {cancelLabel}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => {
+                      void Promise.resolve(onAction?.());
+                    }}
+                    disabled={primaryDisabled}
+                  >
+                    {actionLabel}
+                  </Button>
+                </>
+              ) : (
+                <Button variant="primary" onClick={onClose} className="bg-red-600 hover:bg-red-700 focus:ring-red-500" disabled={primaryDisabled}>
+                  OK
                 </Button>
               )}
-              <Button variant="primary" onClick={onClose} className="bg-red-600 hover:bg-red-700 focus:ring-red-500">
-                OK
-              </Button>
             </div>
           </div>
         </div>

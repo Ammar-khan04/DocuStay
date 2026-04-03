@@ -317,7 +317,25 @@ OWNER_PERSONAL_GUEST_ACTIONS: set[str] = {
     ACTION_GUEST_AUTHORIZATION_REVOKED,     ACTION_GUEST_AUTHORIZATION_EXPIRED,
 }
 
-OWNER_PERSONAL_ACTIONS: set[str] = OWNER_BUSINESS_ACTIONS | OWNER_PERSONAL_GUEST_ACTIONS
+# Owner/manager Personal mode (Event ledger + Notifications panel): guest-residence lane only — not portfolio,
+# tenants, managers, billing, property CRUD, shield/vacant bulk ops, POA, CSV, etc. (aligned with tenant privacy,
+# plus DMS/overstay/presence for the home where they host guests.)
+OWNER_PERSONAL_MODE_LEDGER_ACTIONS: set[str] = set(OWNER_PERSONAL_GUEST_ACTIONS) | {
+    ACTION_DMS_48H_ALERT,
+    ACTION_DMS_URGENT_TODAY,
+    ACTION_DMS_AUTO_EXECUTED,
+    ACTION_DMS_DISABLED,
+    ACTION_OVERSTAY_OCCURRED,
+    ACTION_INVITATION_EXPIRED,
+    ACTION_GUEST_EXTENSION_REQUESTED,
+    ACTION_GUEST_EXTENSION_APPROVED,
+    ACTION_GUEST_EXTENSION_DECLINED,
+    ACTION_AWAY_ACTIVATED,
+    ACTION_AWAY_ENDED,
+    ACTION_PRESENCE_STATUS_CHANGED,
+}
+
+OWNER_PERSONAL_ACTIONS: set[str] = OWNER_PERSONAL_MODE_LEDGER_ACTIONS
 
 TENANT_ALLOWED_ACTIONS: set[str] = {
     ACTION_GUEST_INVITE_CREATED, ACTION_GUEST_INVITE_ACCEPTED, ACTION_GUEST_INVITE_REVOKED,
@@ -357,12 +375,8 @@ GUEST_ALLOWED_ACTIONS: set[str] = {
 
 
 def get_actor_email(db: Session, actor_user_id: int | None) -> str | None:
-    """Resolve actor email from user id for display."""
-    if not actor_user_id:
-        return None
-    from app.models.user import User
-    u = db.query(User).filter(User.id == actor_user_id).first()
-    return u.email if u else None
+    """API field name is legacy; returns actor display name for logs/alerts (never raw mailbox)."""
+    return get_actor_display_name(db, actor_user_id)
 
 
 def get_actor_display_name(db: Session, actor_user_id: int | None) -> str | None:

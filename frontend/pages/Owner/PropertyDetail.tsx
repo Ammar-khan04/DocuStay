@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Card, Button, Input, Modal } from '../../components/UI';
+import { Card, Button, Input, Modal, ErrorModal } from '../../components/UI';
 import { InviteGuestModal } from '../../components/InviteGuestModal';
 import { UserSession } from '../../types';
 import { JURISDICTION_RULES } from '../../services/jleService';
-import { propertiesApi, dashboardApi, APP_ORIGIN, buildGuestInviteUrl, emitPropertiesChanged, getContextMode, setContextMode, type Property, type OwnerStayView, type OwnerAuditLogEntry, type BillingResponse } from '../../services/api';
+import { propertiesApi, dashboardApi, APP_ORIGIN, buildGuestInviteUrl, emitPropertiesChanged, getContextMode, setContextMode, type Property, type OwnerStayView, type OwnerTenantView, type OwnerAuditLogEntry, type BillingResponse } from '../../services/api';
 import { ModeSwitcher } from '../../components/ModeSwitcher';
 import { DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlertsPanel';
 import { copyToClipboard } from '../../utils/clipboard';
@@ -57,6 +57,132 @@ function isOverstayed(endDateStr: string): boolean {
   return end.getTime() < today.getTime();
 }
 
+/** All units, or the single unit when the property only has one row in the list. */
+function onsiteSelectionCoversWholeProperty(
+  sel: number | 'all',
+  units: Array<{ id: number }>,
+): boolean {
+  if (sel === 'all') return true;
+  if (units.length !== 1) return false;
+  return units[0].id === sel;
+}
+
+function formatIsoDateForDisplay(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+}
+
+function tenantStatusRank(s: OwnerTenantView['status']): number {
+  if (s === 'active') return 0;
+  if (s === 'pending_signup') return 1;
+  if (s === 'future') return 2;
+  return 3;
+}
+
+/** Pick one row from /dashboard/owner/tenants for a unit card (synthetic id=0 = whole-property / single-unit). */
+function pickTenantForUnitCard(
+  propertyTenants: OwnerTenantView[],
+  unitId: number,
+  unitLabel: string,
+  isMultiUnit: boolean,
+): OwnerTenantView | null {
+  const uid = unitId > 0 ? unitId : null;
+  let pool: OwnerTenantView[];
+  if (isMultiUnit && uid != null) {
+    pool = propertyTenants.filter((t) => Number(t.unit_id) === uid);
+  } else {
+    const noUnit = propertyTenants.filter((t) => t.unit_id == null || Number(t.unit_id) === 0);
+    pool = noUnit.length ? noUnit : propertyTenants;
+    const byLabel = pool.filter((t) => (t.unit_label || '1').trim() === String(unitLabel).trim());
+    if (byLabel.length) pool = byLabel;
+  }
+  if (!pool.length) return null;
+  return [...pool].sort((a, b) => tenantStatusRank(a.status) - tenantStatusRank(b.status))[0];
+}
+
+type AssignedMgr = {
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  has_resident_mode: boolean;
+  resident_unit_id: number | null;
+  resident_unit_ids?: number[];
+};
+
+/** Managers assigned to the whole property (no on-site scope) apply to every unit; on-site managers only to their unit(s). */
+function managersForUnitCard(managers: AssignedMgr[], unitId: number, isMultiUnit: boolean): AssignedMgr[] {
+  return managers.filter((m) => {
+    if (!m.has_resident_mode) return true;
+    const ids =
+      m.resident_unit_ids && m.resident_unit_ids.length > 0
+        ? m.resident_unit_ids
+        : m.resident_unit_id != null
+          ? [m.resident_unit_id]
+          : [];
+    if (ids.length === 0) return true;
+    if (!isMultiUnit || unitId <= 0) {
+      return true;
+    }
+    return ids.includes(unitId);
+  });
+}
+
+function managerDisplayName(m: AssignedMgr): string {
+  return (m.full_name || '').trim() || m.email || 'Manager';
+}
+
+function stayMatchesUnit(s: OwnerStayView, unit: { unit_label: string }, isMultiUnit: boolean): boolean {
+  const uLabel = String(unit.unit_label ?? '1').trim();
+  const sLabel = (s.unit_label || '').trim();
+  if (!isMultiUnit) {
+    if (!sLabel) return true;
+    return sLabel === uLabel;
+  }
+  return sLabel === uLabel;
+}
+
+function humanizeInviteTokenState(ts: string | null | undefined): string {
+  if (!ts) return '—';
+  return ts.replace(/_/g, ' ');
+}
+
+function unitStayDurationSummary(stays: OwnerStayView[], tenant: OwnerTenantView | null): string {
+  const active = stays.find((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  if (active?.stay_start_date && active?.stay_end_date) {
+    return `Guest stay (checked in): ${formatStayDuration(active.stay_start_date, active.stay_end_date)}`;
+  }
+  const upcoming = stays.find((s) => !s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  if (upcoming?.stay_start_date && upcoming?.stay_end_date) {
+    return `Scheduled guest stay: ${formatStayDuration(upcoming.stay_start_date, upcoming.stay_end_date)}`;
+  }
+  if (tenant?.start_date && tenant?.end_date) {
+    return `Lease: ${formatStayDuration(tenant.start_date, tenant.end_date)}`;
+  }
+  if (tenant?.start_date) {
+    return `Lease starts ${formatIsoDateForDisplay(tenant.start_date)}`;
+  }
+  return '—';
+}
+
+function inviteStatusForUnitModal(tenant: OwnerTenantView | null, stay: OwnerStayView | null): string {
+  if (stay?.token_state) {
+    const base = humanizeInviteTokenState(stay.token_state);
+    return stay.invitation_only ? `${base} (invitation only)` : base;
+  }
+  if (!tenant) return '—';
+  const bits: string[] = [];
+  if (tenant.invite_status) bits.push(`Invite: ${tenant.invite_status}`);
+  if (tenant.assignment_status && tenant.assignment_status !== 'none') {
+    bits.push(`Assignment: ${tenant.assignment_status}`);
+  }
+  if (tenant.stay_status && tenant.stay_status !== 'none') {
+    bits.push(`Stay: ${tenant.stay_status}`);
+  }
+  if (bits.length) return bits.join(' · ');
+  return tenant.status.replace(/_/g, ' ');
+}
+
 export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; navigate: (v: string) => void; setLoading?: (l: boolean) => void; notify?: (t: 'success' | 'error', m: string) => void }> = ({ propertyId, user, navigate, setLoading: setGlobalLoading = () => {}, notify = (_t: 'success' | 'error', _m: string) => {} }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [property, setProperty] = useState<Property | null>(null);
@@ -72,12 +198,19 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   const [showInviteManagerModal, setShowInviteManagerModal] = useState(false);
   const [inviteManagerEmail, setInviteManagerEmail] = useState('');
   const [inviteManagerSending, setInviteManagerSending] = useState(false);
+  const [inviteManagerRemoveOthersConfirm, setInviteManagerRemoveOthersConfirm] = useState<string | null>(null);
+  const [unitDetailModal, setUnitDetailModal] = useState<{
+    id: number;
+    unit_label: string;
+    occupancy_status?: string;
+  } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [reactivating, setReactivating] = useState(false);
+  const [primaryResidenceUpdating, setPrimaryResidenceUpdating] = useState(false);
   const [editForm, setEditForm] = useState({
     property_name: '',
     street_address: '',
@@ -116,11 +249,16 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   const [propertyLogs, setPropertyLogs] = useState<OwnerAuditLogEntry[]>([]);
   const [propertyLogsLoading, setPropertyLogsLoading] = useState(false);
   const [logMessageModalEntry, setLogMessageModalEntry] = useState<OwnerAuditLogEntry | null>(null);
-  const [assignedManagers, setAssignedManagers] = useState<Array<{ user_id: number; email: string; full_name: string | null; has_resident_mode: boolean; resident_unit_id: number | null; resident_unit_label: string | null }>>([]);
+  const [assignedManagers, setAssignedManagers] = useState<Array<{ user_id: number; email: string; full_name: string | null; has_resident_mode: boolean; resident_unit_id: number | null; resident_unit_label: string | null; resident_unit_ids?: number[] }>>([]);
+  const [ownerTenantsRows, setOwnerTenantsRows] = useState<OwnerTenantView[]>([]);
   const [propertyUnits, setPropertyUnits] = useState<Array<{ id: number; unit_label: string; occupancy_status?: string; is_primary_residence?: boolean; occupied_by?: string | null; invite_id?: string | null }>>([]);
-  const [addResidentModeForManager, setAddResidentModeForManager] = useState<Record<number, number>>({});
+  const [addResidentModeForManager, setAddResidentModeForManager] = useState<Record<number, number | 'all'>>({});
   const [addResidentModeSaving, setAddResidentModeSaving] = useState(false);
   const [removeResidentModeSaving, setRemoveResidentModeSaving] = useState<number | null>(null);
+  const [allUnitsOnsiteConfirm, setAllUnitsOnsiteConfirm] = useState<{
+    managerUserId: number;
+    selection: number | 'all';
+  } | null>(null);
   const id = Number(propertyId);
 
   // Derive city options based on selected state for editing
@@ -164,6 +302,39 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   /** Upcoming stay (not yet checked in) for DMS copy */
   const upcomingStayForProperty = propertyStays.find((s) => !s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
 
+  const tenantsForThisProperty = useMemo(
+    () => ownerTenantsRows.filter((t) => t.property_id != null && t.property_id === property?.id),
+    [ownerTenantsRows, property?.id],
+  );
+
+  const unitDetailDerived = useMemo(() => {
+    if (!unitDetailModal || !property) return null;
+    const u = unitDetailModal;
+    const isMulti = !!property.is_multi_unit;
+    const tenant = pickTenantForUnitCard(tenantsForThisProperty, u.id, u.unit_label || '1', isMulti);
+    const unitStays = propertyStays.filter((s) => stayMatchesUnit(s, u, isMulti));
+    const displayStay =
+      unitStays.find((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at) ??
+      unitStays.find((s) => !s.checked_in_at && !s.checked_out_at && !s.cancelled_at) ??
+      null;
+    const inviteCode =
+      (displayStay?.invite_id || tenant?.invitation_code || '').trim() || null;
+    const inviteUrl = inviteCode ? buildGuestInviteUrl(inviteCode, { isDemo: Boolean(user.is_demo) }) : '';
+    const occ = (u.occupancy_status ?? 'unknown').toLowerCase();
+    const statusLabel = occ ? occ.charAt(0).toUpperCase() + occ.slice(1) : 'Unknown';
+    return {
+      tenant,
+      displayStay,
+      unitStays,
+      inviteCode,
+      inviteUrl,
+      statusLabel,
+      durationLine: unitStayDurationSummary(unitStays, tenant),
+      inviteStatusLine: inviteStatusForUnitModal(tenant, displayStay),
+      occupantName: tenant?.tenant_name || displayStay?.guest_name || null,
+    };
+  }, [unitDetailModal, property, tenantsForThisProperty, propertyStays, user.is_demo]);
+
   const loadData = useCallback(() => {
     if (!id || isNaN(id)) {
       const msg = 'Invalid property';
@@ -177,11 +348,13 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
     Promise.all([
       propertiesApi.get(id),
       dashboardApi.ownerStays(),
+      dashboardApi.ownerTenants().catch(() => [] as OwnerTenantView[]),
       dashboardApi.ownerPersonalModeUnits().catch(() => ({ unit_ids: [] })),
     ])
-      .then(([prop, staysData, pmUnits]) => {
+      .then(([prop, staysData, tenantsData, pmUnits]) => {
         setProperty(prop);
         setStays(staysData);
+        setOwnerTenantsRows(Array.isArray(tenantsData) ? tenantsData : []);
         setPersonalModeUnits((pmUnits as { unit_ids: number[] }).unit_ids || []);
       })
       .catch((e) => {
@@ -191,6 +364,84 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
       })
       .finally(() => setLoading(false));
   }, [id, notify]);
+
+  const submitManagerOnsiteResident = useCallback(
+    async (managerUserId: number, sel: number | 'all', confirmRemoveOtherManagers: boolean) => {
+      if (!property) return;
+      const coversWholeProperty = onsiteSelectionCoversWholeProperty(sel, propertyUnits);
+      setAddResidentModeSaving(true);
+      try {
+        const res =
+          sel === 'all'
+            ? await propertiesApi.addManagerResidentMode(property.id, managerUserId, null, {
+                allUnits: true,
+                confirmRemoveOtherManagers,
+              })
+            : await propertiesApi.addManagerResidentMode(property.id, managerUserId, sel, {
+                confirmRemoveOtherManagers,
+              });
+        notify('success', res.message ?? 'Manager added as on-site resident.');
+        setAddResidentModeForManager((prev) => {
+          const p = { ...prev };
+          delete p[managerUserId];
+          return p;
+        });
+        setAllUnitsOnsiteConfirm(null);
+        propertiesApi.listAssignedManagers(property.id).then(setAssignedManagers).catch(() => {});
+        loadData();
+        emitPropertiesChanged();
+        window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? '');
+        if (
+          !confirmRemoveOtherManagers &&
+          coversWholeProperty &&
+          (msg.includes('OTHER_MANAGERS_PRESENT') || msg.includes('confirm_remove_other_managers'))
+        ) {
+          setAllUnitsOnsiteConfirm({ managerUserId, selection: sel });
+        } else {
+          notify('error', msg || 'Failed.');
+        }
+      } finally {
+        setAddResidentModeSaving(false);
+      }
+    },
+    [property, notify, loadData, propertyUnits],
+  );
+
+  const submitInviteManager = useCallback(
+    async (email: string, confirmRemoveOtherManagers: boolean) => {
+      if (!property) return;
+      setInviteManagerSending(true);
+      try {
+        const res = await propertiesApi.inviteManager(property.id, email, { confirmRemoveOtherManagers });
+        if (typeof window !== 'undefined' && res?.invite_link) {
+          console.log('%c[DocuStay] Property manager invite link (test mode):', 'color: #059669; font-weight: bold;', res.invite_link);
+        }
+        notify('success', 'Invitation sent. The manager will receive an email with a signup link.');
+        setInviteManagerRemoveOthersConfirm(null);
+        setShowInviteManagerModal(false);
+        setInviteManagerEmail('');
+        propertiesApi.listAssignedManagers(property.id).then(setAssignedManagers).catch(() => {});
+        emitPropertiesChanged();
+        loadData();
+        window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? '');
+        if (
+          !confirmRemoveOtherManagers &&
+          (msg.includes('OTHER_MANAGERS_PRESENT') || msg.includes('confirm_remove_other_managers'))
+        ) {
+          setInviteManagerRemoveOthersConfirm(email);
+        } else {
+          notify('error', msg || 'Failed to send invitation.');
+        }
+      } finally {
+        setInviteManagerSending(false);
+      }
+    },
+    [property, notify, loadData],
+  );
 
   const handleContextModeChange = useCallback((mode: 'business' | 'personal') => {
     setContextMode(mode);
@@ -688,9 +939,80 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Personal mode</h3>
                   <p className="text-sm text-slate-700">
                     Use <strong>Invite</strong> for short-term guest stays. Tenant and manager invitations are in{' '}
-                    <strong>Business</strong> mode. Edit Property updates address and unit details only—not residency flags.
+                    <strong>Business</strong> mode. Use <strong>Show in Personal mode</strong> below to mark this property as your residence.
                   </p>
                 </Card>
+                )}
+
+                {!isInactive && (
+                  <Card className="p-6 border-slate-200">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Primary residence</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800">Show in Personal mode</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          When on, this property appears in Personal mode (your home, guest invites, and related alerts).
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={!!property.owner_occupied}
+                        aria-busy={primaryResidenceUpdating}
+                        disabled={primaryResidenceUpdating}
+                        onClick={async () => {
+                          if (!property) return;
+                          const next = !property.owner_occupied;
+                          setPrimaryResidenceUpdating(true);
+                          try {
+                            const updated = await propertiesApi.update(property.id, { owner_occupied: next });
+                            setProperty((prev) =>
+                              prev && prev.id === updated.id
+                                ? {
+                                    ...prev,
+                                    ...updated,
+                                    unit_count: updated.unit_count ?? prev.unit_count,
+                                    occupied_unit_count: updated.occupied_unit_count ?? prev.occupied_unit_count,
+                                    vacant_unit_count: updated.vacant_unit_count ?? prev.vacant_unit_count,
+                                  }
+                                : updated,
+                            );
+                            const unitRefresh = updated.is_multi_unit
+                              ? propertiesApi
+                                  .getUnits(property.id)
+                                  .then((u) => setPropertyUnits(u.filter((x) => x.id > 0)))
+                                  .catch(() => {})
+                              : Promise.resolve();
+                            const pmRefresh = dashboardApi
+                              .ownerPersonalModeUnits()
+                              .then((pm) =>
+                                setPersonalModeUnits((pm as { unit_ids: number[] }).unit_ids || []),
+                              )
+                              .catch(() => {});
+                            await Promise.all([unitRefresh, pmRefresh]);
+                            notify(
+                              'success',
+                              next ? 'This property will appear in Personal mode.' : 'Removed from Personal mode.',
+                            );
+                            window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+                          } catch (e) {
+                            notify('error', (e as Error)?.message ?? 'Could not update primary residence.');
+                          } finally {
+                            setPrimaryResidenceUpdating(false);
+                          }
+                        }}
+                        className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                          property.owner_occupied ? 'bg-emerald-600' : 'bg-slate-200'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                            property.owner_occupied ? 'translate-x-5' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </Card>
                 )}
 
                 <Card className="p-6 border-slate-200">
@@ -722,21 +1044,137 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                         const status = (u.occupancy_status ?? 'unknown').toLowerCase();
                         const statusCls = status === 'occupied' ? 'bg-emerald-100 text-emerald-700' : status === 'vacant' ? 'bg-sky-100 text-sky-700' : status === 'unconfirmed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600';
                         const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : (u.occupancy_status ?? 'unknown');
+                        const tenantRow = pickTenantForUnitCard(
+                          tenantsForThisProperty,
+                          u.id,
+                          u.unit_label || '1',
+                          !!property.is_multi_unit,
+                        );
+                        const tenantLabel = tenantRow ? (tenantRow.tenant_name || tenantRow.tenant_email || null) : null;
+                        const managersHere = managersForUnitCard(assignedManagers, u.id, !!property.is_multi_unit);
+                        const managersLine =
+                          managersHere.length > 0 ? managersHere.map(managerDisplayName).join(', ') : null;
                         return (
-                          <div key={u.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2">
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() =>
+                              setUnitDetailModal({
+                                id: u.id,
+                                unit_label: u.unit_label || '1',
+                                occupancy_status: u.occupancy_status,
+                              })
+                            }
+                            className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2 w-full text-left cursor-pointer transition-shadow hover:shadow-md hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#6B90F2] focus:ring-offset-2"
+                            aria-label={`Open details for unit ${u.unit_label}`}
+                          >
                             <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusCls}`}>{label}</span>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium w-fit ${statusCls}`}>{label}</span>
+                            {managersLine && (
+                              <p className="text-xs text-slate-600">
+                                Managed by: <span className="font-medium text-slate-800">{managersLine}</span>
+                              </p>
+                            )}
+                            {tenantLabel && tenantRow && (
+                              <div className="text-xs text-slate-700 space-y-0.5 border-t border-slate-200/80 pt-2 mt-0.5">
+                                <p className="font-medium text-slate-800">Tenant: {tenantRow.tenant_name || tenantRow.tenant_email}</p>
+                                {tenantRow.tenant_name && tenantRow.tenant_email && (
+                                  <p className="text-slate-500">{tenantRow.tenant_email}</p>
+                                )}
+                                {(tenantRow.start_date || tenantRow.end_date) && (
+                                  <p className="text-slate-600">
+                                    Lease {formatIsoDateForDisplay(tenantRow.start_date)} –{' '}
+                                    {tenantRow.end_date ? formatIsoDateForDisplay(tenantRow.end_date) : 'Open-ended'}
+                                  </p>
+                                )}
+                                {tenantRow.status === 'pending_signup' && (
+                                  <p className="text-amber-700">Pending signup</p>
+                                )}
+                              </div>
+                            )}
                             {contextMode === 'personal' && u.occupied_by && <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>}
                             {contextMode === 'personal' && u.invite_id && <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>}
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
                   </Card>
                 )}
+
+                <Modal
+                  open={unitDetailModal != null}
+                  title={unitDetailModal ? `Unit ${unitDetailModal.unit_label}` : 'Unit'}
+                  onClose={() => setUnitDetailModal(null)}
+                  className="max-w-lg"
+                >
+                  {unitDetailDerived && unitDetailModal && (
+                    <div className="px-6 py-5 space-y-4 text-sm text-slate-800">
+                      <dl className="space-y-4">
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Unit status</dt>
+                          <dd className="font-medium text-slate-900">{unitDetailDerived.statusLabel}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Unit number / ID</dt>
+                          <dd>
+                            <span className="font-medium">Label: {unitDetailModal.unit_label || '—'}</span>
+                            {unitDetailModal.id > 0 && (
+                              <span className="text-slate-600"> · Database ID: {unitDetailModal.id}</span>
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Current stay / lease duration</dt>
+                          <dd className="text-slate-700">{unitDetailDerived.durationLine}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Tenant / occupant name</dt>
+                          <dd className="font-medium">{unitDetailDerived.occupantName ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Tenant email</dt>
+                          <dd className="break-all">{unitDetailDerived.tenant?.tenant_email ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Invite ID</dt>
+                          <dd className="font-mono text-xs break-all">{unitDetailDerived.inviteCode ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Invite link</dt>
+                          <dd className="space-y-2">
+                            {unitDetailDerived.inviteUrl ? (
+                              <>
+                                <p className="text-xs break-all text-slate-600">{unitDetailDerived.inviteUrl}</p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="text-xs py-1.5 px-3"
+                                  onClick={async () => {
+                                    const ok = await copyToClipboard(unitDetailDerived.inviteUrl);
+                                    if (ok) notify('success', 'Invite link copied.');
+                                    else notify('error', 'Could not copy link.');
+                                  }}
+                                >
+                                  Copy link
+                                </Button>
+                              </>
+                            ) : (
+                              '—'
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Invite / invitation status</dt>
+                          <dd className="text-slate-700 capitalize">{unitDetailDerived.inviteStatusLine}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
+                </Modal>
+
                 {assignedManagers.length > 0 && (
                   <Card className="p-6 border-slate-200">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">Assigned managers</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-4">Assigned managers</h3>
                     <ul className="space-y-3">
                       {assignedManagers.map((m) => (
                         <li key={m.user_id} className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-slate-100 last:border-0">
@@ -745,7 +1183,11 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                             <p className="text-xs text-slate-500">{m.email}</p>
                             {m.has_resident_mode && m.resident_unit_label && (
                               <>
-                                <p className="text-xs text-emerald-600 mt-0.5">On-site resident · Unit {m.resident_unit_label}</p>
+                                <p className="text-xs text-emerald-600 mt-0.5">
+                                  {m.resident_unit_ids && m.resident_unit_ids.length > 1
+                                    ? `On-site resident · All units (${m.resident_unit_ids.length}): ${m.resident_unit_label}`
+                                    : `On-site resident · Unit ${m.resident_unit_label}`}
+                                </p>
                                 {m.presence_status && (
                                   <p className="text-xs text-slate-600 mt-0.5">
                                     {m.presence_status === 'present' ? (
@@ -769,8 +1211,8 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                                   if (!property) return;
                                   setRemoveResidentModeSaving(m.user_id);
                                   try {
-                                    await propertiesApi.removeManagerResidentMode(property.id, m.user_id);
-                                    notify('success', 'Manager removed as on-site resident. They remain assigned; that unit is now vacant.');
+                                    const res = await propertiesApi.removeManagerResidentMode(property.id, m.user_id);
+                                    notify('success', res.message ?? 'Manager removed as on-site resident.');
                                     propertiesApi.listAssignedManagers(property.id).then(setAssignedManagers).catch(() => {});
                                     loadData();
                                     window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
@@ -786,41 +1228,56 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                             ) : property?.is_multi_unit && propertyUnits.length > 0 ? (
                               <>
                                 <select
-                                  value={addResidentModeForManager[m.user_id] ?? ''}
+                                  value={
+                                    addResidentModeForManager[m.user_id] === 'all'
+                                      ? 'all'
+                                      : addResidentModeForManager[m.user_id]
+                                        ? String(addResidentModeForManager[m.user_id])
+                                        : ''
+                                  }
                                   onChange={(e) => {
-                                    const unitId = Number(e.target.value) || 0;
-                                    setAddResidentModeForManager((prev) => {
-                                      const next = { ...prev };
-                                      if (unitId) next[m.user_id] = unitId; else delete next[m.user_id];
-                                      return next;
-                                    });
+                                    const v = e.target.value;
+                                    const uid = m.user_id;
+                                    const others = assignedManagers.filter((x) => x.user_id !== uid);
+                                    if (v === '') {
+                                      setAddResidentModeForManager((prev) => {
+                                        const next = { ...prev };
+                                        delete next[uid];
+                                        return next;
+                                      });
+                                      setAllUnitsOnsiteConfirm((prev) => (prev?.managerUserId === uid ? null : prev));
+                                      return;
+                                    }
+                                    const sel: number | 'all' = v === 'all' ? 'all' : Number(v);
+                                    setAddResidentModeForManager((prev) => ({ ...prev, [uid]: sel }));
+                                    const coversWhole = onsiteSelectionCoversWholeProperty(sel, propertyUnits);
+                                    if (coversWhole && others.length > 0) {
+                                      setAllUnitsOnsiteConfirm({ managerUserId: uid, selection: sel });
+                                    } else {
+                                      setAllUnitsOnsiteConfirm((prev) => (prev?.managerUserId === uid ? null : prev));
+                                    }
                                   }}
                                   className="text-sm border border-slate-300 rounded-lg px-2 py-1.5"
                                 >
                                   <option value="">Select unit</option>
+                                  <option value="all">All units</option>
                                   {propertyUnits.map((u) => (
                                     <option key={u.id} value={u.id}>Unit {u.unit_label}</option>
                                   ))}
                                 </select>
                                 <Button
                                   variant="outline"
-                                  disabled={addResidentModeSaving || !addResidentModeForManager[m.user_id]}
-                                  onClick={async () => {
-                                    const unitId = addResidentModeForManager[m.user_id];
-                                    if (!property || !unitId) return;
-                                    setAddResidentModeSaving(true);
-                                    try {
-                                      await propertiesApi.addManagerResidentMode(property.id, m.user_id, unitId);
-                                      notify('success', 'Manager added as on-site resident. They now have Personal Mode.');
-                                      setAddResidentModeForManager((prev) => { const p = { ...prev }; delete p[m.user_id]; return p; });
-                                      propertiesApi.listAssignedManagers(property.id).then(setAssignedManagers).catch(() => {});
-                                      loadData();
-                                      window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
-                                    } catch (e) {
-                                      notify('error', (e as Error)?.message ?? 'Failed.');
-                                    } finally {
-                                      setAddResidentModeSaving(false);
+                                  disabled={addResidentModeSaving || addResidentModeForManager[m.user_id] == null}
+                                  onClick={() => {
+                                    const sel = addResidentModeForManager[m.user_id];
+                                    if (!property || sel == null) return;
+                                    const otherManagers = assignedManagers.filter((x) => x.user_id !== m.user_id);
+                                    const coversWhole = onsiteSelectionCoversWholeProperty(sel, propertyUnits);
+                                    if (otherManagers.length > 0 && coversWhole) {
+                                      setAllUnitsOnsiteConfirm({ managerUserId: m.user_id, selection: sel });
+                                      return;
                                     }
+                                    void submitManagerOnsiteResident(m.user_id, sel, false);
                                   }}
                                 >
                                   Add as on-site
@@ -1321,6 +1778,94 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
         )}
       </Modal>
 
+      <ErrorModal
+        open={allUnitsOnsiteConfirm !== null}
+        title="Error"
+        disableBackdropClose={addResidentModeSaving}
+        primaryDisabled={addResidentModeSaving}
+        message={
+          allUnitsOnsiteConfirm ? (
+            <div className="space-y-3 text-sm text-slate-700">
+              <p>
+                On-site access for <strong>every unit</strong> on this property (including <strong>All units</strong> or the only unit in the list) allows only{' '}
+                <strong>one</strong> property manager. To continue, the other assigned manager(s) must be removed from this property. They will lose management access and any Personal Mode links here.
+              </p>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Managers who will be removed</p>
+                <ul className="list-disc pl-5 space-y-1 text-slate-800">
+                  {assignedManagers
+                    .filter((x) => x.user_id !== allUnitsOnsiteConfirm.managerUserId)
+                    .map((x) => (
+                      <li key={x.user_id}>{x.full_name || x.email}</li>
+                    ))}
+                </ul>
+              </div>
+            </div>
+          ) : (
+            ''
+          )
+        }
+        onClose={() => {
+          if (addResidentModeSaving) return;
+          const mid = allUnitsOnsiteConfirm?.managerUserId;
+          setAllUnitsOnsiteConfirm(null);
+          if (mid != null) {
+            setAddResidentModeForManager((prev) => {
+              const next = { ...prev };
+              delete next[mid];
+              return next;
+            });
+          }
+        }}
+        cancelLabel="Cancel"
+        actionLabel={addResidentModeSaving ? 'Working…' : 'Remove other managers'}
+        onAction={async () => {
+          if (!allUnitsOnsiteConfirm || !property) return;
+          await submitManagerOnsiteResident(
+            allUnitsOnsiteConfirm.managerUserId,
+            allUnitsOnsiteConfirm.selection,
+            true,
+          );
+        }}
+      />
+
+      <ErrorModal
+        open={inviteManagerRemoveOthersConfirm !== null}
+        title="Error"
+        disableBackdropClose={inviteManagerSending}
+        primaryDisabled={inviteManagerSending}
+        message={
+          inviteManagerRemoveOthersConfirm ? (
+            <div className="space-y-3 text-sm text-slate-700">
+              <p>
+                This property has <strong>only one unit</strong> (or is a single-unit listing). Only <strong>one</strong> property manager can be assigned.
+                To invite <strong>{inviteManagerRemoveOthersConfirm}</strong>, the current manager(s) must be removed from this property. They will lose management access and any Personal Mode links here.
+              </p>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Managers who will be removed</p>
+                <ul className="list-disc pl-5 space-y-1 text-slate-800">
+                  {assignedManagers.map((x) => (
+                    <li key={x.user_id}>{x.full_name || x.email}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : (
+            ''
+          )
+        }
+        onClose={() => {
+          if (inviteManagerSending) return;
+          setInviteManagerRemoveOthersConfirm(null);
+        }}
+        cancelLabel="Cancel"
+        actionLabel={inviteManagerSending ? 'Working…' : 'Remove other managers'}
+        onAction={async () => {
+          if (!inviteManagerRemoveOthersConfirm || !property) return;
+          await submitInviteManager(inviteManagerRemoveOthersConfirm, true);
+        }}
+      />
+
       {/* Remove property (soft-delete) - same behaviour as dashboard */}
       <Modal
         open={deleteConfirmOpen && !!property}
@@ -1670,7 +2215,14 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
       {showInviteManagerModal && (
         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
           <div className="max-w-md w-full rounded-2xl bg-white p-6 shadow-xl border border-slate-200 relative">
-            <button type="button" onClick={() => setShowInviteManagerModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700">
+            <button
+              type="button"
+              onClick={() => {
+                setShowInviteManagerModal(false);
+                setInviteManagerRemoveOthersConfirm(null);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"
+            >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <h3 className="text-lg font-semibold text-slate-900 mb-1">Invite Property Manager</h3>
@@ -1692,27 +2244,35 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                 variant="primary"
                 disabled={inviteManagerSending || !inviteManagerEmail.trim() || !inviteManagerEmail.includes('@')}
                 onClick={async () => {
-                  if (!property || !inviteManagerEmail.trim() || !inviteManagerEmail.includes('@')) return;
-                  setInviteManagerSending(true);
-                  try {
-                    const res = await propertiesApi.inviteManager(property.id, inviteManagerEmail.trim());
-                    if (typeof window !== 'undefined' && res?.invite_link) {
-                      console.log('%c[DocuStay] Property manager invite link (test mode):', 'color: #059669; font-weight: bold;', res.invite_link);
-                    }
-                    notify('success', 'Invitation sent. The manager will receive an email with a signup link.');
-                    setShowInviteManagerModal(false);
-                    setInviteManagerEmail('');
-                    window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
-                  } catch (e) {
-                    notify('error', (e as Error)?.message ?? 'Failed to send invitation.');
-                  } finally {
-                    setInviteManagerSending(false);
+                  const email = inviteManagerEmail.trim();
+                  if (!property || !email.includes('@')) return;
+                  if (
+                    assignedManagers.some(
+                      (m) => (m.email || '').trim().toLowerCase() === email.toLowerCase(),
+                    )
+                  ) {
+                    notify('error', 'This manager is already assigned to this property.');
+                    return;
                   }
+                  const soleScope = !property.is_multi_unit || propertyUnits.length <= 1;
+                  if (soleScope && assignedManagers.length > 0) {
+                    setInviteManagerRemoveOthersConfirm(email);
+                    return;
+                  }
+                  await submitInviteManager(email, false);
                 }}
               >
                 {inviteManagerSending ? 'Sending…' : 'Send invitation'}
               </Button>
-              <Button variant="outline" onClick={() => setShowInviteManagerModal(false)}>Cancel</Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowInviteManagerModal(false);
+                  setInviteManagerRemoveOthersConfirm(null);
+                }}
+              >
+                Cancel
+              </Button>
             </div>
           </div>
         </div>

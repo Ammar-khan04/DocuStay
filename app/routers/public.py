@@ -26,6 +26,7 @@ from app.services.audit_log import create_log, CATEGORY_VERIFY_ATTEMPT, CATEGORY
 from app.services.event_ledger import (
     create_ledger_event,
     ledger_event_to_display,
+    _scrub_emails_for_timeline_display,
     ACTION_VERIFY_ATTEMPT_VALID,
     ACTION_VERIFY_ATTEMPT_FAILED,
 )
@@ -707,8 +708,8 @@ def _build_verify_record(
     audit_entries = [
         LiveLogEntry(
             category=r.category or "—",
-            title=r.title or "—",
-            message=r.message or "—",
+            title=_scrub_emails_for_timeline_display(db, r.title or "—"),
+            message=_scrub_emails_for_timeline_display(db, r.message or "—"),
             created_at=r.created_at if r.created_at is not None else now,
         )
         for r in log_rows

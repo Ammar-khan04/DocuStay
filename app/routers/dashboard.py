@@ -257,6 +257,76 @@ _ALERT_TYPES_BY_ROLE = {
     UserRole.admin: None,  # None = no filter, show all
 }
 
+# Owner/manager personal mode: only in-app alerts tied to a property-lane guest invitation or stay on
+# personal-mode units (not tenant lane). Excludes billing (no invitation/stay), shield, vacant monitoring,
+# tenant_accepted, and any alert with only a property_id.
+_OWNER_PERSONAL_GUEST_ALERT_TYPES = frozenset(
+    {
+        "invitation_expired",
+        "invitation_accepted",
+        "revoked",
+        "overstay",
+        "nearing_expiration",
+        "dms_48h",
+        "dms_urgent",
+        "dms_executed",
+        "dms_reminder",
+        "renewed",
+        "vacated",
+        "holdover",
+        "expired",
+        "removal_initiated",
+    }
+)
+
+
+def _owner_alert_allowed_personal_guest_mode(
+    db: Session, alert: DashboardAlert, allowed_unit_ids: set[int]
+) -> bool:
+    if alert.alert_type not in _OWNER_PERSONAL_GUEST_ALERT_TYPES:
+        return False
+    inv_id = getattr(alert, "invitation_id", None)
+    stay_id = getattr(alert, "stay_id", None)
+    if not inv_id and not stay_id:
+        return False
+    if inv_id:
+        inv = db.query(Invitation).filter(Invitation.id == inv_id).first()
+        if not inv or is_tenant_lane_invitation(db, inv):
+            return False
+        if not invitation_in_owner_personal_guest_scope(db, inv, allowed_unit_ids):
+            return False
+    if stay_id:
+        stay = db.query(Stay).filter(Stay.id == stay_id).first()
+        if not stay or is_tenant_lane_stay(db, stay):
+            return False
+        if not stay_in_owner_personal_guest_scope(db, stay, allowed_unit_ids):
+            return False
+    return True
+
+
+def _manager_alert_allowed_personal_guest_mode(
+    db: Session, alert: DashboardAlert, manager_unit_ids: set[int]
+) -> bool:
+    if alert.alert_type not in _OWNER_PERSONAL_GUEST_ALERT_TYPES:
+        return False
+    inv_id = getattr(alert, "invitation_id", None)
+    stay_id = getattr(alert, "stay_id", None)
+    if not inv_id and not stay_id:
+        return False
+    if inv_id:
+        inv = db.query(Invitation).filter(Invitation.id == inv_id).first()
+        if not inv or is_tenant_lane_invitation(db, inv):
+            return False
+        if not invitation_in_manager_personal_guest_scope(db, inv, manager_unit_ids):
+            return False
+    if stay_id:
+        stay = db.query(Stay).filter(Stay.id == stay_id).first()
+        if not stay or is_tenant_lane_stay(db, stay):
+            return False
+        if not stay_in_manager_personal_guest_scope(db, stay, manager_unit_ids):
+            return False
+    return True
+
 
 @router.get("/alerts", response_model=list[DashboardAlertView])
 def list_alerts(
@@ -267,8 +337,10 @@ def list_alerts(
     context_mode: str = Depends(get_context_mode),
 ):
     """List in-platform dashboard alerts for the current user. Only alerts relevant to the user's role are returned.
-    For owner and property_manager: business mode shows alerts for business properties only; personal mode shows
-    only alerts for properties in personal mode (ResidentMode). Tenant-lane notifications never show to owners/managers."""
+    Business mode (owner/manager): alerts for owned/assigned properties plus account-level (no property_id).
+    Personal mode (owner): only property-lane guest invitation/stay alerts scoped to the owner's personal-mode units —
+    no billing, no tenant_accepted, no shield/vacant monitoring, no property-only rows.
+    Personal mode (manager): same rule for on-site resident units. Tenant-lane notifications never show to owners/managers."""
     q = db.query(DashboardAlert).filter(DashboardAlert.user_id == current_user.id)
     if unread_only:
         q = q.filter(DashboardAlert.read_at.is_(None))
@@ -297,51 +369,19 @@ def list_alerts(
             allowed_property_ids_set = set(allowed_property_ids)
             alerts = [a for a in alerts if a.property_id is None or a.property_id in allowed_property_ids_set]
         else:
-            # Personal mode: only alerts for properties in personal mode; do not show business-only or tenant-lane
+            # Personal mode: only property-lane guest invite/stay alerts on personal-mode units (see module constants).
             if current_user.role == UserRole.owner:
-                allowed_property_ids = get_owner_personal_mode_property_ids(db, current_user.id)
-            else:
-                allowed_property_ids = get_manager_personal_mode_property_ids(db, current_user.id)
-            # If owner/manager has no personal-mode properties, fall back to business set so they still see e.g. tenant_accepted
-            business_property_ids_set: set[int] = set()
-            if not allowed_property_ids:
-                if current_user.role == UserRole.owner:
-                    profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
-                    allowed_property_ids = (
-                        [p.id for p in db.query(Property).filter(Property.owner_profile_id == profile.id, Property.deleted_at.is_(None)).all()]
-                        if profile is not None else []
-                    )
+                allowed_units = owner_personal_guest_scope_unit_ids(db, current_user.id)
+                if not allowed_units:
+                    alerts = []
                 else:
-                    allowed_property_ids = [
-                        r[0] for r in db.query(PropertyManagerAssignment.property_id).filter(
-                            PropertyManagerAssignment.user_id == current_user.id,
-                        ).all()
-                    ]
+                    alerts = [a for a in alerts if _owner_alert_allowed_personal_guest_mode(db, a, allowed_units)]
             else:
-                # In personal mode we have personal set; still include business set for tenant_accepted/invitation_accepted so owner/manager always see those
-                if current_user.role == UserRole.owner:
-                    profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
-                    business_property_ids_set = (
-                        set(p.id for p in db.query(Property).filter(Property.owner_profile_id == profile.id, Property.deleted_at.is_(None)).all())
-                        if profile is not None else set()
-                    )
+                manager_units = set(get_manager_personal_mode_units(db, current_user.id))
+                if not manager_units:
+                    alerts = []
                 else:
-                    business_property_ids_set = {
-                        r[0] for r in db.query(PropertyManagerAssignment.property_id).filter(
-                            PropertyManagerAssignment.user_id == current_user.id,
-                        ).all()
-                    }
-            allowed_property_ids_set = set(allowed_property_ids)
-            # In personal mode: show if in personal set, or if these types and property in business set (coordination + property-lane revokes)
-            _property_alert_types = ("tenant_accepted", "invitation_accepted", "revoked")
-            alerts = [
-                a for a in alerts
-                if a.property_id is not None
-                and (
-                    a.property_id in allowed_property_ids_set
-                    or (a.alert_type in _property_alert_types and a.property_id in business_property_ids_set)
-                )
-            ]
+                    alerts = [a for a in alerts if _manager_alert_allowed_personal_guest_mode(db, a, manager_units)]
 
         # Exclude tenant-lane: owners/managers never see notifications about tenant-invited guests
         inv_ids = [a.invitation_id for a in alerts if getattr(a, "invitation_id", None) is not None]
@@ -5225,10 +5265,9 @@ def owner_logs(
     property_id: int | None = None,
     x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
-    """Business mode: property/management lane logs only (no guest activity).
-    Personal mode: same + guest invite/accept/checkout events for owner-occupied properties.
-    Event rows are scoped to all owned (non-deleted) properties so bulk-upload and rental
-    portfolio activity appears in the ledger regardless of primary-residence mode."""
+    """Business mode: full property/management lane for all owned (non-deleted) properties.
+    Personal mode: only guest-invitation/stay/presence/DMS events for primary-residence properties — no property
+    updates/deletes, tenant/manager lifecycle, billing, shield/vacant portfolio noise (same data as Notifications)."""
     from sqlalchemy import or_, desc, cast, String
 
     try:
@@ -5255,10 +5294,14 @@ def owner_logs(
 
     if is_personal:
         allowed_actions = OWNER_PERSONAL_ACTIONS
+        ledger_property_ids = get_owner_personal_mode_property_ids(db, current_user.id)
     else:
         allowed_actions = OWNER_BUSINESS_ACTIONS
+        ledger_property_ids = owned_property_ids
 
     if property_id is not None and property_id not in owned_property_ids:
+        return []
+    if is_personal and property_id is not None and property_id not in ledger_property_ids:
         return []
 
     from_dt = _parse_optional_utc(from_ts)
@@ -5266,16 +5309,22 @@ def owner_logs(
 
     billing_actions = _CATEGORY_TO_ACTION_TYPES.get("billing", [])
 
+    if is_personal and not ledger_property_ids and property_id is None:
+        return []
+
     if property_id is not None:
         q = db.query(EventLedger).filter(EventLedger.property_id == property_id)
-    elif owned_property_ids:
-        q = db.query(EventLedger).filter(
-            or_(
-                EventLedger.property_id.in_(owned_property_ids),
-                (EventLedger.action_type == ACTION_PROPERTY_DELETED) & (EventLedger.actor_user_id == current_user.id),
-                (EventLedger.action_type.in_(billing_actions)) & (EventLedger.actor_user_id == current_user.id),
+    elif ledger_property_ids:
+        if is_personal:
+            q = db.query(EventLedger).filter(EventLedger.property_id.in_(ledger_property_ids))
+        else:
+            q = db.query(EventLedger).filter(
+                or_(
+                    EventLedger.property_id.in_(ledger_property_ids),
+                    (EventLedger.action_type == ACTION_PROPERTY_DELETED) & (EventLedger.actor_user_id == current_user.id),
+                    (EventLedger.action_type.in_(billing_actions)) & (EventLedger.actor_user_id == current_user.id),
+                )
             )
-        )
     else:
         q = db.query(EventLedger).filter(
             or_(
@@ -5343,6 +5392,7 @@ def owner_logs(
 def manager_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_property_manager_identity_verified),
+    context_mode: str = Depends(get_context_mode),
     from_ts: str | None = None,
     to_ts: str | None = None,
     category: str | None = None,
@@ -5350,7 +5400,8 @@ def manager_logs(
     property_id: int | None = None,
     x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
-    """Property/management lane logs for assigned properties. Same restrictions as owner: no tenant guest activity."""
+    """Business mode: full management lane for assigned properties. Personal mode: guest-residence events only
+    for on-site resident properties (same ledger action set as owner Personal mode)."""
     from sqlalchemy import desc, cast, String
 
     try:
@@ -5365,12 +5416,24 @@ def manager_logs(
     property_ids = _manager_property_ids(db, current_user.id)
     if not property_ids:
         return []
+    is_personal = context_mode == "personal"
+    if is_personal:
+        personal_ids = set(get_manager_personal_mode_property_ids(db, current_user.id))
+        effective_ids = [pid for pid in property_ids if pid in personal_ids]
+        action_set = OWNER_PERSONAL_ACTIONS
+    else:
+        effective_ids = property_ids
+        action_set = OWNER_BUSINESS_ACTIONS
+    if not effective_ids:
+        return []
     if property_id is not None and property_id not in property_ids:
+        return []
+    if property_id is not None and property_id not in effective_ids:
         return []
     from_dt = _parse_optional_utc(from_ts)
     to_dt = _parse_optional_utc(to_ts)
-    q = db.query(EventLedger).filter(EventLedger.property_id.in_(property_ids))
-    q = q.filter(EventLedger.action_type.in_(OWNER_BUSINESS_ACTIONS))
+    q = db.query(EventLedger).filter(EventLedger.property_id.in_(effective_ids))
+    q = q.filter(EventLedger.action_type.in_(action_set))
     if property_id is not None:
         q = q.filter(EventLedger.property_id == property_id)
     if from_dt is not None:
@@ -5380,7 +5443,7 @@ def manager_logs(
     if category and category.strip():
         action_types = _CATEGORY_TO_ACTION_TYPES.get(category.strip(), [])
         if action_types:
-            allowed = [a for a in action_types if a in OWNER_BUSINESS_ACTIONS]
+            allowed = [a for a in action_types if a in action_set]
             q = q.filter(EventLedger.action_type.in_(allowed))
     if search and search.strip():
         term = f"%{search.strip()}%"

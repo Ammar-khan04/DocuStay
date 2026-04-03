@@ -23,7 +23,7 @@ class AdminAuditLogEntry(BaseModel):
     title: str
     message: str
     actor_user_id: int | None
-    actor_email: str | None
+    actor_email: str | None  # display name for UI (legacy field name)
     ip_address: str | None
     created_at: datetime
     property_name: str | None = None

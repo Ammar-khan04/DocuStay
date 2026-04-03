@@ -140,7 +140,7 @@ class OwnerAuditLogEntry(BaseModel):
     title: str
     message: str
     actor_user_id: int | None
-    actor_email: str | None
+    actor_email: str | None  # legacy key: actor display name (full name / User / Guest), not a mailbox
     ip_address: str | None
     created_at: datetime
     property_name: str | None = None  # resolved for display

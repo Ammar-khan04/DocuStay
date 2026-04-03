@@ -70,6 +70,20 @@ const ManagerDashboard: React.FC<{
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<number>>(new Set());
   const [bulkShieldLoading, setBulkShieldLoading] = useState(false);
 
+  const managerOccupiedUnitsTotal = React.useMemo(
+    () => properties.reduce((s, p) => s + (p.occupied_count ?? 0), 0),
+    [properties]
+  );
+  const managerVacantUnitsTotal = React.useMemo(
+    () =>
+      properties.reduce((s, p) => {
+        const uc = p.unit_count ?? 1;
+        const oc = p.occupied_count ?? 0;
+        return s + Math.max(0, uc - oc);
+      }, 0),
+    [properties]
+  );
+
   const managerFilteredProperties = React.useMemo(() => {
     let list = shieldFilter === 'all' ? properties : properties.filter((p) => p.shield_mode_enabled);
     if (propertiesCountFilter === 'occupied') list = list.filter((p) => (p.occupancy_status || '').toLowerCase() === 'occupied');
@@ -582,7 +596,7 @@ const ManagerDashboard: React.FC<{
               onClick={() => setPropertiesCountFilter(propertiesCountFilter === 'occupied' ? null : 'occupied')}
             >
                 <p className="text-slate-600 text-sm font-bold uppercase tracking-wider">Occupied</p>
-                <p className="text-4xl font-extrabold text-slate-800 mt-1">{properties.filter((p) => (p.occupancy_status || '').toLowerCase() === 'occupied').length}</p>
+                <p className="text-4xl font-extrabold text-slate-800 mt-1">{managerOccupiedUnitsTotal}</p>
               </Card>
               <Card
               role="button"
@@ -590,7 +604,7 @@ const ManagerDashboard: React.FC<{
               onClick={() => setPropertiesCountFilter(propertiesCountFilter === 'vacant' ? null : 'vacant')}
             >
                 <p className="text-slate-600 text-sm font-bold uppercase tracking-wider">Vacant</p>
-                <p className="text-4xl font-extrabold text-slate-800 mt-1">{properties.filter((p) => (p.occupancy_status || '').toLowerCase() === 'vacant').length}</p>
+                <p className="text-4xl font-extrabold text-slate-800 mt-1">{managerVacantUnitsTotal}</p>
               </Card>
               <Card
               role="button"
