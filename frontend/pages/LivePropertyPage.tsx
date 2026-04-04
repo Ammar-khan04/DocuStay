@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   authApi,
+  dashboardApi,
   publicApi,
   resolveBackendMediaUrl,
   type LiveCurrentGuestInfo,
@@ -10,14 +11,16 @@ import {
   type LivePropertyPagePayload,
   type LiveTenantAssignmentInfo,
   type UserSession,
+  isPropertyTenantInviteKind,
 } from '../services/api';
+import { groupLiveTenantRowsByCohort } from '../utils/leaseCohortGroups';
 
 function stayIsTenant(stay: Pick<LiveCurrentGuestInfo, 'stay_kind'>): boolean {
   return (stay.stay_kind ?? 'guest').toLowerCase() === 'tenant';
 }
 
 function inviteIsTenant(inv: Pick<LiveInvitationSummary, 'invitation_kind'>): boolean {
-  return (inv.invitation_kind ?? 'guest').toLowerCase() === 'tenant';
+  return isPropertyTenantInviteKind(inv.invitation_kind);
 }
 
 function formatDate(s: string): string {
@@ -58,6 +61,24 @@ function normalizeEmail(s: string): string {
 
 function normalizeLooseName(s: string): string {
   return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function dedupeLiveTenantAssignments(rows: LiveTenantAssignmentInfo[]): LiveTenantAssignmentInfo[] {
+  const seen = new Set<string>();
+  const out: LiveTenantAssignmentInfo[] = [];
+  for (const row of rows) {
+    const key = [
+      (row.unit_label || '').trim(),
+      normalizeEmail(row.tenant_email || ''),
+      normalizeLooseName(row.tenant_full_name || ''),
+      (row.start_date || '').trim(),
+      (row.end_date || '').trim(),
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
 }
 
 function tenantRowMatchesViewer(row: LiveTenantAssignmentInfo, viewer: UserSession): boolean {
@@ -114,6 +135,119 @@ function tenantHasOngoingLeaseOnPage(rows: LiveTenantAssignmentInfo[], viewer: U
   );
 }
 
+/** Row shape returned by GET /dashboard/tenant/unit (only fields needed for live-page merge). */
+type TenantDashboardUnitLeaseRow = {
+  live_slug: string | null;
+  unit: { id: number; unit_label: string; occupancy_status: string } | null;
+  stay_start_date: string | null;
+  stay_end_date: string | null;
+  lease_cohort_id?: string | null;
+  cohort_member_count?: number | null;
+  co_tenants?: Array<{ name?: string | null; email?: string | null }>;
+};
+
+/**
+ * For a tenant viewing their property live link: enrich public payload rows with co-tenants from the
+ * tenant dashboard lease payload (same source as TenantDashboard). Does not affect authorization —
+ * callers must keep using API `current_tenant_assignments` for resolveLivePageAuthorizationState.
+ */
+function buildDisplayTenantAssignmentsForTenantLivePage(
+  apiRows: LiveTenantAssignmentInfo[],
+  viewer: UserSession | null,
+  liveSlug: string,
+  mirror: TenantDashboardUnitLeaseRow | null,
+): LiveTenantAssignmentInfo[] {
+  if (!viewer || viewer.user_type !== 'TENANT' || !mirror || (mirror.live_slug || '').trim() !== liveSlug.trim()) {
+    return apiRows;
+  }
+  const peers = (mirror.co_tenants ?? []).filter((p) => (p.name || p.email || '').trim());
+  if (!peers.length) {
+    return apiRows;
+  }
+
+  const unitLabel = mirror.unit?.unit_label ?? '—';
+  const start = mirror.stay_start_date ?? '';
+  const end = mirror.stay_end_date ?? null;
+  if (!start) {
+    return apiRows;
+  }
+
+  const cohortId =
+    (mirror.lease_cohort_id && String(mirror.lease_cohort_id).trim()) ||
+    (mirror.unit?.id != null ? `tenant-dash-unit-${mirror.unit.id}` : null);
+  if (!cohortId) {
+    return apiRows;
+  }
+
+  const memberCount = Math.max(mirror.cohort_member_count ?? 0, peers.length + 1);
+  if (memberCount < 2) {
+    return apiRows;
+  }
+
+  const rowKey = (email: string, name: string) =>
+    `${normalizeEmail(email)}|${normalizeLooseName(name)}`;
+
+  let rows: LiveTenantAssignmentInfo[] = apiRows.map((r) => {
+    if (r.unit_label !== unitLabel || !tenantRowMatchesViewer(r, viewer)) {
+      return r;
+    }
+    if (r.lease_cohort_id && (r.lease_cohort_member_count ?? 1) > 1) {
+      return r;
+    }
+    return { ...r, lease_cohort_id: cohortId, lease_cohort_member_count: memberCount };
+  });
+
+  const createdFallback =
+    rows.find((r) => tenantRowMatchesViewer(r, viewer) && r.unit_label === unitLabel)?.created_at ??
+    new Date().toISOString();
+
+  const seen = new Set(rows.map((r) => rowKey(r.tenant_email || '', r.tenant_full_name || '')));
+  seen.add(rowKey(viewer.email, viewer.user_name));
+
+  const hasViewerRow = rows.some((r) => tenantRowMatchesViewer(r, viewer) && r.unit_label === unitLabel);
+  if (!hasViewerRow) {
+    rows.push({
+      assignment_id: null,
+      stay_id: null,
+      unit_label: unitLabel,
+      tenant_full_name: viewer.user_name ?? null,
+      tenant_email: viewer.email ?? null,
+      start_date: start,
+      end_date: end,
+      created_at: createdFallback,
+      lease_cohort_id: cohortId,
+      lease_cohort_member_count: memberCount,
+    });
+  }
+
+  for (const peer of peers) {
+    const em = (peer.email || '').trim();
+    const nm = (peer.name || '').trim();
+    if (!em && !nm) {
+      continue;
+    }
+    const k = rowKey(em, nm);
+    if (seen.has(k)) {
+      continue;
+    }
+    seen.add(k);
+    rows.push({
+      assignment_id: null,
+      stay_id: null,
+      unit_label: unitLabel,
+      tenant_full_name: nm || null,
+      tenant_email: em || null,
+      start_date: start,
+      end_date: end,
+      created_at: createdFallback,
+      lease_cohort_id: cohortId,
+      lease_cohort_member_count: memberCount,
+    });
+  }
+
+  return rows;
+}
+
 function guestHasOngoingStayOnPage(
   guestStaysOnly: LiveCurrentGuestInfo[],
   invitations: LiveInvitationSummary[],
@@ -157,6 +291,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewerSession, setViewerSession] = useState<UserSession | null>(null);
+  const [tenantDashboardLeaseRow, setTenantDashboardLeaseRow] = useState<TenantDashboardUnitLeaseRow | null>(null);
 
   useEffect(() => {
     if (!slug) {
@@ -192,8 +327,30 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     };
   }, [slug]);
 
+  useEffect(() => {
+    if (viewerSession?.user_type !== 'TENANT' || !slug || !authApi.getToken()) {
+      setTenantDashboardLeaseRow(null);
+      return;
+    }
+    let cancelled = false;
+    dashboardApi
+      .tenantUnit()
+      .then((res) => {
+        if (cancelled) return;
+        const match = res.units.find((u) => u.live_slug != null && u.live_slug === slug);
+        setTenantDashboardLeaseRow(match ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setTenantDashboardLeaseRow(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, viewerSession?.user_type]);
+
   const viewerIsGuest = viewerSession?.user_type === 'GUEST';
   const viewerIsOwner = viewerSession?.user_type === 'PROPERTY_OWNER';
+  const viewerIsTenant = viewerSession?.user_type === 'TENANT';
 
   if (loading) {
     return (
@@ -323,23 +480,36 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const authLabel = authDisplay(resolvedAuthorizationState);
   const propertySummaryLine = [prop.name || '', address].filter(Boolean).join(' — ') || address || '—';
 
-  const authorityTenantAssignmentsUnique = (() => {
-    const seen = new Set<string>();
-    const out: LiveTenantAssignmentInfo[] = [];
-    for (const row of currentTenantAssignments) {
-      const key = [
-        (row.unit_label || '').trim(),
-        normalizeEmail(row.tenant_email || ''),
-        normalizeLooseName(row.tenant_full_name || ''),
-        (row.start_date || '').trim(),
-        (row.end_date || '').trim(),
-      ].join('|');
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(row);
-    }
-    return out;
-  })();
+  const displayTenantAssignments = buildDisplayTenantAssignmentsForTenantLivePage(
+    currentTenantAssignments,
+    viewerSession,
+    slug,
+    tenantDashboardLeaseRow,
+  );
+  const authorityTenantAssignmentsUnique = dedupeLiveTenantAssignments(displayTenantAssignments);
+  const authorityTenantAssignmentGroups = groupLiveTenantRowsByCohort(authorityTenantAssignmentsUnique);
+  const tenantClientGroups = groupLiveTenantRowsByCohort(dedupeLiveTenantAssignments(displayTenantAssignments));
+
+  const assigneeNamesFromDisplayGroups =
+    displayTenantAssignments.length > 0
+      ? tenantClientGroups.map((grp) => grp.rows.map((r) => tenantAssignmentDisplayName(r)).join(' · ')).join('; ')
+      : '';
+  const tenantSummaryAssigneeLine = viewerIsTenant
+    ? assigneeNamesFromDisplayGroups || (tenant_summary_assignee && tenant_summary_assignee.trim()) || '—'
+    : (tenant_summary_assignee && tenant_summary_assignee.trim()) || assigneeNamesFromDisplayGroups || '—';
+  const tenantSummaryPeriodLine =
+    viewerIsTenant && displayTenantAssignments.length > 1
+      ? (tenant_summary_assignment_period && tenant_summary_assignment_period.trim()) || 'Multiple (see Current client)'
+      : (tenant_summary_assignment_period && tenant_summary_assignment_period.trim()) ||
+        (displayTenantAssignments.length === 1
+          ? tenantLeasePeriodLabel(displayTenantAssignments[0])
+          : displayTenantAssignments.length > 1
+            ? 'Multiple (see Current client)'
+            : upcomingTenantStays.length > 0
+              ? `${formatDate(upcomingTenantStays[0].stay_start_date)} – ${formatDate(upcomingTenantStays[0].stay_end_date)} (upcoming stay)`
+              : lastTenantStay
+                ? `${formatDate(lastTenantStay.stay_start_date)} – ${formatDate(lastTenantStay.stay_end_date)} (last stay)`
+                : '—');
 
   const sessionAuthorityChainLines: { key: string; prefix: string; name: string; email: string }[] = [];
   if (viewerSession) {
@@ -621,21 +791,42 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                     <span className="text-slate-600 break-all"> · {m.email.trim()}</span>
                   </li>
                 ))}
-                {authorityTenantAssignmentsUnique.map((row, idx) => (
-                  <li key={`tenant-auth-${row.assignment_id ?? ''}-${row.stay_id ?? ''}-${row.unit_label}-${idx}`}>
-                    {(() => {
-                      return (
-                        <>
-                          Tenant (Unit {row.unit_label}): {tenantAssignmentDisplayName(row)}
-                          {viewerIsOwner ? (
-                            <span className="text-slate-600"> · Lease {tenantLeasePeriodLabel(row)}</span>
-                          ) : null}
-                        </>
-                      );
-                    })()}
-                    {row.tenant_email ? (
-                      <span className="text-slate-600 break-all"> · {row.tenant_email}</span>
-                    ) : null}
+                {authorityTenantAssignmentGroups.map((g, idx) => (
+                  <li key={`tenant-auth-grp-${g.cohortKey}-${idx}`}>
+                    {g.rows.length > 1 ? (
+                      <>
+                        <span className="font-medium text-slate-800">Co-tenants (Unit {g.rows[0].unit_label}):</span>{' '}
+                        {g.rows.map((row, j) => (
+                          <span key={`${row.assignment_id ?? ''}-${row.stay_id ?? ''}-${j}`}>
+                            {tenantAssignmentDisplayName(row)}
+                            {row.tenant_email ? (
+                              <span className="text-slate-600 break-all"> ({row.tenant_email})</span>
+                            ) : null}
+                            {j < g.rows.length - 1 ? <span className="text-slate-500"> · </span> : null}
+                          </span>
+                        ))}
+                        {viewerIsOwner ? (
+                          <span className="text-slate-600"> · Lease {tenantLeasePeriodLabel(g.rows[0])}</span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        {(() => {
+                          const row = g.rows[0];
+                          return (
+                            <>
+                              Tenant (Unit {row.unit_label}): {tenantAssignmentDisplayName(row)}
+                              {viewerIsOwner ? (
+                                <span className="text-slate-600"> · Lease {tenantLeasePeriodLabel(row)}</span>
+                              ) : null}
+                            </>
+                          );
+                        })()}
+                        {g.rows[0].tenant_email ? (
+                          <span className="text-slate-600 break-all"> · {g.rows[0].tenant_email}</span>
+                        ) : null}
+                      </>
+                    )}
                   </li>
                 ))}
                 {authorityTenantAssignmentsUnique.length === 0 && tenant_summary_assignee ? (
@@ -681,7 +872,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                         : 'Active guest assignment (current stay).'}{' '}
                   Signed agreements on this page are only for these active authorizations; prior agreements appear in the audit timeline below.
                 </span>
-              ) : currentTenantAssignments.length > 0 ? (
+              ) : displayTenantAssignments.length > 0 ? (
                 <span>
                   Active tenant lease assignment(s) on file for this property (see Tenant summary).{' '}
                   No guest-stay check-in is currently recorded on this live record.{' '}
@@ -711,51 +902,64 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             </p>
           </div>
           <div className="p-6 sm:p-8 space-y-4">
-            {currentTenantAssignments.length > 0 && (
+            {displayTenantAssignments.length > 0 && (
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Current client</p>
                 <div className="space-y-4">
-                  {currentTenantAssignments.map((row, idx) => (
+                  {tenantClientGroups.map((g, idx) => (
                     <div
-                      key={`${row.assignment_id ?? ''}-${row.stay_id ?? ''}-${idx}`}
+                      key={`${g.cohortKey}-${idx}`}
                       className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 sm:p-5 space-y-2 text-sm text-slate-800 shadow-sm"
                     >
                       <p className="text-xs font-semibold uppercase tracking-wider text-violet-800">
-                        {currentTenantAssignments.length > 1 ? `Tenant client ${idx + 1}` : 'Tenant client'}
+                        {g.rows.length > 1
+                          ? 'Co-tenants (shared lease)'
+                          : tenantClientGroups.length > 1
+                            ? `Tenant client ${idx + 1}`
+                            : 'Tenant client'}
                       </p>
-                      {row.assignment_id != null && row.assignment_id > 0 ? (
-                        <p>
-                          <span className="font-semibold text-slate-700">Tenant assignment ID:</span>{' '}
-                          <span className="font-mono text-xs text-slate-900">{row.assignment_id}</span>
+                      {g.rows.length > 1 ? (
+                        <p className="text-xs text-violet-900/90">
+                          {g.rows.length} tenants on overlapping assignments for Unit {g.rows[0].unit_label}
                         </p>
                       ) : null}
-                      {row.stay_id != null && row.stay_id > 0 ? (
-                        <p>
-                          <span className="font-semibold text-slate-700">Stay record (occupying):</span>{' '}
-                          <span className="font-mono text-xs text-slate-900">{row.stay_id}</span>
-                        </p>
-                      ) : null}
-                      <p>
-                        <span className="font-semibold text-slate-700">Unit:</span>{' '}
-                        <span className="font-mono text-xs text-slate-900">{row.unit_label}</span>
-                      </p>
-                      <p>
-                        <span className="font-semibold text-slate-700">Name on record:</span>{' '}
-                        {tenantAssignmentDisplayName(row)}
-                      </p>
-                      {row.tenant_email ? (
-                        <p>
-                          <span className="font-semibold text-slate-700">Email:</span>{' '}
-                          <span className="break-all text-slate-800">{row.tenant_email}</span>
-                        </p>
-                      ) : null}
-                      <p>
-                        <span className="font-semibold text-slate-700">Lease window:</span> {tenantLeasePeriodLabel(row)}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-slate-700">Assignment created:</span>{' '}
-                        {formatDateTime(row.created_at)}
-                      </p>
+                      {g.rows.map((row, j) => (
+                        <div key={`${row.assignment_id ?? ''}-${row.stay_id ?? ''}-${j}`} className={j > 0 ? 'pt-3 mt-3 border-t border-violet-100' : ''}>
+                          {row.assignment_id != null && row.assignment_id > 0 ? (
+                            <p>
+                              <span className="font-semibold text-slate-700">Tenant assignment ID:</span>{' '}
+                              <span className="font-mono text-xs text-slate-900">{row.assignment_id}</span>
+                            </p>
+                          ) : null}
+                          {row.stay_id != null && row.stay_id > 0 ? (
+                            <p>
+                              <span className="font-semibold text-slate-700">Stay record (occupying):</span>{' '}
+                              <span className="font-mono text-xs text-slate-900">{row.stay_id}</span>
+                            </p>
+                          ) : null}
+                          <p>
+                            <span className="font-semibold text-slate-700">Unit:</span>{' '}
+                            <span className="font-mono text-xs text-slate-900">{row.unit_label}</span>
+                          </p>
+                          <p>
+                            <span className="font-semibold text-slate-700">Name on record:</span>{' '}
+                            {tenantAssignmentDisplayName(row)}
+                          </p>
+                          {row.tenant_email ? (
+                            <p>
+                              <span className="font-semibold text-slate-700">Email:</span>{' '}
+                              <span className="break-all text-slate-800">{row.tenant_email}</span>
+                            </p>
+                          ) : null}
+                          <p>
+                            <span className="font-semibold text-slate-700">Lease window:</span> {tenantLeasePeriodLabel(row)}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-slate-700">Assignment created:</span>{' '}
+                            {formatDateTime(row.created_at)}
+                          </p>
+                        </div>
+                      ))}
                       <p>
                         <span className="font-semibold text-slate-700">Property authorization (page):</span> {authLabel}
                       </p>
@@ -770,9 +974,13 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Tenant assignment status:</span>{' '}
-                {currentTenantAssignments.length > 0
-                  ? currentTenantAssignments.length > 1
-                    ? `CURRENT — ${currentTenantAssignments.length} occupying tenant(s)`
+                {displayTenantAssignments.length > 0
+                  ? displayTenantAssignments.length > 1
+                    ? `CURRENT — ${displayTenantAssignments.length} occupying tenant(s)${
+                        tenantClientGroups.length < displayTenantAssignments.length
+                          ? ` (${tenantClientGroups.length} shared-lease group${tenantClientGroups.length !== 1 ? 's' : ''})`
+                          : ''
+                      }`
                     : 'CURRENT — 1 occupying tenant'
                   : upcomingTenantStays.length > 0
                     ? `UPCOMING — ${upcomingTenantStays.length} scheduled stay (invitation)${upcomingTenantStays.length > 1 ? 's' : ''}`
@@ -782,23 +990,11 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Assignee name:</span>{' '}
-                {(tenant_summary_assignee && tenant_summary_assignee.trim()) ||
-                  (currentTenantAssignments.length > 0
-                    ? currentTenantAssignments.map((r) => tenantAssignmentDisplayName(r)).join(' · ')
-                    : '—')}
+                {tenantSummaryAssigneeLine}
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Assignment period:</span>{' '}
-                {(tenant_summary_assignment_period && tenant_summary_assignment_period.trim()) ||
-                  (currentTenantAssignments.length === 1
-                    ? tenantLeasePeriodLabel(currentTenantAssignments[0])
-                    : currentTenantAssignments.length > 1
-                      ? 'Multiple (see Current client)'
-                      : upcomingTenantStays.length > 0
-                        ? `${formatDate(upcomingTenantStays[0].stay_start_date)} – ${formatDate(upcomingTenantStays[0].stay_end_date)} (upcoming stay)`
-                        : lastTenantStay
-                          ? `${formatDate(lastTenantStay.stay_start_date)} – ${formatDate(lastTenantStay.stay_end_date)} (last stay)`
-                          : '—')}
+                {tenantSummaryPeriodLine}
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Tenant invitations on record:</span>{' '}
@@ -814,7 +1010,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                     <span className="text-slate-600 break-all"> · {ownerEmailNormalized}</span>
                   ) : null}
                 </li>
-                {currentTenantAssignments.length > 0 ? (
+                {displayTenantAssignments.length > 0 ? (
                   <li className="text-slate-600">
                     Occupying tenant(s): see <span className="font-medium text-slate-700">Current client</span> (matches
                     unit occupancy priority).
@@ -828,7 +1024,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                     {formatDate(s.stay_end_date)}
                   </li>
                 ))}
-                {lastTenantStay && currentTenantAssignments.length === 0 ? (
+                {lastTenantStay && displayTenantAssignments.length === 0 ? (
                   <li>
                     Last tenant (stay): {lastTenantStay.guest_name} ·{' '}
                     {formatDate(lastTenantStay.stay_start_date)} – {formatDate(lastTenantStay.stay_end_date)}
@@ -862,10 +1058,13 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               </div>
             )}
             <p className="text-sm text-slate-700 pt-1">
-              {currentTenantAssignments.length > 0 ? (
+              {displayTenantAssignments.length > 0 ? (
                 <span>
                   Details above match your session when you are the assigned tenant for this property; otherwise they
                   follow public occupancy rules (see header). Invitation states and the audit timeline add full history.
+                  {viewerIsTenant && tenantDashboardLeaseRow?.co_tenants?.length
+                    ? ' Co-tenant names on this card match your signed-in tenant lease record when this live link is tied to that unit.'
+                    : null}
                 </span>
               ) : (
                 <span>

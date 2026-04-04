@@ -14,7 +14,12 @@ interface RegisterManagerProps {
 }
 
 const RegisterManager: React.FC<RegisterManagerProps> = ({ inviteToken, onLogin, navigate, setLoading, notify }) => {
-  const [inviteData, setInviteData] = useState<{ email: string; property_name: string } | null>(null);
+  const [inviteData, setInviteData] = useState<{
+    email: string;
+    property_name: string;
+    already_accepted?: boolean;
+    is_demo?: boolean;
+  } | null>(null);
   const [loadingInvite, setLoadingInvite] = useState(true);
   const [leaveForDemo, setLeaveForDemo] = useState(false);
   const [formData, setFormData] = useState({
@@ -37,12 +42,17 @@ const RegisterManager: React.FC<RegisterManagerProps> = ({ inviteToken, onLogin,
     authApi
       .getManagerInvite(inviteToken)
       .then((data) => {
-        if (data.is_demo) {
+        if (data.is_demo && !data.already_accepted) {
           setLeaveForDemo(true);
           navigate(`demo/register/manager/${inviteToken}`);
           return;
         }
-        setInviteData(data);
+        setInviteData({
+          email: data.email,
+          property_name: data.property_name,
+          already_accepted: data.already_accepted === true,
+          is_demo: data.is_demo === true,
+        });
         setFormData((prev) => ({ ...prev, email: data.email }));
       })
       .catch(() => setErrorModal({ open: true, message: 'Invitation not found or expired.' }))
@@ -110,6 +120,31 @@ const RegisterManager: React.FC<RegisterManagerProps> = ({ inviteToken, onLogin,
           </div>
         </AuthCardLayout>
         <ErrorModal open={errorModal.open} message={errorModal.message} onClose={() => setErrorModal((p) => ({ ...p, open: false }))} />
+      </HeroBackground>
+    );
+  }
+
+  if (inviteData.already_accepted) {
+    return (
+      <HeroBackground className="flex-grow flex items-center justify-center">
+        <AuthCardLayout singleColumn maxWidth="2xl">
+          <div className="text-center space-y-4">
+            <h2 className="text-xl font-semibold text-slate-900">Invitation already accepted</h2>
+            <p className="text-slate-600">
+              You&apos;re set up for <strong>{inviteData.property_name}</strong>. Log in with{' '}
+              <strong className="text-slate-800">{inviteData.email}</strong> to open your manager dashboard.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+              <Button
+                onClick={() =>
+                  navigate(inviteData.is_demo ? 'demo' : `login/property_manager/${inviteToken}`)
+                }
+              >
+                Log in
+              </Button>
+            </div>
+          </div>
+        </AuthCardLayout>
       </HeroBackground>
     );
   }

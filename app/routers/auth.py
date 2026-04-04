@@ -104,6 +104,7 @@ from app.models.guest import GuestProfile
 from app.models.manager_invitation import ManagerInvitation
 from app.models.tenant_assignment import TenantAssignment
 from app.models.property_manager_assignment import PropertyManagerAssignment
+from app.services.invitation_kinds import TENANT_UNIT_LEASE_KINDS, is_property_invited_tenant_signup_kind
 from app.services.tenant_lease_window import (
     assert_can_record_tenant_assignment_for_invite_or_raise,
     find_tenant_assignment_matching_invitation,
@@ -734,25 +735,35 @@ def _normalize_manager_invite_token(token: str) -> str:
 
 @router.get("/manager-invite/{token}")
 def get_manager_invite(token: str, db: Session = Depends(get_db)):
-    """Return manager invite details for pre-filling signup form. Public endpoint."""
+    """Return manager invite details for pre-filling signup or login. Public endpoint.
+
+    After the invite is accepted, the row is no longer ``pending``; we still return email/property so the app
+    can show "already accepted — log in" instead of a false "expired" error when the user revisits the link.
+    """
     norm_token = _normalize_manager_invite_token(token)
     if not norm_token:
         raise HTTPException(status_code=404, detail="Invitation not found or expired.")
-    inv = db.query(ManagerInvitation).filter(
-        ManagerInvitation.token == norm_token,
-        ManagerInvitation.status == "pending",
-        ManagerInvitation.expires_at > datetime.now(timezone.utc),
-    ).first()
+    inv = db.query(ManagerInvitation).filter(ManagerInvitation.token == norm_token).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invitation not found or expired.")
+    now = datetime.now(timezone.utc)
+    if inv.status in ("cancelled", "expired"):
+        raise HTTPException(status_code=404, detail="Invitation not found or expired.")
+    if inv.status == "pending" and inv.expires_at <= now:
+        raise HTTPException(status_code=404, detail="Invitation not found or expired.")
+    if inv.status not in ("pending", "accepted"):
+        raise HTTPException(status_code=404, detail="Invitation not found or expired.")
+    already_accepted = inv.status == "accepted"
     prop = db.query(Property).filter(Property.id == inv.property_id).first()
     property_name = (prop.name or f"{prop.street or ''}, {prop.city or ''}".strip(", ")).strip() or "Property" if prop else "Property"
     from app.models.demo_account import is_demo_user_id
+    email_out = (inv.email or "").strip().lower()
     return {
-        "email": inv.email,
+        "email": email_out,
         "property_name": property_name,
         "property_id": inv.property_id,
         "is_demo": is_demo_user_id(db, inv.invited_by_user_id),
+        "already_accepted": already_accepted,
     }
 
 
@@ -762,16 +773,44 @@ def register_manager(request: Request, data: ManagerRegister, db: Session = Depe
     norm_token = _normalize_manager_invite_token(data.invite_token)
     if not norm_token:
         raise HTTPException(status_code=400, detail="Invitation not found or expired.")
-    inv = db.query(ManagerInvitation).filter(
-        ManagerInvitation.token == norm_token,
-        ManagerInvitation.status == "pending",
-        ManagerInvitation.expires_at > datetime.now(timezone.utc),
-    ).first()
+    inv = db.query(ManagerInvitation).filter(ManagerInvitation.token == norm_token).first()
     if not inv:
+        raise HTTPException(status_code=400, detail="Invitation not found or expired.")
+    now = datetime.now(timezone.utc)
+    if inv.status in ("cancelled", "expired"):
         raise HTTPException(status_code=400, detail="Invitation not found or expired.")
     if inv.email.strip().lower() != (data.email or "").strip().lower():
         raise HTTPException(status_code=400, detail="Email must match the invited email address.")
     inv_email_norm = normalize_registration_email(inv.email)
+    if inv.status == "accepted":
+        existing_done = (
+            db.query(User)
+            .filter(
+                func.lower(func.trim(User.email)) == inv_email_norm,
+                User.role == UserRole.property_manager,
+            )
+            .first()
+        )
+        if not existing_done:
+            raise HTTPException(
+                status_code=400,
+                detail="This invitation has already been used. Please log in with your property manager account.",
+            )
+        if not verify_password(data.password, existing_done.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid password. Please use the password for your Property Manager account.")
+        assn_done = db.query(PropertyManagerAssignment).filter(
+            PropertyManagerAssignment.property_id == inv.property_id,
+            PropertyManagerAssignment.user_id == existing_done.id,
+        ).first()
+        if not assn_done:
+            raise HTTPException(
+                status_code=400,
+                detail="This invitation has already been used. Please log in with your property manager account.",
+            )
+        token = create_access_token(existing_done.id, existing_done.email, existing_done.role)
+        return Token(access_token=token, user=_user_to_response(existing_done, db))
+    if inv.status != "pending" or inv.expires_at <= now:
+        raise HTTPException(status_code=400, detail="Invitation not found or expired.")
     enforce_email_available_for_intended_role(
         db, inv_email_norm, UserRole.property_manager, allow_same_role_pending=True
     )
@@ -896,11 +935,7 @@ def accept_manager_invite(
     norm_token = _normalize_manager_invite_token(token)
     if not norm_token:
         raise HTTPException(status_code=400, detail="Invitation not found or expired.")
-    inv = db.query(ManagerInvitation).filter(
-        ManagerInvitation.token == norm_token,
-        ManagerInvitation.status == "pending",
-        ManagerInvitation.expires_at > datetime.now(timezone.utc),
-    ).first()
+    inv = db.query(ManagerInvitation).filter(ManagerInvitation.token == norm_token).first()
     if not inv:
         raise HTTPException(status_code=400, detail="Invitation not found or expired.")
     if inv.email.strip().lower() != (current_user.email or "").strip().lower():
@@ -917,6 +952,14 @@ def accept_manager_invite(
     ).first()
     if existing_assignment:
         return {"status": "success", "message": "You are already assigned to this property."}
+    now = datetime.now(timezone.utc)
+    if inv.status == "accepted":
+        raise HTTPException(
+            status_code=400,
+            detail="This invitation is no longer active. If you need access, ask the property owner for a new invitation.",
+        )
+    if inv.status != "pending" or inv.expires_at <= now:
+        raise HTTPException(status_code=400, detail="Invitation not found or expired.")
     assn = PropertyManagerAssignment(
         property_id=inv.property_id,
         user_id=current_user.id,
@@ -1031,7 +1074,7 @@ def _complete_pending_tenant(db: Session, pending: PendingRegistration) -> User:
                 Invitation.invitation_code == code,
                 Invitation.status.in_(["pending", "ongoing"]),
                 Invitation.unit_id.isnot(None),
-                Invitation.invitation_kind == "tenant",
+                Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
             )
             .first()
         )
@@ -1836,17 +1879,17 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
             inv_check = db.query(Invitation).filter(Invitation.invitation_code == code).first()
             if inv_check:
                 inv_kind = (getattr(inv_check, "invitation_kind", None) or "").strip().lower()
-                if target_role == UserRole.guest and inv_kind == "tenant":
+                if target_role == UserRole.guest and is_property_invited_tenant_signup_kind(inv_kind):
                     raise HTTPException(
                         status_code=400,
                         detail="This invitation is for a tenant, not a guest. Please use the tenant signup with this link.",
                     )
-                if target_role == UserRole.tenant and inv_kind != "tenant":
+                if target_role == UserRole.tenant and not is_property_invited_tenant_signup_kind(inv_kind):
                     raise HTTPException(
                         status_code=400,
                         detail="This invitation is for a guest stay, not a tenant. Please use the guest signup with this link.",
                     )
-                if target_role == UserRole.guest and inv_kind != "tenant":
+                if target_role == UserRole.guest and not is_property_invited_tenant_signup_kind(inv_kind):
                     inv_guest_email_check = (getattr(inv_check, "guest_email", None) or "").strip().lower()
                     if not inv_guest_email_check:
                         raise HTTPException(
@@ -1956,7 +1999,7 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
             raise HTTPException(status_code=400, detail="Invalid or expired invitation code")
 
         inv_kind = (getattr(inv, "invitation_kind", None) or "").strip().lower()
-        if inv_kind == "tenant":
+        if is_property_invited_tenant_signup_kind(inv_kind):
             create_log(
                 db,
                 CATEGORY_FAILED_ATTEMPT,
@@ -2045,7 +2088,7 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
              raise HTTPException(status_code=400, detail="This invite has expired. Please contact your host to request a new one.")
 
         inv_kind = (getattr(inv, "invitation_kind", None) or "").strip().lower()
-        if inv_kind != "tenant":
+        if not is_property_invited_tenant_signup_kind(inv_kind):
             create_log(
                 db,
                 CATEGORY_FAILED_ATTEMPT,
@@ -2358,7 +2401,7 @@ def accept_invite(
         raise HTTPException(status_code=400, detail="Invalid or expired invitation code")
 
     inv_kind_raw = (getattr(inv, "invitation_kind", None) or "").strip().lower()
-    is_tenant_invite = inv_kind_raw == "tenant"
+    is_tenant_invite = is_property_invited_tenant_signup_kind(inv_kind_raw)
     from app.models.demo_account import is_demo_user_id
     demo_session_user = is_demo_user_id(db, current_user.id)
     demo_originated_invite = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
@@ -2721,7 +2764,7 @@ def accept_invite(
         return {"status": "success", "message": "Invitation already accepted."}
 
     inv_kind = (getattr(inv, "invitation_kind", None) or "").strip().lower()
-    if inv_kind == "tenant" and current_user.role == UserRole.tenant:
+    if is_property_invited_tenant_signup_kind(inv_kind) and current_user.role == UserRole.tenant:
         # Tenant accepting a tenant invitation: create TenantAssignment (no Stay)
         matching_ta = find_tenant_assignment_matching_invitation(db, current_user.id, inv)
         if matching_ta:

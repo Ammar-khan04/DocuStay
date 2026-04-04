@@ -30,6 +30,7 @@ type UnitSummary = {
   current_tenant_email?: string | null;
   lease_start_date?: string | null;
   lease_end_date?: string | null;
+  lease_cohort_member_count?: number | null;
 };
 
 function formatManagerUnitLeaseLine(start: string | null | undefined, end: string | null | undefined): string {
@@ -693,6 +694,11 @@ const ManagerPropertyDetail: React.FC<{
                   {(u.current_tenant_name || u.current_tenant_email || u.lease_start_date) && (
                     <div className="mt-1 pt-2 border-t border-slate-200/90 space-y-1 text-xs text-slate-600">
                       <p className="font-semibold text-slate-700 uppercase tracking-wide text-[10px]">Current tenant</p>
+                      {typeof u.lease_cohort_member_count === 'number' && u.lease_cohort_member_count > 1 ? (
+                        <p className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 rounded px-1.5 py-0.5 w-fit">
+                          Shared lease · {u.lease_cohort_member_count} tenants
+                        </p>
+                      ) : null}
                       {u.current_tenant_name ? (
                         <p>
                           <span className="text-slate-500">Name</span>{' '}
@@ -933,6 +939,7 @@ const ManagerPropertyDetail: React.FC<{
             tenant_email: params.tenant_email,
             lease_start_date: params.lease_start_date,
             lease_end_date: params.lease_end_date,
+            shared_lease: params.shared_lease,
           }).then((r) => ({ invitation_code: r.invitation_code }))
         }
         notify={notify}

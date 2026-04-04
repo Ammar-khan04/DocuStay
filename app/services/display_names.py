@@ -5,6 +5,7 @@ Avoids the generic placeholder 'Guest' when any real identifier (name, email, in
 """
 from __future__ import annotations
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.agreement_signature import AgreementSignature
@@ -13,6 +14,7 @@ from app.models.invitation import Invitation
 from app.models.stay import Stay
 from app.models.tenant_assignment import TenantAssignment
 from app.models.user import User
+from app.services.invitation_kinds import is_property_invited_tenant_signup_kind
 
 
 def label_from_user_id(db: Session, user_id: int | None) -> str | None:
@@ -54,14 +56,27 @@ def label_from_invitation(db: Session, inv: Invitation) -> str:
         if ulabel:
             return ulabel
     inv_kind = (getattr(inv, "invitation_kind", None) or "").strip().lower()
-    if inv_kind == "tenant" and inv.unit_id:
-        ta = db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).first()
+    if is_property_invited_tenant_signup_kind(inv_kind) and inv.unit_id:
+        email = (getattr(inv, "guest_email", None) or "").strip().lower()
+        q = db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id)
+        if email:
+            q = q.join(User, User.id == TenantAssignment.user_id).filter(
+                func.lower(func.trim(User.email)) == email
+            )
+        ta = q.order_by(TenantAssignment.created_at.desc()).first()
+        if not ta:
+            ta = (
+                db.query(TenantAssignment)
+                .filter(TenantAssignment.unit_id == inv.unit_id)
+                .order_by(TenantAssignment.created_at.desc())
+                .first()
+            )
         if ta:
             ulabel = label_from_user_id(db, ta.user_id)
             if ulabel:
                 return ulabel
     code = (inv.invitation_code or "").strip()
-    if inv_kind == "tenant":
+    if is_property_invited_tenant_signup_kind(inv_kind):
         return f"Tenant authorization {code}" if code else "Tenant authorization"
     return f"Authorization {code}" if code else "Unknown invitee"
 

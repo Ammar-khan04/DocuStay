@@ -22,6 +22,7 @@ from app.models.invitation import Invitation
 from app.models.user import User
 from app.models.tenant_assignment import TenantAssignment
 from app.services.privacy_lanes import is_tenant_lane_invitation, is_tenant_lane_stay
+from app.services.invitation_kinds import TENANT_UNIT_LEASE_KINDS
 from app.services.display_names import label_from_invitation, label_from_user_id
 
 
@@ -31,7 +32,7 @@ def _unit_has_in_window_tenant_invitation(db: Session, unit_id: int, today: date
         db.query(Invitation)
         .filter(
             Invitation.unit_id == unit_id,
-            func.lower(func.coalesce(Invitation.invitation_kind, "guest")) == "tenant",
+            func.lower(func.coalesce(Invitation.invitation_kind, "guest")).in_(tuple(TENANT_UNIT_LEASE_KINDS)),
             Invitation.token_state.notin_(["REVOKED", "CANCELLED"]),
             Invitation.stay_start_date.isnot(None),
             Invitation.stay_start_date <= today,
@@ -241,13 +242,15 @@ def get_units_occupancy_display(
             name = f"{base} (Property manager)" if "(Property manager)" not in base else base
             out[m.unit_id] = {"occupied_by": name, "invite_id": None}
 
-    # Tenant assignment (current: end_date null or >= today)
+    # Tenant assignment(s): include every active leaseholder today (co-tenants grouped in one label).
     still_empty = [uid for uid in unit_ids if out[uid]["occupied_by"] is None]
     if still_empty:
         assignments = (
             db.query(TenantAssignment)
             .filter(
                 TenantAssignment.unit_id.in_(still_empty),
+                TenantAssignment.start_date.isnot(None),
+                TenantAssignment.start_date <= today,
                 or_(
                     TenantAssignment.end_date.is_(None),
                     TenantAssignment.end_date >= today,
@@ -260,12 +263,23 @@ def get_units_occupancy_display(
         if tenant_ids:
             users = db.query(User).filter(User.id.in_(tenant_ids)).all()
             users_by_id = {u.id: u for u in users}
+        from app.services.tenant_lease_cohort import cluster_assignments_for_unit
+
+        by_unit: dict[int, list] = {}
         for a in assignments:
-            if a.unit_id not in out or out[a.unit_id]["occupied_by"] is not None:
+            by_unit.setdefault(a.unit_id, []).append(a)
+        for uid, rows in by_unit.items():
+            if uid not in out or out[uid]["occupied_by"] is not None:
                 continue
-            u = users_by_id.get(a.user_id)
-            name = (u.full_name or "").strip() or (u.email if u else "Tenant")
-            out[a.unit_id] = {"occupied_by": name, "invite_id": None}
+            if not rows:
+                continue
+            labels: list[str] = []
+            for cluster in cluster_assignments_for_unit(uid, rows):
+                for ta in sorted(cluster, key=lambda t: (t.user_id or 0, t.id)):
+                    u = users_by_id.get(ta.user_id)
+                    name = (u.full_name or "").strip() or (u.email if u else "Tenant")
+                    labels.append(name)
+            out[uid] = {"occupied_by": " · ".join(labels), "invite_id": None}
 
     return out
 

@@ -74,6 +74,12 @@ from app.models.property_utility import PropertyUtilityProvider, PropertyAuthori
 from app.background_jobs import submit_utility_job
 from app.services.provider_contact_search import run_provider_contact_lookup_job
 from app.services.census_geocoder import geocode_coordinates
+from app.services.invitation_kinds import (
+    TENANT_COTENANT_INVITE_KIND,
+    TENANT_INVITE_KIND,
+    is_property_invited_tenant_signup_kind,
+    is_standard_tenant_invite_kind,
+)
 from app.services.tenant_lease_window import assert_unit_available_for_new_tenant_invite_or_raise
 from app.utility_providers.pending_provider_verification_job import run_pending_provider_verification_job
 from app.utility_providers.sqlite_cache import add_pending_provider, get_pending_providers_for_property
@@ -149,6 +155,10 @@ class InviteTenantRequest(BaseModel):
     tenant_email: str = Field(..., min_length=1, description="Tenant email (required)")
     lease_start_date: str
     lease_end_date: str
+    shared_lease: bool = Field(
+        False,
+        description="Additional occupant / shared lease: skips one-tenant-per-unit overlap checks for this invite only.",
+    )
 
 
 class SendTenantInviteEmailBody(BaseModel):
@@ -3653,8 +3663,14 @@ def owner_invite_tenant_by_property(
     if start < date.today():
         raise HTTPException(status_code=400, detail="Lease start date cannot be in the past")
     assert_unit_available_for_new_tenant_invite_or_raise(
-        db, unit.id, start, end, invitation_overlap_property_id=prop.id
+        db,
+        unit.id,
+        start,
+        end,
+        invitation_overlap_property_id=prop.id,
+        skip_overlap_check=data.shared_lease,
     )
+    inv_kind = TENANT_COTENANT_INVITE_KIND if data.shared_lease else TENANT_INVITE_KIND
     code = "INV-" + secrets.token_hex(4).upper()
     inv = Invitation(
         invitation_code=code,
@@ -3671,7 +3687,7 @@ def owner_invite_tenant_by_property(
         region_code=prop.region_code,
         status="ongoing",
         token_state="BURNED",
-        invitation_kind="tenant",
+        invitation_kind=inv_kind,
         dead_mans_switch_enabled=1,
         dead_mans_switch_alert_email=1,
         dead_mans_switch_alert_sms=0,
@@ -3758,7 +3774,8 @@ def owner_invite_tenant(
         raise HTTPException(status_code=400, detail="lease_end_date must be after lease_start_date")
     if start < date.today():
         raise HTTPException(status_code=400, detail="Lease start date cannot be in the past")
-    assert_unit_available_for_new_tenant_invite_or_raise(db, unit_id, start, end)
+    assert_unit_available_for_new_tenant_invite_or_raise(db, unit_id, start, end, skip_overlap_check=data.shared_lease)
+    inv_kind = TENANT_COTENANT_INVITE_KIND if data.shared_lease else TENANT_INVITE_KIND
     code = "INV-" + secrets.token_hex(4).upper()
     inv = Invitation(
         invitation_code=code,
@@ -3775,7 +3792,7 @@ def owner_invite_tenant(
         region_code=prop.region_code,
         status="ongoing",
         token_state="BURNED",
-        invitation_kind="tenant",
+        invitation_kind=inv_kind,
         dead_mans_switch_enabled=1,
         dead_mans_switch_alert_email=1,
         dead_mans_switch_alert_sms=0,
@@ -3839,11 +3856,15 @@ def owner_send_tenant_invite_email(
     inv = db.query(Invitation).filter(Invitation.id == invitation_id).first()
     if not inv or inv.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Invitation not found")
-    if (getattr(inv, "invitation_kind", None) or "").strip().lower() != "tenant":
+    if not is_property_invited_tenant_signup_kind(getattr(inv, "invitation_kind", None)):
         raise HTTPException(status_code=400, detail="Not a tenant invitation")
     if inv.status not in ("pending", "ongoing"):
         raise HTTPException(status_code=400, detail="Invitation is no longer pending signup")
-    if inv.unit_id and db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).first():
+    if (
+        is_standard_tenant_invite_kind(getattr(inv, "invitation_kind", None))
+        and inv.unit_id
+        and db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).first()
+    ):
         raise HTTPException(status_code=400, detail="This unit already has a tenant assignment.")
     email = (str(body.email) or "").strip().lower()
     if not email or "@" not in email:
@@ -3921,7 +3942,7 @@ def get_invitation_details(
         return {"valid": False, "reason": "not_found"}
     token = (inv.token_state or "").upper()
     invitation_kind = (getattr(inv, "invitation_kind", None) or "guest").strip().lower()
-    is_tenant = invitation_kind == "tenant"
+    is_tenant = is_property_invited_tenant_signup_kind(invitation_kind)
     awaiting_account = not is_tenant and guest_invite_awaiting_account_after_sign(db, inv)
     if inv.status == "accepted" and not awaiting_account:
         return {"valid": False, "used": True, "already_accepted": True, "reason": "already_accepted"}
@@ -3969,7 +3990,7 @@ def get_invitation_details(
         return {"valid": False, "reason": "invalid_status"}
     prop = db.query(Property).filter(Property.id == inv.property_id).first()
     owner = db.query(User).filter(User.id == inv.owner_id).first()
-    if invitation_kind not in ("guest", "tenant"):
+    if invitation_kind not in ("guest", "tenant", TENANT_COTENANT_INVITE_KIND):
         invitation_kind = "guest"
     return {
         "valid": True,

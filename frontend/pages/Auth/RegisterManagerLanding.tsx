@@ -38,7 +38,11 @@ const RegisterManagerLanding: React.FC<RegisterManagerLandingProps> = ({ navigat
     }
     setValidating(true);
     try {
-      await authApi.getManagerInvite(token);
+      const info = await authApi.getManagerInvite(token);
+      if (info.already_accepted) {
+        navigate(info.is_demo ? 'demo' : `login/property_manager/${token}`);
+        return;
+      }
       navigate(`register/manager/${token}`);
     } catch {
       setError('This invite link is invalid or has expired. Please use the link from your invitation email.');

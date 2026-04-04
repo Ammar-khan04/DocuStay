@@ -20,6 +20,8 @@ from app.models.owner_poa_signature import OwnerPOASignature
 from app.models.agreement_signature import AgreementSignature
 from app.models.property_manager_assignment import PropertyManagerAssignment
 from app.services.agreements import agreement_content_to_pdf, fill_guest_signature_in_content, poa_content_with_signature
+from app.services.invitation_kinds import is_property_invited_tenant_signup_kind
+from app.services.tenant_lease_cohort import map_assignment_id_to_cohort_key
 from app.services.dropbox_sign import get_signed_pdf
 from app.services.invitation_agreement_ledger import emit_invitation_agreement_signed_if_dropbox_complete
 from app.services.audit_log import create_log, CATEGORY_VERIFY_ATTEMPT, CATEGORY_FAILED_ATTEMPT
@@ -150,7 +152,7 @@ def _stay_kind_for_live(inv_map: dict[int, Invitation], stay: Stay) -> str:
     if not inv:
         return "guest"
     kind = (getattr(inv, "invitation_kind", None) or "guest").strip().lower()
-    return "tenant" if kind == "tenant" else "guest"
+    return "tenant" if is_property_invited_tenant_signup_kind(kind) else "guest"
 
 
 def _live_guest_info_rows(db: Session, slug: str, stays: list[Stay]) -> list[LiveCurrentGuestInfo]:
@@ -208,6 +210,9 @@ def _ta_to_live_tenant_row(
     ta: TenantAssignment,
     unit: Unit | None,
     now: datetime,
+    *,
+    cohort_id: str | None = None,
+    cohort_member_count: int | None = None,
 ) -> LiveTenantAssignmentInfo:
     u = db.query(User).filter(User.id == ta.user_id).first()
     display = label_from_user_id(db, ta.user_id) if ta.user_id else None
@@ -226,6 +231,8 @@ def _ta_to_live_tenant_row(
         start_date=ta.start_date,
         end_date=ta.end_date,
         created_at=created,
+        lease_cohort_id=cohort_id,
+        lease_cohort_member_count=cohort_member_count,
     )
 
 
@@ -276,21 +283,40 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
         sources = get_units_occupancy_sources(db, unit_ids, guest_detail_unit_ids=None)
         units_by_id = {u.id: u for u in unit_rows}
         out: list[LiveTenantAssignmentInfo] = []
+        active_tas = (
+            db.query(TenantAssignment)
+            .filter(
+                TenantAssignment.unit_id.in_(unit_ids),
+                TenantAssignment.start_date.isnot(None),
+                TenantAssignment.start_date <= today,
+                or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
+            )
+            .all()
+        )
+        cohort_map = map_assignment_id_to_cohort_key(active_tas)
+        cohort_sizes: dict[str, int] = {}
+        for _ta in active_tas:
+            ck = cohort_map.get(_ta.id)
+            if ck:
+                cohort_sizes[ck] = cohort_sizes.get(ck, 0) + 1
         for uid in sorted(unit_ids):
             if sources.get(uid) != "tenant_assignment":
                 continue
-            ta = (
-                db.query(TenantAssignment)
-                .filter(
-                    TenantAssignment.unit_id == uid,
-                    or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
-                )
-                .order_by(TenantAssignment.created_at.desc())
-                .first()
-            )
-            if not ta:
+            unit_tas = [x for x in active_tas if x.unit_id == uid]
+            if not unit_tas:
                 continue
-            out.append(_ta_to_live_tenant_row(db, ta, units_by_id.get(uid), now))
+            for ta in sorted(unit_tas, key=lambda t: (t.user_id or 0, t.id)):
+                ck = cohort_map.get(ta.id)
+                out.append(
+                    _ta_to_live_tenant_row(
+                        db,
+                        ta,
+                        units_by_id.get(uid),
+                        now,
+                        cohort_id=ck,
+                        cohort_member_count=cohort_sizes.get(ck) if ck else 1,
+                    )
+                )
         return out
 
     stays = _current_active_stays_for_live(db, property_id)
@@ -508,7 +534,7 @@ def get_live_property_page(
     # Logged-in guests: hide tenant-lane rows from Invitation states (privacy / relevance).
     if viewer is not None and viewer.role == UserRole.guest:
         invitations = [
-            inv for inv in invitations if (inv.invitation_kind or "guest").strip().lower() != "tenant"
+            inv for inv in invitations if not is_property_invited_tenant_signup_kind(inv.invitation_kind)
         ]
 
     current_tenant_assignments = _live_occupying_tenants_for_property(db, prop.id, today)

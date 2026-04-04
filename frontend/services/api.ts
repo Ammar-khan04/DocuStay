@@ -390,11 +390,17 @@ export const authApi = {
     }
   },
 
-  /** Get manager invite details for pre-filling signup form. */
-  async getManagerInvite(token: string): Promise<{ email: string; property_name: string; property_id: number; is_demo?: boolean }> {
-    return request<{ email: string; property_name: string; property_id: number; is_demo?: boolean }>(
-      `/auth/manager-invite/${encodeURIComponent(token)}`
-    );
+  /** Get manager invite details for pre-filling signup form. `already_accepted` when signup finished — use login, not "expired". */
+  async getManagerInvite(
+    token: string,
+  ): Promise<{ email: string; property_name: string; property_id: number; is_demo?: boolean; already_accepted?: boolean }> {
+    return request<{
+      email: string;
+      property_name: string;
+      property_id: number;
+      is_demo?: boolean;
+      already_accepted?: boolean;
+    }>(`/auth/manager-invite/${encodeURIComponent(token)}`);
   },
   /** Property manager signup via invite link. */
   async registerManager(data: { invite_token: string; full_name: string; email: string; phone: string; password: string; confirm_password: string }): Promise<{ status: string; data: UserSession; message?: string }> {
@@ -597,6 +603,9 @@ export interface OwnerTenantView {
   invite_status?: 'pending' | 'accepted' | 'cancelled' | 'revoked' | 'expired' | 'unknown';
   assignment_status?: 'none' | 'future' | 'active' | 'ended';
   stay_status?: 'none' | 'upcoming' | 'checked_in' | 'checked_out' | 'cancelled' | 'revoked' | 'ended';
+  /** Shared with other rows when co-tenants overlap on the same unit (server-computed). */
+  lease_cohort_id?: string | null;
+  cohort_member_count?: number;
 }
 
 export interface TenantSignedDocument {
@@ -786,6 +795,8 @@ export interface LiveTenantAssignmentInfo {
   start_date: string;
   end_date: string | null;
   created_at: string;
+  lease_cohort_id?: string | null;
+  lease_cohort_member_count?: number | null;
 }
 
 /** Invitation summary – invite states indicate stay status (STAGED/BURNED/EXPIRED/REVOKED). */
@@ -1006,6 +1017,7 @@ export const dashboardApi = {
         current_tenant_email?: string | null;
         lease_start_date?: string | null;
         lease_end_date?: string | null;
+        lease_cohort_member_count?: number | null;
       }[]
     >(`/managers/properties/${propertyId}/units`),
   /** Manager self-service: register as on-site resident for a unit (links Business assignment to Personal Mode for that unit). */
@@ -1017,10 +1029,19 @@ export const dashboardApi = {
   /** Manager removes own on-site registration; management assignment unchanged. */
   removeMyResidentMode: (propertyId: number) =>
     request<{ status: string; message?: string }>(`/managers/properties/${propertyId}/my-resident-mode`, { method: "DELETE" }),
-  managerInviteTenant: (unitId: number, data: { tenant_name: string; tenant_email: string; lease_start_date: string; lease_end_date: string }) =>
+  managerInviteTenant: (
+    unitId: number,
+    data: {
+      tenant_name: string;
+      tenant_email: string;
+      lease_start_date: string;
+      lease_end_date: string;
+      shared_lease?: boolean;
+    },
+  ) =>
     request<{ invitation_code: string }>(`/managers/units/${unitId}/invite-tenant`, {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, shared_lease: Boolean(data.shared_lease) }),
     }),
   /** Invoices and payments for owner billing section. */
   billing: () => request<BillingResponse>("/dashboard/owner/billing"),
@@ -1081,6 +1102,9 @@ export const dashboardApi = {
       accepted_by_name?: string | null;
       pending_acceptance?: boolean;
       dead_mans_switch_enabled?: boolean;
+      lease_cohort_id?: string | null;
+      cohort_member_count?: number | null;
+      co_tenants?: Array<{ name?: string | null; email?: string | null }>;
     }>;
   }>("/dashboard/tenant/unit"),
   tenantSetDeadMansSwitch: (unitId: number, deadMansSwitchEnabled: boolean) =>
@@ -1638,16 +1662,34 @@ export const propertiesApi = {
   getUnits: (propertyId: number) =>
     request<{ id: number; unit_label: string; occupancy_status: string; is_primary_residence?: boolean; occupied_by?: string | null; invite_id?: string | null }[]>(`/owners/properties/${propertyId}/units`),
   /** Create a tenant invitation for a unit. Owner must own the property. Use for multi-unit. */
-  inviteTenant: (unitId: number, data: { tenant_name: string; tenant_email: string; lease_start_date: string; lease_end_date: string }) =>
+  inviteTenant: (
+    unitId: number,
+    data: {
+      tenant_name: string;
+      tenant_email: string;
+      lease_start_date: string;
+      lease_end_date: string;
+      shared_lease?: boolean;
+    },
+  ) =>
     request<{ invitation_code: string; status?: string; message?: string }>(`/owners/units/${unitId}/invite-tenant`, {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, shared_lease: Boolean(data.shared_lease) }),
     }),
   /** Create a tenant invitation for a single-unit property (no unit rows). */
-  inviteTenantForProperty: (propertyId: number, data: { tenant_name: string; tenant_email: string; lease_start_date: string; lease_end_date: string }) =>
+  inviteTenantForProperty: (
+    propertyId: number,
+    data: {
+      tenant_name: string;
+      tenant_email: string;
+      lease_start_date: string;
+      lease_end_date: string;
+      shared_lease?: boolean;
+    },
+  ) =>
     request<{ invitation_code: string; status?: string; message?: string }>(`/owners/properties/${propertyId}/invite-tenant`, {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, shared_lease: Boolean(data.shared_lease) }),
     }),
   /** Email an existing tenant invitation link (e.g. CSV bulk). Saves name and email on the invitation. */
   sendTenantInviteEmail: (invitationId: number, data: { email: string; tenant_name: string }) =>
@@ -1892,8 +1934,8 @@ export interface InvitationDetails {
   cancelled?: boolean;
   /** Machine-readable reason: not_found | already_accepted | revoked | cancelled | expired | invalid_status */
   reason?: string;
-  /** From DB: 'guest' | 'tenant'. Enforced so guest links cannot be used for tenant signup and vice versa. */
-  invitation_kind?: 'guest' | 'tenant';
+  /** From DB: guest | tenant | tenant_cotenant (shared lease / additional occupant). */
+  invitation_kind?: 'guest' | 'tenant' | 'tenant_cotenant';
   property_name?: string | null;
   property_address?: string | null;
   stay_start_date?: string;
@@ -1902,10 +1944,16 @@ export interface InvitationDetails {
   host_name?: string;
   guest_name?: string | null;
   guest_email?: string | null;
-  /** Derived from invitation_kind (true when invitation_kind === 'tenant'). */
+  /** Derived: true for tenant and tenant_cotenant signup links. */
   is_tenant_invite?: boolean;
   /** Invitation was created by a demo user — use demo login flow. */
   is_demo?: boolean;
+}
+
+/** Property-issued tenant signup (standard lease or co-tenant). */
+export function isPropertyTenantInviteKind(kind: string | undefined | null): boolean {
+  const k = (kind || '').toLowerCase();
+  return k === 'tenant' || k === 'tenant_cotenant';
 }
 
 export const invitationsApi = {

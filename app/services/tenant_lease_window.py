@@ -12,12 +12,16 @@ from sqlalchemy.orm import Session
 from app.models.invitation import Invitation
 from app.models.tenant_assignment import TenantAssignment
 from app.models.user import User
+from app.services.invitation_kinds import (
+    TENANT_UNIT_LEASE_KINDS,
+    bypasses_unit_lease_overlap_for_kind,
+)
 
 
 def _active_tenant_invitation_filters():
-    """Invitations that still compete for the unit calendar."""
+    """Invitations that still compete for the unit calendar (standard + co-tenant windows)."""
     return (
-        Invitation.invitation_kind == "tenant",
+        Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
         Invitation.status.in_(("pending", "ongoing")),
         Invitation.token_state.notin_(("CANCELLED", "REVOKED", "EXPIRED")),
     )
@@ -72,8 +76,11 @@ def unit_tenant_lease_conflict_detail(
     *,
     invitation_overlap_property_id: int | None = None,
     exclude_invitation_id: int | None = None,
+    skip_overlap_check: bool = False,
 ) -> str | None:
     """Human-readable 409 detail, or None if the window is free for a new invite."""
+    if skip_overlap_check:
+        return None
     if invitation_overlap_property_id is not None:
         oi = first_overlapping_tenant_invitation(
             db,
@@ -117,6 +124,7 @@ def assert_unit_available_for_new_tenant_invite_or_raise(
     *,
     invitation_overlap_property_id: int | None = None,
     exclude_invitation_id: int | None = None,
+    skip_overlap_check: bool = False,
 ) -> None:
     """Owner/manager: block creating a tenant invite if the unit already has a competing invite or assignment."""
     from fastapi import HTTPException
@@ -128,6 +136,7 @@ def assert_unit_available_for_new_tenant_invite_or_raise(
         range_end,
         invitation_overlap_property_id=invitation_overlap_property_id,
         exclude_invitation_id=exclude_invitation_id,
+        skip_overlap_check=skip_overlap_check,
     )
     if detail:
         raise HTTPException(status_code=409, detail=detail)
@@ -141,6 +150,31 @@ def assignment_matches_invitation_dates(ta: TenantAssignment, inv: Invitation) -
     if ta.end_date is None and inv.stay_end_date is None:
         return True
     return ta.end_date == inv.stay_end_date
+
+
+def find_invitation_matching_tenant_assignment(
+    db: Session, ta: TenantAssignment, *, user_email_lower: str | None
+) -> Invitation | None:
+    """Resolve the accepted property-issued invite row for this assignment (stable when multiple tenants share a unit)."""
+    kinds = tuple(TENANT_UNIT_LEASE_KINDS)
+    q = db.query(Invitation).filter(
+        Invitation.unit_id == ta.unit_id,
+        Invitation.invitation_kind.in_(kinds),
+        Invitation.status == "accepted",
+        Invitation.stay_start_date == ta.start_date,
+    )
+    if ta.end_date is None:
+        q = q.filter(Invitation.stay_end_date.is_(None))
+    else:
+        q = q.filter(Invitation.stay_end_date == ta.end_date)
+    rows = q.order_by(Invitation.created_at.desc()).all()
+    if not rows:
+        return None
+    if user_email_lower:
+        for inv in rows:
+            if (getattr(inv, "guest_email", None) or "").strip().lower() == user_email_lower:
+                return inv
+    return rows[0] if len(rows) == 1 else None
 
 
 def find_tenant_assignment_matching_invitation(
@@ -170,6 +204,8 @@ def assert_can_record_tenant_assignment_for_invite_or_raise(
     from fastapi import HTTPException
 
     if inv.unit_id is None:
+        return
+    if bypasses_unit_lease_overlap_for_kind(getattr(inv, "invitation_kind", None)):
         return
     overlapping = (
         db.query(TenantAssignment)

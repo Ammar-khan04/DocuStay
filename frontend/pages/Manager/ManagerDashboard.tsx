@@ -923,6 +923,7 @@ const ManagerDashboard: React.FC<{
             tenant_email: params.tenant_email,
             lease_start_date: params.lease_start_date,
             lease_end_date: params.lease_end_date,
+            shared_lease: params.shared_lease,
           }).then((r) => ({ invitation_code: r.invitation_code }))
         }
         notify={notify}

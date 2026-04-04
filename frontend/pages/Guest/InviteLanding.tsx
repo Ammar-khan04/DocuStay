@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { authApi, invitationsApi, type InvitationDetails } from '../../services/api';
+import { authApi, invitationsApi, isPropertyTenantInviteKind, type InvitationDetails } from '../../services/api';
 import RegisterFromInvite from './RegisterFromInvite';
 import GuestLogin from './GuestLogin';
 import type { UserSession } from '../../types';
@@ -70,7 +70,7 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
     if (!sessionIsDemo) return;
     if (!details?.valid) return;
     const tenantInvite =
-      details.invitation_kind === 'tenant' || Boolean(details.is_tenant_invite);
+      isPropertyTenantInviteKind(details.invitation_kind) || Boolean(details.is_tenant_invite);
     if (!tenantInvite) return;
     if (!code) return;
     if (demoTenantAutoAccepting) return;
@@ -107,7 +107,7 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
     if (loadingDetails) return;
     if (!sessionIsDemo) return;
     if (!details?.valid) return;
-    const tenantInvite = details.invitation_kind === 'tenant' || Boolean(details.is_tenant_invite);
+    const tenantInvite = isPropertyTenantInviteKind(details.invitation_kind) || Boolean(details.is_tenant_invite);
     if (tenantInvite) return;
     if (!code) return;
     if (demoGuestAutoAccepting) return;
@@ -154,7 +154,7 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
     );
   }
 
-  const isTenantInvite = details?.invitation_kind === 'tenant' || Boolean(details?.is_tenant_invite);
+  const isTenantInvite = isPropertyTenantInviteKind(details?.invitation_kind) || Boolean(details?.is_tenant_invite);
 
   if (demoTenantAutoAccepting) {
     return (

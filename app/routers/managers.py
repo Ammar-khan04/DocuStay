@@ -25,6 +25,7 @@ from app.services.manager_resident import add_manager_onsite_resident, remove_ma
 from app.services.jle import validate_stay_duration_for_property
 from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE
 from app.services.event_ledger import create_ledger_event, ACTION_TENANT_INVITED
+from app.services.invitation_kinds import TENANT_COTENANT_INVITE_KIND, TENANT_INVITE_KIND, TENANT_UNIT_LEASE_KINDS
 from app.services.tenant_lease_window import assert_unit_available_for_new_tenant_invite_or_raise
 from app.services.shield_mode_policy import effective_shield_mode_enabled
 from app.models.audit_log import AuditLog
@@ -37,6 +38,10 @@ class InviteTenantRequest(BaseModel):
     tenant_email: str = Field(..., min_length=1, description="Tenant email (required)")
     lease_start_date: str
     lease_end_date: str
+    shared_lease: bool = Field(
+        False,
+        description="Additional occupant / shared lease: skips one-tenant-per-unit overlap checks for this invite only.",
+    )
 
 
 class MyResidentModeRequest(BaseModel):
@@ -72,6 +77,7 @@ class UnitSummary(BaseModel):
     current_tenant_email: str | None = None
     lease_start_date: str | None = None  # YYYY-MM-DD
     lease_end_date: str | None = None  # YYYY-MM-DD; null on API means open-ended lease
+    lease_cohort_member_count: int | None = None  # >1 when co-tenants share overlapping lease on this unit
 
 
 @router.get("/properties", response_model=list[PropertySummary])
@@ -211,7 +217,7 @@ def list_property_units(
             .filter(
                 Invitation.property_id == property_id,
                 Invitation.unit_id.is_(None),
-                func.lower(func.coalesce(Invitation.invitation_kind, "guest")) == "tenant",
+                Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
                 Invitation.token_state.notin_(["REVOKED", "CANCELLED"]),
             )
             .order_by(Invitation.created_at.desc())
@@ -274,12 +280,14 @@ def list_property_units(
         le = ta.end_date.isoformat() if ta.end_date else None
         return name, email, ls, le
 
-    def tenant_lease_display_for_unit(unit_id: int) -> tuple[str | None, str | None, str | None, str | None]:
+    def tenant_lease_display_for_unit(
+        unit_id: int,
+    ) -> tuple[str | None, str | None, str | None, str | None, int | None]:
         """
         Prefer an in-window TenantAssignment, then a future assignment, then a tenant Invitation on the unit
         (CSV / pending signup often have invitation + unit occupancy but no assignment row yet).
         """
-        ta_active = (
+        tas_active = (
             db.query(TenantAssignment)
             .filter(
                 TenantAssignment.unit_id == unit_id,
@@ -287,10 +295,40 @@ def list_property_units(
                 or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
             )
             .order_by(TenantAssignment.created_at.desc())
-            .first()
+            .all()
         )
-        if ta_active:
-            return _tuple_from_tenant_assignment(ta_active)
+        if tas_active:
+            from app.services.tenant_lease_cohort import cluster_assignments_for_unit
+
+            clusters = cluster_assignments_for_unit(unit_id, tas_active)
+            names: list[str] = []
+            emails: list[str | None] = []
+            starts: list[date] = []
+            ends: list[date | None] = []
+            max_cohort = 1
+            for cluster in clusters:
+                max_cohort = max(max_cohort, len(cluster))
+                for ta in sorted(cluster, key=lambda t: (t.user_id or 0, t.id)):
+                    n, e, ls, le = _tuple_from_tenant_assignment(ta)
+                    if n:
+                        names.append(n)
+                    if e:
+                        emails.append(e)
+                    if ta.start_date:
+                        starts.append(ta.start_date)
+                    ends.append(ta.end_date)
+            display_name = " · ".join(names) if names else None
+            email_out = emails[0] if emails else None
+            ls_out = min(starts).isoformat() if starts else None
+            if not ends:
+                le_out = None
+            else:
+                finite = [x for x in ends if x is not None]
+                if len(finite) != len(ends):
+                    le_out = None
+                else:
+                    le_out = max(finite).isoformat()
+            return display_name, email_out, ls_out, le_out, max_cohort if max_cohort > 1 else None
 
         ta_future = (
             db.query(TenantAssignment)
@@ -303,13 +341,14 @@ def list_property_units(
             .first()
         )
         if ta_future:
-            return _tuple_from_tenant_assignment(ta_future)
+            fn, fe, fls, fle = _tuple_from_tenant_assignment(ta_future)
+            return fn, fe, fls, fle, None
 
         inv = (
             db.query(Invitation)
             .filter(
                 Invitation.unit_id == unit_id,
-                func.lower(func.coalesce(Invitation.invitation_kind, "guest")) == "tenant",
+                Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
                 Invitation.token_state.notin_(["REVOKED", "CANCELLED"]),
             )
             .order_by(Invitation.created_at.desc())
@@ -321,13 +360,13 @@ def list_property_units(
             display_name = raw_name or email
             ls = inv.stay_start_date.isoformat() if inv.stay_start_date else None
             le = inv.stay_end_date.isoformat() if inv.stay_end_date else None
-            return display_name, email, ls, le
+            return display_name, email, ls, le, None
 
-        return None, None, None, None
+        return None, None, None, None, None
 
     summaries: list[UnitSummary] = []
     for u in units:
-        tn, te, tls, tle = tenant_lease_display_for_unit(u.id)
+        tn, te, tls, tle, tcohort = tenant_lease_display_for_unit(u.id)
         summaries.append(
             UnitSummary(
                 id=u.id,
@@ -339,6 +378,7 @@ def list_property_units(
                 current_tenant_email=te,
                 lease_start_date=tls,
                 lease_end_date=tle,
+                lease_cohort_member_count=tcohort,
             )
         )
     return summaries
@@ -431,7 +471,8 @@ def invite_tenant(
     jurisdiction_error = validate_stay_duration_for_property(db, region_code, owner_occupied, start, end)
     if jurisdiction_error:
         raise HTTPException(status_code=400, detail=jurisdiction_error)
-    assert_unit_available_for_new_tenant_invite_or_raise(db, unit_id, start, end)
+    assert_unit_available_for_new_tenant_invite_or_raise(db, unit_id, start, end, skip_overlap_check=data.shared_lease)
+    inv_kind = TENANT_COTENANT_INVITE_KIND if data.shared_lease else TENANT_INVITE_KIND
     code = "INV-" + secrets.token_hex(4).upper()
     from app.models.demo_account import is_demo_user_id
     inv = Invitation(
@@ -449,7 +490,7 @@ def invite_tenant(
         region_code=prop.region_code,
         status="ongoing",
         token_state="BURNED",
-        invitation_kind="tenant",
+        invitation_kind=inv_kind,
         dead_mans_switch_enabled=1,
         dead_mans_switch_alert_email=1,
         dead_mans_switch_alert_sms=0,

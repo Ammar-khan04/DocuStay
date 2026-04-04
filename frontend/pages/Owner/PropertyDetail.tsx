@@ -10,6 +10,8 @@ import { DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlerts
 import { copyToClipboard } from '../../utils/clipboard';
 import { getTodayLocal, formatStayDuration } from '../../utils/dateUtils';
 import { toUserFriendlyInvitationError } from '../../utils/invitationErrors';
+import { tenantsPoolForUnitCard, groupOwnerTenantsByLeaseCohort, formatOwnerTenantGroupNames } from '../../utils/leaseCohortGroups';
+import { validateCoTenantRows, type CoTenantInviteRow } from '../../utils/inviteTenantBatch';
 
 // Import city data
 import US_CITIES_DATA from '@/data/us-cities.json';
@@ -101,6 +103,40 @@ function pickTenantForUnitCard(
   return [...pool].sort((a, b) => tenantStatusRank(a.status) - tenantStatusRank(b.status))[0];
 }
 
+function occupantNamesFromTenantPool(pool: OwnerTenantView[]): string | null {
+  if (!pool.length) return null;
+  return groupOwnerTenantsByLeaseCohort(pool).map(formatOwnerTenantGroupNames).join('; ');
+}
+
+function tenantEmailsFromPool(pool: OwnerTenantView[]): string | null {
+  const emails = [...new Set(pool.map((t) => (t.tenant_email || '').trim()).filter(Boolean))];
+  return emails.length ? emails.join(', ') : null;
+}
+
+/** At least one lease row on the unit is live (co-tenant may still be pending). */
+function unitPoolHasActiveLease(pool: OwnerTenantView[]): boolean {
+  return pool.some(
+    (t) => t.status === 'active' || (t.assignment_status === 'active' && t.active),
+  );
+}
+
+/**
+ * Unit list API can lag behind tenant rows after signup. Drive the card badge from tenant status when we know better.
+ */
+function effectiveUnitOccupancyLower(
+  unitOccupancyFromApi: string | undefined,
+  pool: OwnerTenantView[],
+): string {
+  if (unitPoolHasActiveLease(pool)) return 'occupied';
+  return (unitOccupancyFromApi ?? 'unknown').toLowerCase();
+}
+
+const MAX_PROPERTY_INVITE_COTENANTS = 12;
+const emptyPropertyInviteCohortRows = (): CoTenantInviteRow[] => [
+  { tenant_name: '', tenant_email: '' },
+  { tenant_name: '', tenant_email: '' },
+];
+
 type AssignedMgr = {
   user_id: number;
   email: string;
@@ -191,10 +227,21 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   const [error, setError] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showInviteTenantModal, setShowInviteTenantModal] = useState(false);
-  const [inviteTenantForm, setInviteTenantForm] = useState({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });
+  const [inviteTenantForm, setInviteTenantForm] = useState({
+    tenant_name: '',
+    tenant_email: '',
+    lease_start_date: '',
+    lease_end_date: '',
+    shared_lease: false,
+  });
   const [inviteTenantUnitId, setInviteTenantUnitId] = useState<number | null>(null);
   const [inviteTenantSubmitting, setInviteTenantSubmitting] = useState(false);
   const [inviteTenantLink, setInviteTenantLink] = useState<string | null>(null);
+  const [inviteTenantMode, setInviteTenantMode] = useState<'single' | 'co_tenants'>('single');
+  const [inviteCohortRows, setInviteCohortRows] = useState<CoTenantInviteRow[]>(emptyPropertyInviteCohortRows);
+  const [inviteFirstCohortSharedLease, setInviteFirstCohortSharedLease] = useState(false);
+  const [inviteTenantBatchLinks, setInviteTenantBatchLinks] = useState<{ tenant_name: string; link: string }[] | null>(null);
+  const [inviteTenantFormError, setInviteTenantFormError] = useState<string | null>(null);
   const [showInviteManagerModal, setShowInviteManagerModal] = useState(false);
   const [inviteManagerEmail, setInviteManagerEmail] = useState('');
   const [inviteManagerSending, setInviteManagerSending] = useState(false);
@@ -311,6 +358,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
     if (!unitDetailModal || !property) return null;
     const u = unitDetailModal;
     const isMulti = !!property.is_multi_unit;
+    const pool = tenantsPoolForUnitCard(tenantsForThisProperty, u.id, u.unit_label || '1', isMulti);
     const tenant = pickTenantForUnitCard(tenantsForThisProperty, u.id, u.unit_label || '1', isMulti);
     const unitStays = propertyStays.filter((s) => stayMatchesUnit(s, u, isMulti));
     const displayStay =
@@ -320,8 +368,9 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
     const inviteCode =
       (displayStay?.invite_id || tenant?.invitation_code || '').trim() || null;
     const inviteUrl = inviteCode ? buildGuestInviteUrl(inviteCode, { isDemo: Boolean(user.is_demo) }) : '';
-    const occ = (u.occupancy_status ?? 'unknown').toLowerCase();
+    const occ = effectiveUnitOccupancyLower(u.occupancy_status, pool);
     const statusLabel = occ ? occ.charAt(0).toUpperCase() + occ.slice(1) : 'Unknown';
+    const fromPool = occupantNamesFromTenantPool(pool);
     return {
       tenant,
       displayStay,
@@ -331,7 +380,8 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
       statusLabel,
       durationLine: unitStayDurationSummary(unitStays, tenant),
       inviteStatusLine: inviteStatusForUnitModal(tenant, displayStay),
-      occupantName: tenant?.tenant_name || displayStay?.guest_name || null,
+      occupantName: fromPool || tenant?.tenant_name || displayStay?.guest_name || null,
+      tenantEmailsDisplay: tenantEmailsFromPool(pool) || tenant?.tenant_email || null,
     };
   }, [unitDetailModal, property, tenantsForThisProperty, propertyStays, user.is_demo]);
 
@@ -779,7 +829,13 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                     const units = property?.is_multi_unit && propertyUnits.length > 0 ? propertyUnits : (property ? [{ id: 0, unit_label: '1', occupancy_status: property.occupancy_status ?? 'unknown' }] : []);
                     const firstUnitId = units[0]?.id ?? 0;
                     setInviteTenantUnitId(firstUnitId || null);
-                    setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });
+                    setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '', shared_lease: false });
+                    setInviteTenantMode('single');
+                    setInviteCohortRows(emptyPropertyInviteCohortRows());
+                    setInviteFirstCohortSharedLease(false);
+                    setInviteTenantLink(null);
+                    setInviteTenantBatchLinks(null);
+                    setInviteTenantFormError(null);
                     setShowInviteTenantModal(true);
                   }}
                 >
@@ -1041,7 +1097,13 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">Units</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {(property.is_multi_unit ? propertyUnits : [{ id: 0, unit_label: '1', occupancy_status: property.occupancy_status ?? 'unknown' }]).map((u) => {
-                        const status = (u.occupancy_status ?? 'unknown').toLowerCase();
+                        const pool = tenantsPoolForUnitCard(
+                          tenantsForThisProperty,
+                          u.id,
+                          u.unit_label || '1',
+                          !!property.is_multi_unit,
+                        );
+                        const status = effectiveUnitOccupancyLower(u.occupancy_status, pool);
                         const statusCls = status === 'occupied' ? 'bg-emerald-100 text-emerald-700' : status === 'vacant' ? 'bg-sky-100 text-sky-700' : status === 'unconfirmed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600';
                         const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : (u.occupancy_status ?? 'unknown');
                         const tenantRow = pickTenantForUnitCard(
@@ -1050,7 +1112,10 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                           u.unit_label || '1',
                           !!property.is_multi_unit,
                         );
-                        const tenantLabel = tenantRow ? (tenantRow.tenant_name || tenantRow.tenant_email || null) : null;
+                        const tenantLabel =
+                          occupantNamesFromTenantPool(pool) ||
+                          (tenantRow ? tenantRow.tenant_name || tenantRow.tenant_email || null : null);
+                        const poolEmailsLine = tenantEmailsFromPool(pool);
                         const managersHere = managersForUnitCard(assignedManagers, u.id, !!property.is_multi_unit);
                         const managersLine =
                           managersHere.length > 0 ? managersHere.map(managerDisplayName).join(', ') : null;
@@ -1077,9 +1142,12 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                             )}
                             {tenantLabel && tenantRow && (
                               <div className="text-xs text-slate-700 space-y-0.5 border-t border-slate-200/80 pt-2 mt-0.5">
-                                <p className="font-medium text-slate-800">Tenant: {tenantRow.tenant_name || tenantRow.tenant_email}</p>
-                                {tenantRow.tenant_name && tenantRow.tenant_email && (
+                                <p className="font-medium text-slate-800">Tenants: {tenantLabel}</p>
+                                {pool.length === 1 && tenantRow.tenant_name && tenantRow.tenant_email && (
                                   <p className="text-slate-500">{tenantRow.tenant_email}</p>
+                                )}
+                                {pool.length > 1 && poolEmailsLine && (
+                                  <p className="text-slate-500 break-all">{poolEmailsLine}</p>
                                 )}
                                 {(tenantRow.start_date || tenantRow.end_date) && (
                                   <p className="text-slate-600">
@@ -1087,9 +1155,12 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                                     {tenantRow.end_date ? formatIsoDateForDisplay(tenantRow.end_date) : 'Open-ended'}
                                   </p>
                                 )}
-                                {tenantRow.status === 'pending_signup' && (
-                                  <p className="text-amber-700">Pending signup</p>
-                                )}
+                                {pool.some((t) => t.status === 'pending_signup') &&
+                                  (unitPoolHasActiveLease(pool) ? (
+                                    <p className="text-amber-700">Co-tenant pending signup</p>
+                                  ) : (
+                                    <p className="text-amber-700">Pending signup</p>
+                                  ))}
                               </div>
                             )}
                             {contextMode === 'personal' && u.occupied_by && <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>}
@@ -1133,7 +1204,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                         </div>
                         <div>
                           <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Tenant email</dt>
-                          <dd className="break-all">{unitDetailDerived.tenant?.tenant_email ?? '—'}</dd>
+                          <dd className="break-all">{unitDetailDerived.tenantEmailsDisplay ?? '—'}</dd>
                         </div>
                         <div>
                           <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Invite ID</dt>
@@ -2088,13 +2159,78 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
             setShowInviteTenantModal(false);
             setInviteTenantUnitId(null);
             setInviteTenantLink(null);
-            setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });
+            setInviteTenantBatchLinks(null);
+            setInviteTenantFormError(null);
+            setInviteTenantMode('single');
+            setInviteCohortRows(emptyPropertyInviteCohortRows());
+            setInviteFirstCohortSharedLease(false);
+            setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '', shared_lease: false });
           }}
           title="Invite tenant"
-          className="max-w-lg"
+          className={inviteTenantMode === 'co_tenants' && !inviteTenantLink && !(inviteTenantBatchLinks && inviteTenantBatchLinks.length > 0) ? 'max-w-xl' : 'max-w-lg'}
         >
           <div className="p-6 space-y-4">
-            {inviteTenantLink ? (
+            {inviteTenantBatchLinks && inviteTenantBatchLinks.length > 0 ? (
+              <>
+                {inviteTenantFormError ? (
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-900 font-medium">
+                    {inviteTenantFormError}
+                  </div>
+                ) : null}
+                <p className="text-sm text-slate-600">
+                  Each co-tenant must use their own link to register. Copy and send individually.
+                </p>
+                <ul className="space-y-3 max-h-[min(24rem,50vh)] overflow-y-auto pr-1">
+                  {inviteTenantBatchLinks.map((item) => (
+                    <li key={`${item.tenant_name}-${item.link}`} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                      <p className="text-xs font-semibold text-slate-700 mb-1">{item.tenant_name}</p>
+                      <p className="text-xs text-slate-600 break-all font-mono">{item.link}</p>
+                      <Button
+                        variant="outline"
+                        className="mt-2 w-full text-xs h-8"
+                        onClick={async () => {
+                          const ok = await copyToClipboard(item.link);
+                          if (ok) notify('success', 'Link copied.');
+                          else notify('error', 'Copy failed.');
+                        }}
+                      >
+                        Copy link
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={async () => {
+                      const blob = inviteTenantBatchLinks.map((b) => `${b.tenant_name}\t${b.link}`).join('\n');
+                      const ok = await copyToClipboard(blob);
+                      if (ok) notify('success', 'All lines copied (name + tab + link).');
+                      else notify('error', 'Copy failed.');
+                    }}
+                  >
+                    Copy all
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    onClick={() => {
+                      setShowInviteTenantModal(false);
+                      setInviteTenantUnitId(null);
+                      setInviteTenantLink(null);
+                      setInviteTenantBatchLinks(null);
+                      setInviteTenantFormError(null);
+                      setInviteTenantMode('single');
+                      setInviteCohortRows(emptyPropertyInviteCohortRows());
+                      setInviteFirstCohortSharedLease(false);
+                      setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '', shared_lease: false });
+                    }}
+                  >
+                    Done
+                  </Button>
+                </div>
+              </>
+            ) : inviteTenantLink ? (
               <>
                 <p className="text-sm text-slate-600">Share this link with the tenant. They will use it to sign up and get access to this unit.</p>
                 <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 text-sm text-slate-700 break-all">
@@ -2117,7 +2253,12 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                       setShowInviteTenantModal(false);
                       setInviteTenantUnitId(null);
                       setInviteTenantLink(null);
-                      setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });
+                      setInviteTenantBatchLinks(null);
+                      setInviteTenantFormError(null);
+                      setInviteTenantMode('single');
+                      setInviteCohortRows(emptyPropertyInviteCohortRows());
+                      setInviteFirstCohortSharedLease(false);
+                      setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '', shared_lease: false });
                     }}
                     className="flex-1"
                   >
@@ -2127,6 +2268,37 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
               </>
             ) : (
               <>
+                <div className="flex rounded-lg border border-slate-200 p-1 bg-slate-50 gap-1">
+                  <button
+                    type="button"
+                    className={`flex-1 rounded-md py-2 px-3 text-sm font-medium transition-colors ${
+                      inviteTenantMode === 'single' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    onClick={() => {
+                      setInviteTenantMode('single');
+                      setInviteTenantFormError(null);
+                    }}
+                  >
+                    One tenant
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 rounded-md py-2 px-3 text-sm font-medium transition-colors ${
+                      inviteTenantMode === 'co_tenants' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    onClick={() => {
+                      setInviteTenantMode('co_tenants');
+                      setInviteTenantFormError(null);
+                    }}
+                  >
+                    Multiple co-tenants
+                  </button>
+                </div>
+                {inviteTenantMode === 'co_tenants' && (
+                  <p className="text-sm text-slate-600">
+                    Same lease dates for everyone. The first new invite uses the option below; each additional person is invited as a shared-lease co-tenant automatically.
+                  </p>
+                )}
                 {(property?.is_multi_unit && propertyUnits.length > 0) ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Unit</label>
@@ -2142,57 +2314,260 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                     </select>
                   </div>
                 ) : null}
-                <Input name="tenant_name" label="Tenant name" value={inviteTenantForm.tenant_name} onChange={(e) => setInviteTenantForm({ ...inviteTenantForm, tenant_name: e.target.value })} placeholder="Full name" required />
-                <Input name="tenant_email" label="Tenant email" type="email" value={inviteTenantForm.tenant_email} onChange={(e) => setInviteTenantForm({ ...inviteTenantForm, tenant_email: e.target.value })} placeholder="email@example.com" />
-                <Input name="lease_start_date" label="Lease start" type="date" min={getTodayLocal()} value={inviteTenantForm.lease_start_date} onChange={(e) => setInviteTenantForm({ ...inviteTenantForm, lease_start_date: e.target.value })} required />
-                <Input name="lease_end_date" label="Lease end" type="date" min={inviteTenantForm.lease_start_date || getTodayLocal()} value={inviteTenantForm.lease_end_date} onChange={(e) => setInviteTenantForm({ ...inviteTenantForm, lease_end_date: e.target.value })} required />
+                {inviteTenantMode === 'single' ? (
+                  <>
+                    <Input name="tenant_name" label="Tenant name" value={inviteTenantForm.tenant_name} onChange={(e) => { setInviteTenantFormError(null); setInviteTenantForm({ ...inviteTenantForm, tenant_name: e.target.value }); }} placeholder="Full name" required />
+                    <Input name="tenant_email" label="Tenant email" type="email" value={inviteTenantForm.tenant_email} onChange={(e) => { setInviteTenantFormError(null); setInviteTenantForm({ ...inviteTenantForm, tenant_email: e.target.value }); }} placeholder="email@example.com" required />
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-800">Co-tenants</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="text-xs h-8"
+                        disabled={inviteCohortRows.length >= MAX_PROPERTY_INVITE_COTENANTS}
+                        onClick={() => {
+                          setInviteTenantFormError(null);
+                          setInviteCohortRows([...inviteCohortRows, { tenant_name: '', tenant_email: '' }]);
+                        }}
+                      >
+                        Add person
+                      </Button>
+                    </div>
+                    <div className="space-y-3 max-h-[min(14rem,40vh)] overflow-y-auto pr-1">
+                      {inviteCohortRows.map((row, idx) => (
+                        <div key={`prop-cohort-${idx}`} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Person {idx + 1}</span>
+                            {inviteCohortRows.length > 2 && (
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-red-600 hover:text-red-700"
+                                onClick={() => {
+                                  setInviteTenantFormError(null);
+                                  setInviteCohortRows(inviteCohortRows.filter((_, j) => j !== idx));
+                                }}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                          <Input
+                            name={`prop_cohort_name_${idx}`}
+                            label="Name"
+                            value={row.tenant_name}
+                            onChange={(e) => {
+                              setInviteTenantFormError(null);
+                              const next = [...inviteCohortRows];
+                              next[idx] = { ...next[idx], tenant_name: e.target.value };
+                              setInviteCohortRows(next);
+                            }}
+                            placeholder="Full name"
+                          />
+                          <Input
+                            name={`prop_cohort_email_${idx}`}
+                            label="Email"
+                            type="email"
+                            value={row.tenant_email}
+                            onChange={(e) => {
+                              setInviteTenantFormError(null);
+                              const next = [...inviteCohortRows];
+                              next[idx] = { ...next[idx], tenant_email: e.target.value };
+                              setInviteCohortRows(next);
+                            }}
+                            placeholder="email@example.com"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1 rounded border-gray-300"
+                        checked={inviteFirstCohortSharedLease}
+                        onChange={(e) => {
+                          setInviteTenantFormError(null);
+                          setInviteFirstCohortSharedLease(e.target.checked);
+                        }}
+                      />
+                      <span className="text-sm text-slate-700">
+                        <span className="font-medium text-slate-900">First invite overlaps an existing lease or invite</span>
+                        <span className="block text-slate-600 mt-0.5">
+                          Check if someone already holds or has a pending invite for these dates. Leave unchecked when the unit is empty and everyone listed is new to this window.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                )}
+                <Input name="lease_start_date" label="Lease start" type="date" min={getTodayLocal()} value={inviteTenantForm.lease_start_date} onChange={(e) => { setInviteTenantFormError(null); setInviteTenantForm({ ...inviteTenantForm, lease_start_date: e.target.value }); }} required />
+                <Input name="lease_end_date" label="Lease end" type="date" min={inviteTenantForm.lease_start_date || getTodayLocal()} value={inviteTenantForm.lease_end_date} onChange={(e) => { setInviteTenantFormError(null); setInviteTenantForm({ ...inviteTenantForm, lease_end_date: e.target.value }); }} required />
+                {inviteTenantMode === 'single' && (
+                  <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 rounded border-gray-300"
+                      checked={inviteTenantForm.shared_lease}
+                      onChange={(e) => {
+                        setInviteTenantFormError(null);
+                        setInviteTenantForm({ ...inviteTenantForm, shared_lease: e.target.checked });
+                      }}
+                    />
+                    <span className="text-sm text-slate-700">
+                      <span className="font-medium text-slate-900">Additional occupant (shared lease)</span>
+                      <span className="block text-slate-600 mt-0.5">
+                        Allow this invite when another tenant already occupies these dates (co-tenant / roommate).
+                      </span>
+                    </span>
+                  </label>
+                )}
+                {inviteTenantFormError && !(inviteTenantBatchLinks && inviteTenantBatchLinks.length > 0) && (
+                  <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 font-medium">{inviteTenantFormError}</div>
+                )}
                 <div className="flex gap-3 pt-2">
-                  <Button variant="outline" onClick={() => { setShowInviteTenantModal(false); setInviteTenantUnitId(null); }} className="flex-1">Cancel</Button>
+                  <Button variant="outline" onClick={() => { setShowInviteTenantModal(false); setInviteTenantUnitId(null); setInviteTenantFormError(null); }} className="flex-1">Cancel</Button>
                   <Button
                     onClick={async () => {
                       const unitId = inviteTenantUnitId ?? (property?.is_multi_unit ? propertyUnits[0]?.id : 0) ?? (property ? 0 : null);
                       if (unitId == null && property == null) {
-                        notify('error', 'Please select a unit.');
+                        setInviteTenantFormError('Please select a unit.');
+                        return;
+                      }
+                      if (property?.is_multi_unit && propertyUnits.length > 0 && (inviteTenantUnitId == null || inviteTenantUnitId === 0)) {
+                        setInviteTenantFormError('Please select a unit.');
                         return;
                       }
                       if (inviteTenantForm.lease_start_date && inviteTenantForm.lease_start_date < getTodayLocal()) {
-                        notify('error', 'Lease start date cannot be in the past.');
+                        setInviteTenantFormError('Lease start date cannot be in the past.');
                         return;
                       }
-                      setInviteTenantSubmitting(true);
-                      try {
-                        let res: { invitation_code?: string };
+                      if (
+                        inviteTenantForm.lease_end_date &&
+                        inviteTenantForm.lease_start_date &&
+                        new Date(inviteTenantForm.lease_end_date) <= new Date(inviteTenantForm.lease_start_date)
+                      ) {
+                        setInviteTenantFormError('Lease end date must be after lease start date.');
+                        return;
+                      }
+
+                      const postInvite = async (body: {
+                        tenant_name: string;
+                        tenant_email: string;
+                        lease_start_date: string;
+                        lease_end_date: string;
+                        shared_lease: boolean;
+                      }) => {
                         if (unitId === 0 && property) {
-                          res = await propertiesApi.inviteTenantForProperty(property.id, inviteTenantForm);
-                        } else if (unitId != null && unitId > 0) {
-                          res = await propertiesApi.inviteTenant(unitId, inviteTenantForm);
-                        } else {
-                          notify('error', 'Please select a unit.');
-                          setInviteTenantSubmitting(false);
+                          return propertiesApi.inviteTenantForProperty(property.id, body);
+                        }
+                        if (unitId != null && unitId > 0) {
+                          return propertiesApi.inviteTenant(unitId, body);
+                        }
+                        throw new Error('Please select a unit.');
+                      };
+
+                      if (inviteTenantMode === 'co_tenants') {
+                        const ve = validateCoTenantRows(inviteCohortRows);
+                        if (ve) {
+                          setInviteTenantFormError(ve);
                           return;
                         }
+                        setInviteTenantFormError(null);
+                        setInviteTenantSubmitting(true);
+                        const rows = inviteCohortRows.map((r) => ({
+                          tenant_name: r.tenant_name.trim(),
+                          tenant_email: r.tenant_email.trim(),
+                        }));
+                        const results: { tenant_name: string; link: string }[] = [];
+                        try {
+                          for (let i = 0; i < rows.length; i += 1) {
+                            const shared_lease = i === 0 ? inviteFirstCohortSharedLease : true;
+                            try {
+                              const res = await postInvite({
+                                tenant_name: rows[i].tenant_name,
+                                tenant_email: rows[i].tenant_email,
+                                lease_start_date: inviteTenantForm.lease_start_date,
+                                lease_end_date: inviteTenantForm.lease_end_date,
+                                shared_lease,
+                              });
+                              const code = res?.invitation_code;
+                              if (!code) {
+                                throw new Error('Server did not return an invitation code.');
+                              }
+                              results.push({
+                                tenant_name: rows[i].tenant_name,
+                                link: buildGuestInviteUrl(code, { isDemo: Boolean(user.is_demo) }),
+                              });
+                            } catch (e) {
+                              const raw = (e as Error)?.message ?? '';
+                              if (results.length > 0) {
+                                setInviteTenantBatchLinks(results);
+                                setInviteTenantFormError(
+                                  raw.includes('overlap') || raw.includes('tenant')
+                                    ? raw
+                                    : `${toUserFriendlyInvitationError(raw || 'Failed.')} (${results.length} invitation(s) were created; copy those links below.)`,
+                                );
+                                notify('error', `Stopped at co-tenant ${i + 1}. Earlier links are shown below.`);
+                              } else {
+                                setInviteTenantFormError(toUserFriendlyInvitationError(raw || 'Failed to create invitation.'));
+                              }
+                              return;
+                            }
+                          }
+                          setInviteTenantBatchLinks(results);
+                          setInviteTenantFormError(null);
+                          setInviteCohortRows(emptyPropertyInviteCohortRows());
+                          notify('success', `Created ${results.length} tenant invitations.`);
+                          loadData();
+                          window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+                        } finally {
+                          setInviteTenantSubmitting(false);
+                        }
+                        return;
+                      }
+
+                      if (!inviteTenantForm.tenant_name.trim() || !inviteTenantForm.tenant_email.trim()) {
+                        setInviteTenantFormError('Please enter tenant name and email.');
+                        return;
+                      }
+                      setInviteTenantFormError(null);
+                      setInviteTenantSubmitting(true);
+                      try {
+                        const res = await postInvite(inviteTenantForm);
                         const code = res?.invitation_code;
                         if (code) {
                           setInviteTenantLink(buildGuestInviteUrl(code, { isDemo: Boolean(user.is_demo) }));
                           notify('success', 'Tenant invitation created. Share the invite link with the tenant.');
                           setInviteTenantUnitId(null);
-                          setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '' });
+                          setInviteTenantForm({ tenant_name: '', tenant_email: '', lease_start_date: '', lease_end_date: '', shared_lease: false });
                           loadData();
                           window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
-                          // Keep modal open so user can see and copy the invite link; they close it via "Done"
                         } else {
-                          notify('error', 'We couldn\'t create a valid invitation link. Please try again.');
+                          setInviteTenantFormError("We couldn't create a valid invitation link. Please try again.");
                         }
                       } catch (e) {
-                        notify('error', toUserFriendlyInvitationError((e as Error)?.message ?? 'Failed to create invitation.'));
+                        setInviteTenantFormError(toUserFriendlyInvitationError((e as Error)?.message ?? 'Failed to create invitation.'));
                       } finally {
                         setInviteTenantSubmitting(false);
                       }
                     }}
-                    disabled={inviteTenantSubmitting || !inviteTenantForm.tenant_name.trim() || !inviteTenantForm.lease_start_date || !inviteTenantForm.lease_end_date || (property?.is_multi_unit && propertyUnits.length > 0 && (inviteTenantUnitId == null || inviteTenantUnitId === 0))}
+                    disabled={
+                      inviteTenantSubmitting ||
+                      !inviteTenantForm.lease_start_date ||
+                      !inviteTenantForm.lease_end_date ||
+                      (property?.is_multi_unit && propertyUnits.length > 0 && (inviteTenantUnitId == null || inviteTenantUnitId === 0)) ||
+                      (inviteTenantMode === 'single'
+                        ? !inviteTenantForm.tenant_name.trim() || !inviteTenantForm.tenant_email.trim()
+                        : !inviteCohortRows.every((r) => r.tenant_name.trim() && r.tenant_email.trim()) || inviteCohortRows.length < 2)
+                    }
                     className="flex-1"
                   >
-                    {inviteTenantSubmitting ? 'Creating…' : 'Create invitation'}
+                    {inviteTenantSubmitting
+                      ? 'Creating…'
+                      : inviteTenantMode === 'co_tenants'
+                        ? `Create ${inviteCohortRows.length} invitations`
+                        : 'Create invitation'}
                   </Button>
                 </div>
               </>

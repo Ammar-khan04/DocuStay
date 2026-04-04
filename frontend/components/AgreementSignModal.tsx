@@ -1,6 +1,6 @@
 import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Modal } from "./UI";
-import { agreementsApi, invitationsApi, API_URL, type AgreementDocResponse, type InvitationDetails } from "../services/api";
+import { agreementsApi, invitationsApi, API_URL, isPropertyTenantInviteKind, type AgreementDocResponse, type InvitationDetails } from "../services/api";
 import { STATE_OPTIONS } from "../services/jleService";
 import { validatePhone, sanitizePhoneInput } from "../utils/validatePhone";
 import { toUserFriendlyInvitationError } from "../utils/invitationErrors";
@@ -166,7 +166,8 @@ export default function AgreementSignModal(props: {
   /** Once user has gone to step "sign", don't reset to "details" until modal closes (avoids reverting to Accept invitation after Sign with Dropbox error). */
   const hasReachedSignStepRef = useRef(false);
 
-  const isTenantInvite = inviteDetails?.invitation_kind === "tenant" || Boolean(inviteDetails?.is_tenant_invite) || doc?.title === "Tenant Invitation Acceptance";
+  const isTenantInvite =
+    isPropertyTenantInviteKind(inviteDetails?.invitation_kind) || Boolean(inviteDetails?.is_tenant_invite) || doc?.title === "Tenant Invitation Acceptance";
   const allAcks = useMemo(
     () =>
       isTenantInvite
@@ -302,7 +303,7 @@ export default function AgreementSignModal(props: {
       return;
     }
     const d = step1FormData;
-    const isTenant = inviteDetails?.invitation_kind === "tenant" || inviteDetails?.is_tenant_invite;
+    const isTenant = isPropertyTenantInviteKind(inviteDetails?.invitation_kind) || inviteDetails?.is_tenant_invite;
     const addressFilled =
       d.permanent_address.trim() &&
       d.permanent_city.trim() &&
@@ -467,7 +468,7 @@ export default function AgreementSignModal(props: {
               <Input label="Email" type="email" value={d.email} onChange={(e) => setStep1FormData({ ...d, email: e.target.value })} required />
               <Input label="Phone" value={d.phone} onChange={(e) => setStep1FormData({ ...d, phone: sanitizePhoneInput(e.target.value) })} placeholder="+15551234567 or 5551234567" required />
             </div>
-            {!(inviteDetails?.invitation_kind === "tenant" || inviteDetails?.is_tenant_invite) && (
+            {!(isPropertyTenantInviteKind(inviteDetails?.invitation_kind) || inviteDetails?.is_tenant_invite) && (
             <div className="space-y-4">
               <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Permanent residence</p>
               <Input label="Street address" value={d.permanent_address} onChange={(e) => setStep1FormData({ ...d, permanent_address: e.target.value })} required />
@@ -526,7 +527,7 @@ export default function AgreementSignModal(props: {
         <div className="flex gap-3">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="button" onClick={(e) => handleStep1Continue(e)}>
-            {inviteDetails?.invitation_kind === "tenant" || inviteDetails?.is_tenant_invite
+            {isPropertyTenantInviteKind(inviteDetails?.invitation_kind) || inviteDetails?.is_tenant_invite
               ? "Accept invitation & Create account"
               : "Continue to review & sign"}
           </Button>

@@ -14,6 +14,7 @@ from app.models.unit import Unit
 from app.models.user import User
 from app.services.jurisdiction_sot import JurisdictionInfo, get_jurisdiction_for_property
 from app.services.invitation_guest_completion import guest_invite_awaiting_account_after_sign
+from app.services.invitation_kinds import is_property_invited_tenant_signup_kind
 
 
 def fill_guest_signature_in_content(
@@ -285,8 +286,8 @@ def build_invitation_agreement(
 
     inv_kind = (getattr(inv, "invitation_kind", None) or "").strip().lower()
 
-    # Tenant invite: primary resident acceptance. No guest stay language.
-    if inv_kind == "tenant":
+    # Property-issued tenant / co-tenant invite: primary resident acceptance. No guest stay language.
+    if is_property_invited_tenant_signup_kind(inv_kind):
         if inv.status not in ("pending", "ongoing", "expired"):
             return None
         prop = db.query(Property).filter(Property.id == inv.property_id).first()

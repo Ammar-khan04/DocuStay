@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Input, Button } from '../../components/UI';
 import { HeroBackground } from '../../components/HeroBackground';
-import { authApiGuest, invitationsApi, type InvitationDetails } from '../../services/api';
+import { authApiGuest, invitationsApi, isPropertyTenantInviteKind, type InvitationDetails } from '../../services/api';
 import { STATE_OPTIONS } from '../../services/jleService';
 import { validatePhone, sanitizePhoneInput } from '../../utils/validatePhone';
 import { UserSession } from '../../types';
@@ -42,7 +42,8 @@ const RegisterFromInvite: React.FC<Props> = ({
   const [inviteDetails, setInviteDetails] = useState<InvitationDetails | null>(null);
   const [inviteLoading, setInviteLoading] = useState(true);
   const normalizedCode = invitationId.trim().toUpperCase();
-  const isTenantInvite = inviteDetails?.invitation_kind === 'tenant' || Boolean(inviteDetails?.is_tenant_invite);
+  const isTenantInvite =
+    isPropertyTenantInviteKind(inviteDetails?.invitation_kind) || Boolean(inviteDetails?.is_tenant_invite);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [agreementSignatureId, setAgreementSignatureId] = useState<number | null>(null);
   const [formData, setFormData] = useState({

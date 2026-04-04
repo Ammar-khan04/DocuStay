@@ -97,6 +97,20 @@ from app.services.event_ledger import (
     ACTION_SHIELD_MODE_OFF,
 )
 from app.services.invitation_cleanup import get_invitation_expire_cutoff
+from app.services.invitation_kinds import (
+    TENANT_UNIT_LEASE_KINDS,
+    is_property_invited_tenant_signup_kind,
+    is_standard_tenant_invite_kind,
+)
+from app.services.tenant_lease_window import (
+    find_invitation_matching_tenant_assignment,
+    find_tenant_assignment_matching_invitation,
+)
+from app.services.tenant_lease_cohort import (
+    cohort_key_for_pending_invitation,
+    count_cohort_members,
+    map_assignment_id_to_cohort_key,
+)
 from app.services.invitation_guest_completion import guest_invitation_signing_started
 from app.services.billing import (
     SUBSCRIPTION_FLAT_AMOUNT_CENTS,
@@ -182,7 +196,7 @@ from app.services.privacy_lanes import (
     filter_tenant_presence_from_owner_manager_ledger,
     filter_manager_presence_on_tenant_leased_units,
 )
-from app.services.display_names import label_for_stay, label_from_invitation
+from app.services.display_names import label_for_stay, label_from_invitation, label_from_user_id
 from app.config import get_settings
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -504,7 +518,7 @@ def guest_add_pending_invite(
         Invitation.invitation_code == code,
         Invitation.status.in_(["pending", "ongoing"]),
         or_(
-            Invitation.invitation_kind == "tenant",
+            Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
             Invitation.token_state != "BURNED",
         ),
     ).first()
@@ -729,6 +743,10 @@ def owner_tenants(
     prop_map = {p.id: p for p in db.query(Property).filter(Property.id.in_(prop_ids)).all()}
     out = []
     seen_unit_user = set()
+    all_owner_tas = (
+        db.query(TenantAssignment).filter(TenantAssignment.unit_id.in_(unit_ids)).all() if unit_ids else []
+    )
+    assignment_cohort_map = map_assignment_id_to_cohort_key(all_owner_tas)
 
     if unit_ids:
         assignments = (
@@ -749,24 +767,9 @@ def owner_tenants(
             tenant_email = (tenant.email or "").strip().lower() if tenant else ""
             inv = None
             if tenant_email:
-                inv = (
-                    db.query(Invitation)
-                    .filter(
-                        Invitation.unit_id == ta.unit_id,
-                        Invitation.invitation_kind == "tenant",
-                        Invitation.status == "accepted",
-                        func.lower(func.coalesce(Invitation.guest_email, "")) == tenant_email,
-                    )
-                    .order_by(Invitation.created_at.desc())
-                    .first()
-                )
+                inv = find_invitation_matching_tenant_assignment(db, ta, user_email_lower=tenant_email)
             if not inv:
-                inv = (
-                    db.query(Invitation)
-                    .filter(Invitation.unit_id == ta.unit_id, Invitation.invitation_kind == "tenant")
-                    .order_by(Invitation.created_at.desc())
-                    .first()
-                )
+                inv = find_invitation_matching_tenant_assignment(db, ta, user_email_lower=None)
             if inv:
                 start = start or inv.stay_start_date
                 end = end or inv.stay_end_date
@@ -794,13 +797,14 @@ def owner_tenants(
                 "stay_status": resolved.stay_status,
                 "invitation_code": inv_code,
                 "created_at": ta.created_at.isoformat() if ta.created_at else None,
+                "lease_cohort_id": assignment_cohort_map.get(ta.id),
             })
 
     tenant_invs = (
         db.query(Invitation)
         .filter(
             Invitation.owner_id == current_user.id,
-            Invitation.invitation_kind == "tenant",
+            Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
             Invitation.status.in_(["pending", "ongoing"]),
             Invitation.token_state.notin_(["CANCELLED", "REVOKED", "EXPIRED"]),
         )
@@ -815,7 +819,7 @@ def owner_tenants(
             .filter(TenantAssignment.unit_id == inv.unit_id)
             .first()
         ) if inv.unit_id else None
-        if has_assignment:
+        if has_assignment and is_standard_tenant_invite_kind(getattr(inv, "invitation_kind", None)):
             continue
         unit = unit_map.get(inv.unit_id) if inv.unit_id else None
         prop = prop_map.get(inv.property_id)
@@ -839,7 +843,9 @@ def owner_tenants(
             "stay_status": resolved.stay_status,
             "invitation_code": inv.invitation_code,
             "created_at": inv.created_at.isoformat() if inv.created_at else None,
+            "lease_cohort_id": cohort_key_for_pending_invitation(inv, all_owner_tas),
         })
+    count_cohort_members(out)
     return out
 
 
@@ -850,12 +856,15 @@ def owner_invitations(
     context_mode: str = Depends(get_context_mode),
 ):
     """Owner view: invitations with property name.
-    Business mode: tenant invitations only (invitation_kind='tenant').
+    Business mode: property-issued tenant invites (standard and co-tenant / shared lease).
     Personal mode: property-lane guest invitations only (owner/manager-invited; NEVER tenant-invited guest data)."""
     if context_mode == "business":
         invs = (
             db.query(Invitation)
-            .filter(Invitation.owner_id == current_user.id, Invitation.invitation_kind == "tenant")
+            .filter(
+                Invitation.owner_id == current_user.id,
+                Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
+            )
             .order_by(Invitation.created_at.desc())
             .all()
         )
@@ -893,7 +902,7 @@ def _invitations_to_owner_views(invs: list, db: Session, get_invitation_expire_c
                 and not guest_invitation_signing_started(db, inv.invitation_code)
             )
         )
-        is_tenant_inv = (getattr(inv, "invitation_kind", None) or "").strip().lower() == "tenant"
+        is_tenant_inv = is_property_invited_tenant_signup_kind(getattr(inv, "invitation_kind", None))
         if is_tenant_inv:
             # Tenant invites: unify "accepted" with existence of an assignment (legacy CSV may leave inv.status=pending).
             has_assignment = db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).first() is not None
@@ -3494,6 +3503,47 @@ def tenant_debug(
     return {"tenant_assignments_count": ta_count, "stays_count": stays_count}
 
 
+def _lease_cohort_context_for_assignment(
+    db: Session, ta: TenantAssignment, current_user: "User"
+) -> tuple[str | None, list[dict], int]:
+    all_on_unit = db.query(TenantAssignment).filter(TenantAssignment.unit_id == ta.unit_id).all()
+    cmap = map_assignment_id_to_cohort_key(all_on_unit)
+    ck = cmap.get(ta.id)
+    peers: list[dict] = []
+    if ck:
+        for o in all_on_unit:
+            if o.user_id == current_user.id or cmap.get(o.id) != ck:
+                continue
+            u = db.query(User).filter(User.id == o.user_id).first()
+            peers.append({
+                "name": label_from_user_id(db, o.user_id) or ((u.email or "").strip() if u else "Tenant"),
+                "email": (u.email or "").strip() if u else None,
+            })
+    member_count = sum(1 for o in all_on_unit if cmap.get(o.id) == ck) if ck else 1
+    return ck, peers, member_count
+
+
+def _lease_cohort_context_for_pending_invitation(
+    db: Session, inv: Invitation, current_user: "User"
+) -> tuple[str | None, list[dict], int]:
+    from app.services.tenant_lease_cohort import date_ranges_overlap
+
+    all_on_unit = db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).all()
+    peers: list[dict] = []
+    if inv.stay_start_date:
+        for o in all_on_unit:
+            if not date_ranges_overlap(inv.stay_start_date, inv.stay_end_date, o.start_date, o.end_date):
+                continue
+            u = db.query(User).filter(User.id == o.user_id).first()
+            peers.append({
+                "name": label_from_user_id(db, o.user_id) or ((u.email or "").strip() if u else "Tenant"),
+                "email": (u.email or "").strip() if u else None,
+            })
+    ck = cohort_key_for_pending_invitation(inv, all_on_unit)
+    member_count = max(len(peers) + 1, 1)
+    return ck, peers, member_count
+
+
 def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -> dict:
     """Build one unit item for tenant_unit response. Use invitation accepted by THIS user (match guest_email) to avoid showing another tenant's dates."""
     unit = db.query(Unit).filter(Unit.id == ta.unit_id).first()
@@ -3507,30 +3557,16 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
             "removal_guest_text": None, "removal_tenant_text": None,
             "assigned_by_name": None, "accepted_by_name": (getattr(current_user, "full_name", None) or "").strip() or (current_user.email or ""),
             "dead_mans_switch_enabled": True,
+            "lease_cohort_id": None,
+            "cohort_member_count": 1,
+            "co_tenants": [],
         }
     prop = db.query(Property).filter(Property.id == unit.property_id).first()
     address = ", ".join(filter(None, [prop.street, prop.city, prop.state])) if prop else ""
     user_email = (current_user.email or "").strip().lower()
-    tenant_inv = None
-    if user_email:
-        tenant_inv = (
-            db.query(Invitation)
-            .filter(
-                Invitation.unit_id == ta.unit_id,
-                Invitation.invitation_kind == "tenant",
-                Invitation.status == "accepted",
-                func.lower(func.coalesce(Invitation.guest_email, "")) == user_email,
-            )
-            .order_by(Invitation.created_at.desc())
-            .first()
-        )
-    if not tenant_inv:
-        tenant_inv = (
-            db.query(Invitation)
-            .filter(Invitation.unit_id == ta.unit_id, Invitation.invitation_kind == "tenant")
-            .order_by(Invitation.created_at.desc())
-            .first()
-        )
+    tenant_inv = find_invitation_matching_tenant_assignment(
+        db, ta, user_email_lower=user_email or None
+    )
     invite_id = tenant_inv.invitation_code if tenant_inv else None
     token_state = getattr(tenant_inv, "token_state", None) if tenant_inv else None
     stay_start = (tenant_inv.stay_start_date if tenant_inv else ta.start_date)
@@ -3565,6 +3601,7 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
         if latest_tenant_guest_inv is not None
         else (getattr(tenant_inv, "dead_mans_switch_enabled", 1) if tenant_inv else 1)
     )
+    lease_cohort_id, co_tenants, cohort_member_count = _lease_cohort_context_for_assignment(db, ta, current_user)
     return {
         "unit": {"id": unit.id, "unit_label": unit.unit_label, "occupancy_status": unit.occupancy_status} if unit else None,
         "property": {"id": prop.id, "name": prop.name, "address": address} if prop else None,
@@ -3581,6 +3618,9 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
         "assigned_by_name": assigned_by_name,
         "accepted_by_name": accepted_by_name,
         "dead_mans_switch_enabled": dms_enabled,
+        "lease_cohort_id": lease_cohort_id,
+        "cohort_member_count": cohort_member_count,
+        "co_tenants": co_tenants,
     }
 
 
@@ -3600,6 +3640,7 @@ def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user
     jurisdiction_statutes = [JurisdictionStatuteInDashboard(citation=st.citation, plain_english=st.plain_english) for st in jinfo.statutes] if jinfo and jinfo.statutes else []
     assigned_by_name = get_actor_display_name(db, getattr(inv, "invited_by_user_id", None))
     accepted_by_name = (getattr(current_user, "full_name", None) or "").strip() or (current_user.email or "") if current_user else None
+    lease_cohort_id, co_tenants, cohort_member_count = _lease_cohort_context_for_pending_invitation(db, inv, current_user)
     return {
         "unit": {"id": unit.id, "unit_label": unit.unit_label, "occupancy_status": unit.occupancy_status},
         "property": {"id": prop.id, "name": prop.name, "address": address},
@@ -3617,6 +3658,9 @@ def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user
         "assigned_by_name": assigned_by_name,
         "accepted_by_name": accepted_by_name,
         "dead_mans_switch_enabled": bool(getattr(inv, "dead_mans_switch_enabled", 1)),
+        "lease_cohort_id": lease_cohort_id,
+        "cohort_member_count": cohort_member_count,
+        "co_tenants": co_tenants,
     }
 
 
@@ -3640,13 +3684,12 @@ def tenant_unit(
         .all()
     )
     units = [_tenant_unit_item(db, ta, current_user) for ta in assignments]
-    unit_ids_with_assignment = {ta.unit_id for ta in assignments}
     user_email = (current_user.email or "").strip().lower()
     if user_email:
         pending_invs = (
             db.query(Invitation)
             .filter(
-                Invitation.invitation_kind == "tenant",
+                Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
                 Invitation.unit_id.isnot(None),
                 Invitation.status.in_(["pending", "ongoing"]),
                 func.lower(func.coalesce(Invitation.guest_email, "")) == user_email,
@@ -3655,21 +3698,14 @@ def tenant_unit(
             .all()
         )
         for inv in pending_invs:
-            if inv.unit_id in unit_ids_with_assignment:
-                continue
             token = (getattr(inv, "token_state", None) or "").upper()
             if token in ("CANCELLED", "REVOKED", "EXPIRED"):
                 continue
-            has_ta = db.query(TenantAssignment).filter(
-                TenantAssignment.unit_id == inv.unit_id,
-                TenantAssignment.user_id == current_user.id,
-            ).first() is not None
-            if has_ta:
+            if find_tenant_assignment_matching_invitation(db, current_user.id, inv):
                 continue
             item = _tenant_unit_item_from_invitation(db, inv, current_user)
             if item:
                 units.append(item)
-                unit_ids_with_assignment.add(inv.unit_id)
     return {"units": units}
 
 
@@ -3706,7 +3742,7 @@ def tenant_set_dead_mans_switch(
         db.query(Invitation)
         .filter(
             Invitation.unit_id == unit_id,
-            Invitation.invitation_kind == "tenant",
+            Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
             func.lower(func.coalesce(Invitation.guest_email, "")) == user_email,
         )
         .order_by(Invitation.created_at.desc())
@@ -3801,11 +3837,8 @@ def tenant_cancel_future_assignment(
     if not ta:
         raise HTTPException(status_code=404, detail="No assignment found")
     # Use same "effective" start as tenant unit display: invitation stay_start if present, else assignment start_date
-    tenant_inv = (
-        db.query(Invitation)
-        .filter(Invitation.unit_id == ta.unit_id, Invitation.invitation_kind == "tenant")
-        .order_by(Invitation.created_at.desc())
-        .first()
+    tenant_inv = find_invitation_matching_tenant_assignment(
+        db, ta, user_email_lower=(current_user.email or "").strip().lower() or None
     )
     effective_start = tenant_inv.stay_start_date if tenant_inv else ta.start_date
     if effective_start <= today:
@@ -4004,11 +4037,8 @@ def tenant_create_invitation(
         if not ta:
             raise HTTPException(status_code=403, detail="You are not assigned to this unit.")
         # Use same effective stay dates as tenant_unit display (tenant invitation if available, else assignment)
-        tenant_inv = (
-            db.query(Invitation)
-            .filter(Invitation.unit_id == unit_id, Invitation.invitation_kind == "tenant")
-            .order_by(Invitation.created_at.desc())
-            .first()
+        tenant_inv = find_invitation_matching_tenant_assignment(
+            db, ta, user_email_lower=(current_user.email or "").strip().lower() or None
         )
         effective_start = tenant_inv.stay_start_date if tenant_inv else ta.start_date
         effective_end = tenant_inv.stay_end_date if tenant_inv else ta.end_date

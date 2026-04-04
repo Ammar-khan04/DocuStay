@@ -33,6 +33,7 @@ from app.services.agreements import (
     agreement_content_to_pdf,
 )
 from app.services.audit_log import create_log, CATEGORY_GUEST_SIGNATURE, CATEGORY_STATUS_CHANGE, CATEGORY_FAILED_ATTEMPT
+from app.services.invitation_kinds import TENANT_UNIT_LEASE_KINDS, is_property_invited_tenant_signup_kind
 from app.services.event_ledger import create_ledger_event, ACTION_AGREEMENT_SIGNED, ACTION_MASTER_POA_SIGNED, ACTION_AGREEMENT_SIGN_FAILED
 from app.services.notifications import send_email
 from app.services.dropbox_sign import send_signature_request, get_signed_pdf, get_embedded_sign_url
@@ -54,7 +55,7 @@ def get_invitation_agreement(
     code = (invitation_code or "").strip().upper()
     if code:
         inv = db.query(Invitation).filter(Invitation.invitation_code == code).first()
-        is_tenant_inv = (getattr(inv, "invitation_kind", None) or "").strip().lower() == "tenant" if inv else False
+        is_tenant_inv = is_property_invited_tenant_signup_kind(getattr(inv, "invitation_kind", None)) if inv else False
         if inv and not is_tenant_inv:
             awaiting = guest_invite_awaiting_account_after_sign(db, inv)
             tok = (getattr(inv, "token_state", None) or "").upper()
@@ -237,7 +238,7 @@ def sign_invitation_agreement(
         Invitation.invitation_code == code,
         Invitation.status.in_(["pending", "ongoing", "expired"]),
         or_(
-            Invitation.invitation_kind == "tenant",
+            Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
             Invitation.token_state != "BURNED",
         ),
     ).first()
@@ -265,7 +266,7 @@ def sign_invitation_agreement(
         raise HTTPException(status_code=400, detail="Invalid or expired invitation code")
 
     # Check for expiration after 72 hours
-    is_tenant_inv = (getattr(inv, "invitation_kind", None) or "").strip().lower() == "tenant"
+    is_tenant_inv = is_property_invited_tenant_signup_kind(getattr(inv, "invitation_kind", None))
     if not is_tenant_inv:
         from app.services.invitation_cleanup import get_invitation_expire_cutoff
         threshold = get_invitation_expire_cutoff()
@@ -422,7 +423,7 @@ def sign_invitation_agreement_with_dropbox(
         Invitation.invitation_code == code,
         Invitation.status.in_(["pending", "ongoing"]),
         or_(
-            Invitation.invitation_kind == "tenant",
+            Invitation.invitation_kind.in_(tuple(TENANT_UNIT_LEASE_KINDS)),
             Invitation.token_state != "BURNED",
         ),
     ).first()

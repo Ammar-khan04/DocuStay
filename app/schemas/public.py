@@ -97,6 +97,8 @@ class LiveTenantAssignmentInfo(BaseModel):
     start_date: date
     end_date: date | None = None  # null = open-ended / ongoing
     created_at: datetime
+    lease_cohort_id: str | None = None
+    lease_cohort_member_count: int | None = None
 
 
 class LiveInvitationSummary(BaseModel):

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Input, Button, ErrorModal } from '../../components/UI';
 import { HeroBackground } from '../../components/HeroBackground';
 import { AuthCardLayout, AuthBullet } from '../../components/AuthCardLayout';
-import { authApi, invitationsApi } from '../../services/api';
+import { authApi, invitationsApi, isPropertyTenantInviteKind } from '../../services/api';
 
 const parseInviteCode = (raw: string): string => {
   const trimmed = raw.trim();
@@ -49,7 +49,7 @@ const GuestLogin: React.FC<GuestLoginProps> = ({ inviteCode: inviteCodeFromUrl, 
           return;
         }
         const kind = d.invitation_kind || (d.is_tenant_invite ? 'tenant' : 'guest');
-        if (d.valid && kind === 'tenant') {
+        if (d.valid && (isPropertyTenantInviteKind(d.invitation_kind) || Boolean(d.is_tenant_invite))) {
           navigate(`register-from-invite/${inviteCode}`);
           return;
         }
@@ -91,7 +91,7 @@ const GuestLogin: React.FC<GuestLoginProps> = ({ inviteCode: inviteCodeFromUrl, 
       }
       if (inviteCode && inviteCheck?.valid !== false) {
         sessionStorage.setItem(PENDING_INVITE_STORAGE_KEY, inviteCode.trim().toUpperCase());
-        const isTenant = inviteCheck?.invitation_kind === 'tenant';
+        const isTenant = isPropertyTenantInviteKind(inviteCheck?.invitation_kind);
         notify('success', isTenant ? 'Signed in. Your invitation will be processed on your dashboard.' : 'Signed in. You can sign the invitation agreement on your dashboard.');
       } else if (inviteCode && inviteCheck?.valid === false) {
         notify('error',
@@ -157,7 +157,7 @@ const GuestLogin: React.FC<GuestLoginProps> = ({ inviteCode: inviteCodeFromUrl, 
           <div className="max-w-sm mx-auto w-full">
             <h1 className="text-xl font-semibold text-slate-900 mb-1 lg:hidden">Guest login</h1>
             <p className="text-slate-600 text-sm mb-6">
-              {inviteCode ? (inviteCheck?.invitation_kind === 'tenant' ? 'Sign in to accept your tenant invitation.' : 'Sign in to continue. You’ll sign the agreement on your dashboard.') : 'Enter your credentials.'}
+              {inviteCode ? (isPropertyTenantInviteKind(inviteCheck?.invitation_kind) ? 'Sign in to accept your tenant invitation.' : 'Sign in to continue. You’ll sign the agreement on your dashboard.') : 'Enter your credentials.'}
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-6">

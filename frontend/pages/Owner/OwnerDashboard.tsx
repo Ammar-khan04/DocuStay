@@ -15,6 +15,7 @@ import { ModeSwitcher } from '../../components/ModeSwitcher';
 import { InvitationsTabContent } from '../../components/InvitationsTabContent';
 import { DashboardAlertsPanel, DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlertsPanel';
 import { SUPPORT_EMAIL, supportMailtoHref } from '../../constants/supportContact';
+import { groupOwnerTenantsByLeaseCohort, isSharedLeaseGroup } from '../../utils/leaseCohortGroups';
 
 function daysLeft(endDateStr: string): number {
   const end = new Date(endDateStr);
@@ -420,6 +421,27 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
     () => tenants.filter((t) => t.status === 'pending_signup').length,
     [tenants],
   );
+  const tenantGroups = useMemo(() => groupOwnerTenantsByLeaseCohort(tenants), [tenants]);
+  const pendingTenantGroups = useMemo(
+    () => groupOwnerTenantsByLeaseCohort(tenants.filter((t) => t.status === 'pending_signup')),
+    [tenants],
+  );
+
+  const tenantStatusBadge = (t: OwnerTenantView) => (
+    <span
+      className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+        t.status === 'active'
+          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          : t.status === 'future'
+            ? 'bg-sky-50 text-sky-700 border border-sky-200'
+            : t.status === 'pending_signup'
+              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+              : 'bg-slate-100 text-slate-500 border border-slate-200'
+      }`}
+    >
+      {t.status === 'active' ? 'Active' : t.status === 'future' ? 'Future' : t.status === 'pending_signup' ? 'Pending signup' : 'Ended'}
+    </span>
+  );
 
   const openInviteModalOrNotify = () => {
     if (!canInvite) {
@@ -818,37 +840,88 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {tenants.filter((t) => t.status === 'pending_signup').map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-5">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-amber-100 text-amber-700">
-                                {t.tenant_name.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-slate-800">{t.tenant_name}</p>
-                                {t.tenant_email && <p className="text-xs text-slate-500">{t.tenant_email}</p>}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-5 text-sm font-medium text-slate-800">{t.property_name}</td>
-                          <td className="px-6 py-5 text-sm text-slate-600">{t.unit_label || '—'}</td>
-                          <td className="px-6 py-5 text-sm text-slate-600 whitespace-nowrap">
-                            {t.start_date && t.end_date ? formatStayDuration(t.start_date, t.end_date) : '—'}
-                          </td>
-                          <td className="px-6 py-5 text-xs font-mono text-slate-500">{t.invitation_code || '—'}</td>
-                          <td className="px-6 py-5 text-right">
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              disabled={!t.invitation_id}
-                              onClick={() => setSendEmailTenant(t)}
-                            >
-                              Send invite email
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                      {pendingTenantGroups.map((g) => {
+                        const shared = isSharedLeaseGroup(g);
+                        const primary = g.members[0];
+                        return (
+                          <tr key={g.cohortKey} className={`hover:bg-slate-50 transition-colors ${shared ? 'bg-sky-50/30' : ''}`}>
+                            <td className="px-6 py-5">
+                              {shared ? (
+                                <div>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-sky-100 text-sky-800 border border-sky-200">
+                                    Shared lease
+                                  </span>
+                                  <div className="mt-3 space-y-3">
+                                    {g.members.map((t) => (
+                                      <div key={t.id} className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-amber-100 text-amber-700">
+                                          {(t.tenant_name || '?').charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-bold text-slate-800">{t.tenant_name}</p>
+                                          {t.tenant_email && <p className="text-xs text-slate-500">{t.tenant_email}</p>}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-amber-100 text-amber-700">
+                                    {(primary.tenant_name || '?').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-800">{primary.tenant_name}</p>
+                                    {primary.tenant_email && <p className="text-xs text-slate-500">{primary.tenant_email}</p>}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-5 text-sm font-medium text-slate-800">{primary.property_name}</td>
+                            <td className="px-6 py-5 text-sm text-slate-600">{primary.unit_label || '—'}</td>
+                            <td className="px-6 py-5 text-sm text-slate-600 whitespace-nowrap">
+                              {primary.start_date && primary.end_date ? formatStayDuration(primary.start_date, primary.end_date) : '—'}
+                            </td>
+                            <td className="px-6 py-5 text-xs font-mono text-slate-500">
+                              {shared ? (
+                                <ul className="space-y-1 list-none p-0 m-0">
+                                  {g.members.map((t) => (
+                                    <li key={t.id}>{t.invitation_code || '—'}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                primary.invitation_code || '—'
+                              )}
+                            </td>
+                            <td className="px-6 py-5 text-right">
+                              {shared ? (
+                                <div className="flex flex-col gap-2 items-end">
+                                  {g.members.map((t) => (
+                                    <Button
+                                      key={t.id}
+                                      variant="primary"
+                                      size="sm"
+                                      disabled={!t.invitation_id}
+                                      onClick={() => setSendEmailTenant(t)}
+                                    >
+                                      Send ({(t.tenant_name || t.tenant_email || 'tenant').split(/\s+/)[0]})
+                                    </Button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  disabled={!primary.invitation_id}
+                                  onClick={() => setSendEmailTenant(primary)}
+                                >
+                                  Send invite email
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -881,43 +954,85 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {tenants.map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-5">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${t.status === 'pending_signup' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'}`}>
-                                {t.tenant_name.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-slate-800">{t.tenant_name}</p>
-                                {t.tenant_email && <p className="text-xs text-slate-500">{t.tenant_email}</p>}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-5">
-                            <p className="text-sm font-medium text-slate-800">{t.property_name}</p>
-                          </td>
-                          <td className="px-6 py-5 text-sm text-slate-600">{t.unit_label || '—'}</td>
-                          <td className="px-6 py-5 text-sm text-slate-600 whitespace-nowrap">
-                            {t.start_date && t.end_date ? formatStayDuration(t.start_date, t.end_date) : t.start_date ? `From ${new Date(t.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '—'}
-                            {t.status === 'active' && !t.end_date && <span className="ml-1 text-xs text-slate-400">(ongoing)</span>}
-                            {t.status === 'future' && t.start_date && <span className="ml-1 text-xs text-slate-400">(future)</span>}
-                          </td>
-                          <td className="px-6 py-5">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                              t.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                              t.status === 'future' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
-                              t.status === 'pending_signup' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                              'bg-slate-100 text-slate-500 border border-slate-200'
-                            }`}>
-                              {t.status === 'active' ? 'Active' : t.status === 'future' ? 'Future' : t.status === 'pending_signup' ? 'Pending signup' : 'Ended'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-5 text-xs font-mono text-slate-500">
-                            {t.invitation_code || '—'}
-                          </td>
-                        </tr>
-                      ))}
+                      {tenantGroups.map((g) => {
+                        const shared = isSharedLeaseGroup(g);
+                        const primary = g.members[0];
+                        return (
+                          <tr key={g.cohortKey} className={`hover:bg-slate-50 transition-colors ${shared ? 'bg-sky-50/30' : ''}`}>
+                            <td className="px-6 py-5">
+                              {shared ? (
+                                <div>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-sky-100 text-sky-800 border border-sky-200">
+                                    Shared lease
+                                  </span>
+                                  <div className="mt-3 space-y-3">
+                                    {g.members.map((t) => (
+                                      <div key={t.id} className="flex items-center gap-3">
+                                        <div
+                                          className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                                            t.status === 'pending_signup' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'
+                                          }`}
+                                        >
+                                          {(t.tenant_name || '?').charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-bold text-slate-800">{t.tenant_name}</p>
+                                          {t.tenant_email && <p className="text-xs text-slate-500">{t.tenant_email}</p>}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-3">
+                                  <div
+                                    className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                                      primary.status === 'pending_signup' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'
+                                    }`}
+                                  >
+                                    {(primary.tenant_name || '?').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-800">{primary.tenant_name}</p>
+                                    {primary.tenant_email && <p className="text-xs text-slate-500">{primary.tenant_email}</p>}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-5">
+                              <p className="text-sm font-medium text-slate-800">{primary.property_name}</p>
+                            </td>
+                            <td className="px-6 py-5 text-sm text-slate-600">{primary.unit_label || '—'}</td>
+                            <td className="px-6 py-5 text-sm text-slate-600 whitespace-nowrap">
+                              {primary.start_date && primary.end_date
+                                ? formatStayDuration(primary.start_date, primary.end_date)
+                                : primary.start_date
+                                  ? `From ${new Date(primary.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                                  : '—'}
+                              {primary.status === 'active' && !primary.end_date && <span className="ml-1 text-xs text-slate-400">(ongoing)</span>}
+                              {primary.status === 'future' && primary.start_date && <span className="ml-1 text-xs text-slate-400">(future)</span>}
+                            </td>
+                            <td className="px-6 py-5">
+                              {shared ? (
+                                <div className="flex flex-col gap-1 items-start">{g.members.map((t) => <span key={t.id}>{tenantStatusBadge(t)}</span>)}</div>
+                              ) : (
+                                tenantStatusBadge(primary)
+                              )}
+                            </td>
+                            <td className="px-6 py-5 text-xs font-mono text-slate-500">
+                              {shared ? (
+                                <ul className="space-y-1 list-none p-0 m-0">
+                                  {g.members.map((t) => (
+                                    <li key={t.id}>{t.invitation_code || '—'}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                primary.invitation_code || '—'
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -2447,9 +2562,16 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
         getUnits={(propertyId) => propertiesApi.getUnits(propertyId).then((u) => u.filter((x) => x.id >= 0))}
         createInvitation={async (params) => {
           const unitId = params.unitId ?? 0;
+          const body = {
+            tenant_name: params.tenant_name,
+            tenant_email: params.tenant_email,
+            lease_start_date: params.lease_start_date,
+            lease_end_date: params.lease_end_date,
+            shared_lease: params.shared_lease,
+          };
           return unitId > 0
-            ? propertiesApi.inviteTenant(unitId, { tenant_name: params.tenant_name, tenant_email: params.tenant_email, lease_start_date: params.lease_start_date, lease_end_date: params.lease_end_date })
-            : propertiesApi.inviteTenantForProperty(params.propertyId, { tenant_name: params.tenant_name, tenant_email: params.tenant_email, lease_start_date: params.lease_start_date, lease_end_date: params.lease_end_date });
+            ? propertiesApi.inviteTenant(unitId, body)
+            : propertiesApi.inviteTenantForProperty(params.propertyId, body);
         }}
         notify={notify}
         onSuccess={() => { loadData(); window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT)); }}

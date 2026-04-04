@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Input, Modal } from '../../components/UI';
 import { InviteGuestModal } from '../../components/InviteGuestModal';
 import HelpCenter from '../Support/HelpCenter';
+import { formatCoTenantPeerLine } from '../../utils/leaseCohortGroups';
 import { DashboardAlertsPanel, DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlertsPanel';
 import { UserSession } from '../../types';
 import { dashboardApi, authApi, invitationsApi, APP_ORIGIN, API_URL, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, resolveBackendMediaUrl } from '../../services/api';
@@ -30,6 +31,9 @@ type TenantUnitCard = {
   stay_start_date: string | null;
   stay_end_date: string | null;
   token_state: string | null;
+  lease_cohort_id?: string | null;
+  cohort_member_count?: number | null;
+  co_tenants?: Array<{ name?: string | null; email?: string | null }>;
 };
 
 type StayFilter = 'all' | 'ongoing' | 'future' | 'completed' | 'future_invites';
@@ -195,6 +199,9 @@ const TenantDashboard: React.FC<{
     accepted_by_name?: string | null;
     pending_acceptance?: boolean;
     dead_mans_switch_enabled?: boolean;
+    lease_cohort_id?: string | null;
+    cohort_member_count?: number | null;
+    co_tenants?: Array<{ name?: string | null; email?: string | null }>;
   }>>([]);
   const [loading, setLoadingState] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -746,6 +753,9 @@ const TenantDashboard: React.FC<{
       stay_start_date: u.stay_start_date,
       stay_end_date: u.stay_end_date,
       token_state: u.token_state,
+      lease_cohort_id: u.lease_cohort_id,
+      cohort_member_count: u.cohort_member_count,
+      co_tenants: u.co_tenants,
     }));
   const today = getTodayStr();
   const selectedUnitData = selectedUnit ? unitsData.find((u) => u.unit?.id === selectedUnit.unit_id) : null;
@@ -1498,6 +1508,11 @@ const TenantDashboard: React.FC<{
                           <p className="text-sm text-slate-500 mt-0.5">
                             {sd && ed ? `${formatDate(sd)} – ${formatDate(ed)}` : sd ? `${formatDate(sd)} – Ongoing` : 'Your assigned unit'}
                           </p>
+                          {(card.cohort_member_count ?? 1) > 1 && card.co_tenants && card.co_tenants.length > 0 && (
+                            <p className="text-xs text-violet-800 mt-2 pt-2 border-t border-violet-100">
+                              <span className="font-semibold">Co-tenants:</span> {formatCoTenantPeerLine(card.co_tenants)}
+                            </p>
+                          )}
                         </button>
                       </div>
                     );
@@ -1885,6 +1900,14 @@ const TenantDashboard: React.FC<{
                         <p className="text-slate-900 font-medium mt-0.5">{endDate ? formatDate(endDate) : 'Ongoing'}</p>
                       </div>
                     </div>
+                    {(selectedUnitData.cohort_member_count ?? 1) > 1 &&
+                      selectedUnitData.co_tenants &&
+                      selectedUnitData.co_tenants.length > 0 && (
+                        <div className="mt-4 p-4 rounded-xl border border-violet-100 bg-violet-50/60">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800 mb-1">Co-tenants on this lease</p>
+                          <p className="text-sm text-slate-800">{formatCoTenantPeerLine(selectedUnitData.co_tenants)}</p>
+                        </div>
+                      )}
                   </div>
                   <div className="md:w-56 flex flex-col gap-4 shrink-0">
                     <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
