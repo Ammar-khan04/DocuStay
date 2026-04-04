@@ -97,7 +97,14 @@ from app.services.notifications import (
 from app.services.dropbox_sign import get_signed_pdf
 from app.services.billing import on_onboarding_properties_completed, ensure_subscription, sync_subscription_quantities
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON, persisted_shield_row_int
-from app.services.permissions import can_perform_action, can_assign_property_manager, Action, can_access_property, get_owner_personal_mode_units
+from app.services.permissions import (
+    can_perform_action,
+    can_assign_property_manager,
+    Action,
+    can_access_property,
+    get_owner_personal_mode_units,
+    validate_invite_email_role,
+)
 from app.services.manager_resident import (
     add_manager_onsite_resident,
     add_manager_onsite_resident_all_units,
@@ -671,6 +678,151 @@ def _mark_unit_occupied_after_csv_tenant_invite(db: Session, unit_id: int | None
         u.occupancy_status = OccupancyStatus.occupied.value
 
 
+# Tenant 2..12 on CSV: shared-lease co-tenants (same as owner invite "co-tenant" flow).
+CSV_BULK_CO_TENANT_MAX_SLOT = 12
+
+def _bulk_csv_parse_co_tenants_for_row(
+    row: dict,
+    norm_to_orig: dict[str, str],
+    primary_tenant_name: str,
+) -> tuple[list[tuple[str, str | None]], str | None]:
+    """Parse optional Tenant 2 Name / Tenant 2 Email … Tenant 12 … columns. Returns (entries, error_message)."""
+
+    def _get_cell_local(rowd: dict, *keys: str) -> str | None:
+        for k in keys:
+            orig = norm_to_orig.get(k) or norm_to_orig.get(k.replace("_", ""))
+            if orig and rowd.get(orig) is not None:
+                v = str(rowd[orig]).strip()
+                if v:
+                    return v
+        return None
+
+    primary_key = (primary_tenant_name or "").strip().lower()
+    seen: set[str] = set()
+    if primary_key:
+        seen.add(primary_key)
+    out: list[tuple[str, str | None]] = []
+    for n in range(2, CSV_BULK_CO_TENANT_MAX_SLOT + 1):
+        name = (_get_cell_local(row, f"tenant_{n}_name", f"tenant{n}_name") or "").strip()
+        if not name:
+            continue
+        email_raw = _get_cell_local(row, f"tenant_{n}_email", f"tenant{n}_email")
+        email = (email_raw or "").strip() or None
+        nk = name.lower()
+        if nk in seen:
+            return [], f"Duplicate tenant name on row (Tenant {n} Name matches another tenant on this row)."
+        seen.add(nk)
+        out.append((name, email))
+    return out, None
+
+
+def _bulk_csv_validate_co_tenant_emails(
+    db: Session, co_tenants: list[tuple[str, str | None]], row_num: int
+) -> str | None:
+    for cot_name, cot_email in co_tenants:
+        if not cot_email:
+            continue
+        role_err = validate_invite_email_role(db, cot_email, UserRole.tenant)
+        if role_err:
+            return f"Co-tenant {cot_name} (row {row_num}): {role_err}"
+    return None
+
+
+def _bulk_csv_append_co_tenant_invitations(
+    db: Session,
+    *,
+    prop: Property,
+    current_user: User,
+    inv_unit_id: int,
+    lease_start: date,
+    lease_end: date,
+    co_tenants: list[tuple[str, str | None]],
+    row_num: int,
+    request: Request | None,
+    occupied_unit_raw: str | None,
+    property_name_for_ledger: str,
+) -> None:
+    """After the primary CSV tenant invite, add BURNED tenant_cotenant invitations for shared lease."""
+    if not co_tenants or inv_unit_id is None:
+        return
+    ip = request.client.host if request and request.client else None
+    ua = (request.headers.get("user-agent") or "").strip() or None if request else None
+    _ul = str(occupied_unit_raw).strip() if occupied_unit_raw else None
+    if not _ul and inv_unit_id:
+        _ur = db.query(Unit).filter(Unit.id == inv_unit_id).first()
+        _ul = (_ur.unit_label if _ur else None) or None
+    _inv_addr = _csv_bulk_address_line(prop.street or "", prop.city or "", prop.state or "", prop.zip_code)
+
+    for cot_name, cot_email in co_tenants:
+        inv_code = "INV-" + secrets.token_hex(4).upper()
+        inv = Invitation(
+            invitation_code=inv_code,
+            owner_id=current_user.id,
+            invited_by_user_id=current_user.id,
+            property_id=prop.id,
+            unit_id=inv_unit_id,
+            guest_name=cot_name,
+            guest_email=cot_email,
+            stay_start_date=lease_start,
+            stay_end_date=lease_end,
+            purpose_of_stay=PurposeOfStay.other,
+            relationship_to_owner=RelationshipToOwner.other,
+            region_code=prop.region_code,
+            status="ongoing",
+            token_state="BURNED",
+            invitation_kind=TENANT_COTENANT_INVITE_KIND,
+            dead_mans_switch_enabled=1,
+            dead_mans_switch_alert_email=1,
+            dead_mans_switch_alert_sms=0,
+            dead_mans_switch_alert_dashboard=1,
+            dead_mans_switch_alert_phone=0,
+        )
+        db.add(inv)
+        db.flush()
+        create_log(
+            db,
+            CATEGORY_STATUS_CHANGE,
+            "Invitation created (CSV co-tenant)",
+            f"Invite ID {inv_code} (co-tenant, shared lease) for property {prop.id}, tenant {cot_name}, lease {lease_start}–{lease_end}.",
+            property_id=prop.id,
+            invitation_id=inv.id,
+            actor_user_id=current_user.id,
+            actor_email=current_user.email,
+            ip_address=ip,
+            user_agent=ua,
+            meta={
+                "invitation_code": inv_code,
+                "token_state": "BURNED",
+                "guest_name": cot_name,
+                "lease_start": str(lease_start),
+                "lease_end": str(lease_end),
+                "invitation_kind": TENANT_COTENANT_INVITE_KIND,
+            },
+        )
+        create_ledger_event(
+            db,
+            ACTION_INVITATION_CREATED_CSV,
+            target_object_type="Invitation",
+            target_object_id=inv.id,
+            property_id=prop.id,
+            unit_id=inv_unit_id,
+            invitation_id=inv.id,
+            actor_user_id=current_user.id,
+            meta=_ledger_meta_bulk_csv_invitation(
+                property_name=property_name_for_ledger,
+                property_address=_inv_addr,
+                unit_label=_ul,
+                tenant_name=cot_name,
+                invitation_code=inv_code,
+                lease_start=lease_start,
+                lease_end=lease_end,
+                csv_row=row_num,
+            ),
+            ip_address=ip,
+            user_agent=ua,
+        )
+
+
 @router.post("/properties/bulk-upload", response_model=BulkUploadResult)
 def bulk_upload_properties(
     request: Request,
@@ -678,7 +830,7 @@ def bulk_upload_properties(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_owner_onboarding_complete),
 ):
-    """Upload properties via CSV. Required: Address, City, State, Zip, Occupied (YES/NO). If Occupied=YES: Tenant Name, Lease Start, Lease End required. Optional: Unit No, Shield Mode (YES/NO, default NO; independent of Occupied—owner can also turn on/off anytime in dashboard), Tax ID, APN. Each property gets a Property Lifecycle Anchor Token. Occupied=YES: burn token, set occupancy, create invite (BURNED) with DMS from lease end. Occupied=NO: token STAGED, status VACANT."""
+    """Upload properties via CSV. Required: Address, City, State, Zip, Occupied (YES/NO). If Occupied=YES: Tenant Name, Lease Start, Lease End required. Optional: Tenant 2 Name through Tenant 12 Name (and matching Tenant N Email) for shared-lease co-tenants; Unit No, Shield Mode, Tax ID, APN. Each property gets a Property Lifecycle Anchor Token. Occupied=YES: burn token, set occupancy, create primary tenant invite (BURNED) plus co-tenant invites (tenant_cotenant) when extra columns are set. Occupied=NO: token STAGED, status VACANT."""
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
         profile = OwnerProfile(user_id=current_user.id)
@@ -772,6 +924,7 @@ def bulk_upload_properties(
 
     for idx, row in enumerate(rows, start=1):
         row_num = idx
+        co_tenants: list[tuple[str, str | None]] = []
         address = _get_cell(row, "address", "street_address", "street")
         unit_no = _get_cell(row, "unit_no", "unit")
         city = _get_cell(row, "city")
@@ -871,6 +1024,16 @@ def bulk_upload_properties(
             if lease_end <= lease_start:
                 failed_from_row = row_num
                 failure_reason = "Lease End must be after Lease Start."
+                break
+            co_tenants, co_err = _bulk_csv_parse_co_tenants_for_row(row, norm_to_orig, (tenant_name or "").strip())
+            if co_err:
+                failed_from_row = row_num
+                failure_reason = co_err
+                break
+            email_err = _bulk_csv_validate_co_tenant_emails(db, co_tenants, row_num)
+            if email_err:
+                failed_from_row = row_num
+                failure_reason = email_err
                 break
             # Jurisdiction threshold validation is intentionally NOT applied to tenant lease dates.
             # Tenant leases can be any length (6 months, 1 year, etc.). The jurisdiction guest-to-tenancy
@@ -1005,7 +1168,7 @@ def bulk_upload_properties(
                     region_code=prop.region_code,
                     status="ongoing",
                     token_state="BURNED",
-                    invitation_kind="tenant",
+                    invitation_kind=TENANT_INVITE_KIND,
                     dead_mans_switch_enabled=1,
                     dead_mans_switch_alert_email=1,
                     dead_mans_switch_alert_sms=0,
@@ -1055,6 +1218,20 @@ def bulk_upload_properties(
                     ip_address=request.client.host if request.client else None,
                     user_agent=(request.headers.get("user-agent") or "").strip() or None,
                 )
+                if inv_unit_id is not None:
+                    _bulk_csv_append_co_tenant_invitations(
+                        db,
+                        prop=prop,
+                        current_user=current_user,
+                        inv_unit_id=int(inv_unit_id),
+                        lease_start=lease_start,
+                        lease_end=lease_end,
+                        co_tenants=co_tenants,
+                        row_num=row_num,
+                        request=request,
+                        occupied_unit_raw=occupied_unit_raw,
+                        property_name_for_ledger=(prop.name or prop_name or "").strip() or prop_name,
+                    )
             db.commit()
             db.refresh(prop)
             existing_props.append(prop)
@@ -1204,7 +1381,7 @@ def bulk_upload_properties(
                         region_code=existing_match.region_code,
                         status="ongoing",
                         token_state="BURNED",
-                        invitation_kind="tenant",
+                        invitation_kind=TENANT_INVITE_KIND,
                         dead_mans_switch_enabled=1,
                         dead_mans_switch_alert_email=1,
                         dead_mans_switch_alert_sms=0,
@@ -1256,6 +1433,20 @@ def bulk_upload_properties(
                         ip_address=request.client.host if request.client else None,
                         user_agent=(request.headers.get("user-agent") or "").strip() or None,
                     )
+                    if inv_unit_id_upd is not None:
+                        _bulk_csv_append_co_tenant_invitations(
+                            db,
+                            prop=existing_match,
+                            current_user=current_user,
+                            inv_unit_id=int(inv_unit_id_upd),
+                            lease_start=lease_start,
+                            lease_end=lease_end,
+                            co_tenants=co_tenants,
+                            row_num=row_num,
+                            request=request,
+                            occupied_unit_raw=occupied_unit_raw,
+                            property_name_for_ledger=(existing_match.name or address_as_name or "").strip() or address_as_name,
+                        )
             db.commit()
 
         # --- Unit grouping behavior (multi-unit auto-assign) ---
@@ -1433,6 +1624,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
 
         for idx, row in enumerate(rows, start=1):
             row_num = idx
+            co_tenants: list[tuple[str, str | None]] = []
             logger.info("[BulkUpload] processing CSV row %s/%s job_key=%s", idx, len(rows), job_key)
             address = _get_cell(row, "address", "street_address", "street")
             unit_no = _get_cell(row, "unit_no", "unit")
@@ -1514,6 +1706,16 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                 if lease_end <= lease_start:
                     failed_from_row = row_num
                     failure_reason = "Lease End must be after Lease Start."
+                    break
+                co_tenants, co_err = _bulk_csv_parse_co_tenants_for_row(row, norm_to_orig, (tenant_name or "").strip())
+                if co_err:
+                    failed_from_row = row_num
+                    failure_reason = co_err
+                    break
+                email_err = _bulk_csv_validate_co_tenant_emails(db, co_tenants, row_num)
+                if email_err:
+                    failed_from_row = row_num
+                    failure_reason = email_err
                     break
 
             existing_match = existing_props_by_key.get(key)
@@ -1619,7 +1821,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         region_code=prop.region_code,
                         status="ongoing",
                         token_state="BURNED",
-                        invitation_kind="tenant",
+                        invitation_kind=TENANT_INVITE_KIND,
                         dead_mans_switch_enabled=1,
                         dead_mans_switch_alert_email=1,
                         dead_mans_switch_alert_sms=0,
@@ -1665,6 +1867,20 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                             csv_row=row_num,
                         ),
                     )
+                    if inv_unit_id is not None:
+                        _bulk_csv_append_co_tenant_invitations(
+                            db,
+                            prop=prop,
+                            current_user=current_user,
+                            inv_unit_id=int(inv_unit_id),
+                            lease_start=lease_start,
+                            lease_end=lease_end,
+                            co_tenants=co_tenants,
+                            row_num=row_num,
+                            request=None,
+                            occupied_unit_raw=occupied_unit_raw,
+                            property_name_for_ledger=(prop.name or prop_name or "").strip() or prop_name,
+                        )
                 db.commit()
                 db.refresh(prop)
                 existing_props.append(prop)
@@ -1804,7 +2020,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                             region_code=existing_match.region_code,
                             status="ongoing",
                             token_state="BURNED",
-                            invitation_kind="tenant",
+                            invitation_kind=TENANT_INVITE_KIND,
                             dead_mans_switch_enabled=1,
                             dead_mans_switch_alert_email=1,
                             dead_mans_switch_alert_sms=0,
@@ -1852,6 +2068,20 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                                 csv_row=row_num,
                             ),
                         )
+                        if inv_unit_id_upd is not None:
+                            _bulk_csv_append_co_tenant_invitations(
+                                db,
+                                prop=existing_match,
+                                current_user=current_user,
+                                inv_unit_id=int(inv_unit_id_upd),
+                                lease_start=lease_start,
+                                lease_end=lease_end,
+                                co_tenants=co_tenants,
+                                row_num=row_num,
+                                request=None,
+                                occupied_unit_raw=occupied_unit_raw,
+                                property_name_for_ledger=(existing_match.name or address_as_name or "").strip() or address_as_name,
+                            )
                 db.commit()
 
             # Ensure every row in a multi-unit group creates/ensures a Unit row (even vacant),

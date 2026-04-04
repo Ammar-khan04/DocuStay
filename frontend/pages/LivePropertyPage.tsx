@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   authApi,
   dashboardApi,
+  propertiesApi,
   publicApi,
   resolveBackendMediaUrl,
   type LiveCurrentGuestInfo,
@@ -10,6 +11,7 @@ import {
   type LivePropertyManagerInfo,
   type LivePropertyPagePayload,
   type LiveTenantAssignmentInfo,
+  type OwnerTenantView,
   type UserSession,
   isPropertyTenantInviteKind,
 } from '../services/api';
@@ -79,6 +81,27 @@ function dedupeLiveTenantAssignments(rows: LiveTenantAssignmentInfo[]): LiveTena
     out.push(row);
   }
   return out;
+}
+
+/** Map owner dashboard tenant row to live-page assignment shape. Display-only; not used for authorization. */
+function ownerTenantViewToLiveAssignmentInfo(row: OwnerTenantView): LiveTenantAssignmentInfo {
+  const created = row.created_at || new Date().toISOString();
+  const start =
+    (row.start_date && row.start_date.trim()) ||
+    (created.includes('T') ? created.split('T')[0] : created) ||
+    new Date().toISOString().split('T')[0];
+  return {
+    assignment_id: row.id > 0 ? row.id : null,
+    stay_id: null,
+    unit_label: (row.unit_label && row.unit_label.trim()) || '—',
+    tenant_full_name: row.tenant_name || null,
+    tenant_email: row.tenant_email || null,
+    start_date: start,
+    end_date: row.end_date ?? null,
+    created_at: created,
+    lease_cohort_id: row.lease_cohort_id ?? null,
+    lease_cohort_member_count: row.cohort_member_count ?? null,
+  };
 }
 
 function tenantRowMatchesViewer(row: LiveTenantAssignmentInfo, viewer: UserSession): boolean {
@@ -292,6 +315,8 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const [error, setError] = useState<string | null>(null);
   const [viewerSession, setViewerSession] = useState<UserSession | null>(null);
   const [tenantDashboardLeaseRow, setTenantDashboardLeaseRow] = useState<TenantDashboardUnitLeaseRow | null>(null);
+  /** Owner dashboard tenant rows for this live slug's property; null = not loading / N/A. Used for display only. */
+  const [ownerDashboardRowsForLive, setOwnerDashboardRowsForLive] = useState<OwnerTenantView[] | null>(null);
 
   useEffect(() => {
     if (!slug) {
@@ -347,6 +372,37 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
       cancelled = true;
     };
   }, [slug, viewerSession?.user_type]);
+
+  useEffect(() => {
+    const o = data?.owner as (LiveOwnerInfo & { Email?: string }) | undefined;
+    const ownerNorm = typeof o?.email === 'string' ? o.email.trim() : typeof o?.Email === 'string' ? o.Email.trim() : '';
+    const owns =
+      viewerSession?.user_type === 'PROPERTY_OWNER' &&
+      ownerNorm.length > 0 &&
+      normalizeEmail(viewerSession.email) === normalizeEmail(ownerNorm);
+    // While a new slug is loading, `data` may still be from the previous page — do not merge owner rows.
+    if (!data || !slug || loading || !owns || !authApi.getToken()) {
+      setOwnerDashboardRowsForLive(null);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([propertiesApi.list(), dashboardApi.ownerTenants()])
+      .then(([properties, tenants]) => {
+        if (cancelled) return;
+        const propId = properties.find((p) => (p.live_slug || '').trim() === slug.trim())?.id;
+        if (propId == null) {
+          setOwnerDashboardRowsForLive([]);
+          return;
+        }
+        setOwnerDashboardRowsForLive(tenants.filter((t) => t.property_id === propId));
+      })
+      .catch(() => {
+        if (!cancelled) setOwnerDashboardRowsForLive(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, viewerSession, data, loading]);
 
   const viewerIsGuest = viewerSession?.user_type === 'GUEST';
   const viewerIsOwner = viewerSession?.user_type === 'PROPERTY_OWNER';
@@ -480,8 +536,21 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const authLabel = authDisplay(resolvedAuthorizationState);
   const propertySummaryLine = [prop.name || '', address].filter(Boolean).join(' — ') || address || '—';
 
+  const viewerOwnsLiveProperty =
+    viewerIsOwner &&
+    !!ownerEmailNormalized &&
+    !!viewerSession &&
+    normalizeEmail(viewerSession.email) === normalizeEmail(ownerEmailNormalized);
+  const baseAssignmentsForDisplay =
+    viewerOwnsLiveProperty && ownerDashboardRowsForLive !== null
+      ? dedupeLiveTenantAssignments([
+          ...currentTenantAssignments,
+          ...ownerDashboardRowsForLive.map(ownerTenantViewToLiveAssignmentInfo),
+        ])
+      : currentTenantAssignments;
+
   const displayTenantAssignments = buildDisplayTenantAssignmentsForTenantLivePage(
-    currentTenantAssignments,
+    baseAssignmentsForDisplay,
     viewerSession,
     slug,
     tenantDashboardLeaseRow,
