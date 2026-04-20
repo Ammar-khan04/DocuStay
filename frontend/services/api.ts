@@ -610,6 +610,7 @@ export interface OwnerInvitationView {
   stay_end_date: string;
   region_code: string;
   status: string;
+  invitation_kind?: string;
   /** Token state: STAGED | BURNED | EXPIRED | REVOKED */
   token_state?: string;
   created_at: string | null;
@@ -788,6 +789,10 @@ export interface LivePropertyInfo {
   token_state?: string;
   tax_id?: string | null;
   apn?: string | null;
+  /** Owner-listed primary residence (dashboard personal mode); public live page uses plain wording. */
+  owner_occupied?: boolean;
+  /** Why occupancy reads as it does: guest stay vs tenant lease vs owner residence. */
+  occupancy_summary_detail?: string;
 }
 
 export interface LiveOwnerInfo {

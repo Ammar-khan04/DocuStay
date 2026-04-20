@@ -121,11 +121,8 @@ def _unit_has_in_window_tenant_invitation(db: Session, unit_id: int, today: date
     )
 
 
-def is_unit_effectively_occupied(db: Session, unit: Unit) -> bool:
-    """True if the unit is occupied (stored status) or has an on-site resident (ResidentMode)."""
-    if (unit.occupancy_status or "").lower() == OccupancyStatus.occupied.value:
-        return True
-    today = date.today()
+def _unit_occupied_by_lease_invite_resident_or_stay(db: Session, unit: Unit, today: date) -> bool:
+    """Occupied for reasons other than the Unit.occupancy_status column (active lease, in-window tenant invite, manager resident, checked-in stay)."""
     has_active_tenant_assignment = (
         db.query(TenantAssignment)
         .filter(
@@ -144,40 +141,6 @@ def is_unit_effectively_occupied(db: Session, unit: Unit) -> bool:
         return True
     if _unit_has_in_window_tenant_invitation(db, unit.id, today):
         return True
-    return (
-        db.query(ResidentMode)
-        .filter(
-            ResidentMode.unit_id == unit.id,
-            ResidentMode.mode == ResidentModeType.manager_personal,
-        )
-        .first()
-        is not None
-    )
-
-
-def get_unit_display_occupancy_status(db: Session, unit: Unit) -> str:
-    """Return the occupancy status to display for a unit (owner or manager view)."""
-    if (unit.occupancy_status or "").lower() == OccupancyStatus.occupied.value:
-        return OccupancyStatus.occupied.value
-    today = date.today()
-    has_active_tenant_assignment = (
-        db.query(TenantAssignment)
-        .filter(
-            TenantAssignment.unit_id == unit.id,
-            TenantAssignment.start_date.isnot(None),
-            TenantAssignment.start_date <= today,
-            or_(
-                TenantAssignment.end_date.is_(None),
-                TenantAssignment.end_date >= today,
-            ),
-        )
-        .first()
-        is not None
-    )
-    if has_active_tenant_assignment:
-        return OccupancyStatus.occupied.value
-    if _unit_has_in_window_tenant_invitation(db, unit.id, today):
-        return OccupancyStatus.occupied.value
     if (
         db.query(ResidentMode)
         .filter(
@@ -187,6 +150,50 @@ def get_unit_display_occupancy_status(db: Session, unit: Unit) -> str:
         .first()
         is not None
     ):
+        return True
+    return (
+        db.query(Stay.id)
+        .filter(
+            Stay.unit_id == unit.id,
+            Stay.checked_in_at.isnot(None),
+            Stay.checked_out_at.is_(None),
+            Stay.cancelled_at.is_(None),
+        )
+        .first()
+        is not None
+    )
+
+
+def clear_stored_unit_occupied_without_lease_or_stay(db: Session, property_id: int) -> None:
+    """Drop stored ``occupied`` on units that only reflected owner primary residence (no lease, invite, manager stay, or guest check-in).
+
+    Called when ``owner_occupied`` is turned off so property-level reconcile matches business-mode expectations.
+    """
+    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    if not units:
+        return
+    today = date.today()
+    for u in units:
+        if (u.occupancy_status or "").lower() != OccupancyStatus.occupied.value:
+            continue
+        if _unit_occupied_by_lease_invite_resident_or_stay(db, u, today):
+            continue
+        u.occupancy_status = OccupancyStatus.vacant.value
+
+
+def is_unit_effectively_occupied(db: Session, unit: Unit) -> bool:
+    """True if the unit is occupied (stored status) or has an on-site resident (ResidentMode)."""
+    if (unit.occupancy_status or "").lower() == OccupancyStatus.occupied.value:
+        return True
+    return _unit_occupied_by_lease_invite_resident_or_stay(db, unit, date.today())
+
+
+def get_unit_display_occupancy_status(db: Session, unit: Unit) -> str:
+    """Return the occupancy status to display for a unit (owner or manager view)."""
+    if (unit.occupancy_status or "").lower() == OccupancyStatus.occupied.value:
+        return OccupancyStatus.occupied.value
+    today = date.today()
+    if _unit_occupied_by_lease_invite_resident_or_stay(db, unit, today):
         return OccupancyStatus.occupied.value
     return normalize_occupancy_status_for_display(
         db,
@@ -454,6 +461,8 @@ def get_units_occupancy_sources(
             db.query(TenantAssignment)
             .filter(
                 TenantAssignment.unit_id.in_(still_empty),
+                TenantAssignment.start_date.isnot(None),
+                TenantAssignment.start_date <= today,
                 or_(
                     TenantAssignment.end_date.is_(None),
                     TenantAssignment.end_date >= today,

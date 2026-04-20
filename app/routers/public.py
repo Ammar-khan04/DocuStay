@@ -154,6 +154,79 @@ def _stay_kind_for_live(inv_map: dict[int, Invitation], stay: Stay) -> str:
     return "tenant" if is_property_invited_tenant_signup_kind(kind) else "guest"
 
 
+def _live_occupancy_summary_detail(
+    db: Session,
+    prop: Property,
+    display_occupancy: str,
+    active_stays: list[Stay],
+    tenant_assignment_rows: list[LiveTenantAssignmentInfo],
+) -> str:
+    """One or two sentences for the public live page: why status is occupied/vacant (owner residence vs guest vs tenant)."""
+    occ = (display_occupancy or "unknown").strip().lower()
+    owner_occ = bool(getattr(prop, "owner_occupied", False))
+    inv_map = _invitation_map_for_stays(db, active_stays)
+    n_tenant_stay = sum(1 for s in active_stays if _stay_kind_for_live(inv_map, s) == "tenant")
+    n_guest_stay = len(active_stays) - n_tenant_stay
+    n_assign = len(tenant_assignment_rows or [])
+
+    if occ == "vacant":
+        if n_guest_stay or n_tenant_stay:
+            return (
+                "Vacant on the property record while checked-in authorization(s) still appear on this page — "
+                "verify the Current guest section below."
+            )
+        if n_assign:
+            return (
+                "Vacant on the property record while tenant assignment row(s) still appear below — "
+                "verify dates and unit against your records."
+            )
+        return "Vacant — no checked-in guest authorization or active tenant assignment is shown on this page."
+
+    if occ == "unconfirmed":
+        return (
+            "Unconfirmed — occupancy has not been confirmed on the property record. "
+            "Use invitation states and the audit timeline below to verify."
+        )
+
+    if occ == "unknown":
+        return "Unknown — occupancy has not been classified on the property record."
+
+    # occupied (or any other non-vacant display string): explain drivers
+    bits: list[str] = []
+    if n_guest_stay:
+        bits.append(
+            f"{n_guest_stay} active guest authorization{'s' if n_guest_stay != 1 else ''} (checked-in stay)"
+        )
+    if n_tenant_stay:
+        bits.append(
+            f"{n_tenant_stay} active tenant stay{'s' if n_tenant_stay != 1 else ''} (checked-in)"
+        )
+    if n_assign and (n_guest_stay + n_tenant_stay) == 0:
+        bits.append(
+            f"active tenant assignment{'s' if n_assign != 1 else ''} on file ({n_assign})"
+        )
+
+    if bits:
+        lead = "Occupied — " + "; ".join(bits) + "."
+        tail = (
+            " The owner has also listed this address as a primary residence on file."
+            if owner_occ
+            else " See Current guest and tenant sections below for names and dates."
+        )
+        return lead + tail
+
+    if owner_occ:
+        return (
+            "Occupied — owner primary residence. The owner has listed this address as a primary residence on file. "
+            "No checked-in guest stay or tenant assignment appears on this page."
+        )
+
+    return (
+        "Occupied on the property record — no checked-in guest stay or tenant assignment appears on this page. "
+        "Verify invitation states and the audit timeline below."
+    )
+
+
 def _live_guest_info_rows(db: Session, slug: str, stays: list[Stay]) -> list[LiveCurrentGuestInfo]:
     inv_map = _invitation_map_for_stays(db, stays)
     rows: list[LiveCurrentGuestInfo] = []
@@ -433,6 +506,7 @@ def get_live_property_page(
     token_state = getattr(prop, "usat_token_state", None) or "staged"
     units_for_live = db.query(Unit).filter(Unit.property_id == prop.id).all()
     display_occupancy = get_property_display_occupancy_status(db, prop, units_for_live)
+    owner_occ_flag = bool(getattr(prop, "owner_occupied", False))
     prop_info = LivePropertyInfo(
         name=prop.name,
         street=prop.street,
@@ -445,6 +519,8 @@ def get_live_property_page(
         token_state=token_state,
         tax_id=getattr(prop, "tax_id", None) or None,
         apn=getattr(prop, "apn", None) or None,
+        owner_occupied=owner_occ_flag,
+        occupancy_summary_detail="",
     )
 
     # Jurisdictional wrap: applicable law for this property (zip → region → statutes)
@@ -556,6 +632,11 @@ def get_live_property_page(
     tenant_summary_assignee, tenant_summary_assignment_period = _tenant_summary_strip(current_tenant_assignments)
     if personalized is not None:
         current_tenant_assignments, tenant_summary_assignee, tenant_summary_assignment_period = personalized
+
+    occ_summary = _live_occupancy_summary_detail(
+        db, prop, display_occupancy, current_stays_live, current_tenant_assignments
+    )
+    prop_info = prop_info.model_copy(update={"occupancy_summary_detail": occ_summary})
 
     if current_stays_live:
         cg_rows = _live_guest_info_rows(db, slug, current_stays_live)

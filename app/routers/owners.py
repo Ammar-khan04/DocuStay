@@ -132,6 +132,7 @@ from app.services.occupancy import (
     get_units_occupancy_display,
     count_effectively_occupied_units,
     normalize_occupancy_status_for_display,
+    clear_stored_unit_occupied_without_lease_or_stay,
 )
 
 router = APIRouter(prefix="/owners", tags=["owners"])
@@ -702,12 +703,20 @@ def _next_auto_unit_label(existing_labels: set[str]) -> str:
 
 
 def _mark_unit_occupied_after_csv_tenant_invite(db: Session, unit_id: int | None) -> None:
-    """Ensure the unit row reflects tenant occupancy after a CSV primary tenant invite (may reuse a unit created as vacant/unknown)."""
+    """Do not force occupied on CSV invite creation.
+
+    Occupancy turns occupied only after acceptance and an in-window lease period.
+    """
     if unit_id is None or unit_id <= 0:
         return
     u = db.query(Unit).filter(Unit.id == unit_id).first()
     if u:
-        u.occupancy_status = OccupancyStatus.occupied.value
+        if (u.occupancy_status or "").lower() not in (
+            OccupancyStatus.vacant.value,
+            OccupancyStatus.unconfirmed.value,
+            OccupancyStatus.unknown.value,
+        ):
+            u.occupancy_status = OccupancyStatus.vacant.value
 
 
 # Tenant 2..12 on CSV: shared-lease co-tenants (same as owner invite "co-tenant" flow).
@@ -1040,20 +1049,27 @@ def bulk_upload_properties(
             except ValueError:
                 pass
 
-        if occupied:
+        lease_start = None
+        lease_end = None
+        has_tenant_lease_data = bool(
+            (tenant_name or "").strip()
+            or (lease_start_str or "").strip()
+            or (lease_end_str or "").strip()
+        )
+        if has_tenant_lease_data:
             if not (tenant_name or "").strip():
                 failed_from_row = row_num
-                failure_reason = "When Occupied=YES, Tenant Name is required."
+                failure_reason = "Tenant Name is required when lease data is provided."
                 break
             lease_start = _parse_date_cell(lease_start_str)
             lease_end = _parse_date_cell(lease_end_str)
             if not lease_start:
                 failed_from_row = row_num
-                failure_reason = "When Occupied=YES, Lease Start is required (e.g. YYYY-MM-DD)."
+                failure_reason = "Lease Start is required when tenant lease data is provided (e.g. YYYY-MM-DD)."
                 break
             if not lease_end:
                 failed_from_row = row_num
-                failure_reason = "When Occupied=YES, Lease End is required (e.g. YYYY-MM-DD)."
+                failure_reason = "Lease End is required when tenant lease data is provided (e.g. YYYY-MM-DD)."
                 break
             if lease_end <= lease_start:
                 failed_from_row = row_num
@@ -1095,7 +1111,7 @@ def bulk_upload_properties(
         if existing_match is None:
             # Primary residence: from primary_residence column, or when primary_unit_val is set for multi-unit
             owner_occ = primary_residence or (primary_unit_val is not None and primary_unit_val >= 1)
-            occ_status = OccupancyStatus.occupied.value if (occupied or owner_occ) else OccupancyStatus.vacant.value
+            occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
             prop = Property(
                 owner_profile_id=profile.id,
                 name=prop_name,
@@ -1164,7 +1180,7 @@ def bulk_upload_properties(
                 ip_address=request.client.host if request.client else None,
                 user_agent=(request.headers.get("user-agent") or "").strip() or None,
             )
-            if occupied and (tenant_name or "").strip():
+            if (tenant_name or "").strip() and lease_start and lease_end:
                 inv_code = "INV-" + secrets.token_hex(4).upper()
                 inv_unit_id: int | None = None
                 treat_as_multi_unit = bool(group_counts.get(key, 0) > 1 or (unit_no or "").strip() or (occupied_unit_raw or "").strip())
@@ -1179,7 +1195,7 @@ def bulk_upload_properties(
                         u = Unit(
                             property_id=prop.id,
                             unit_label=unit_label,
-                            occupancy_status=OccupancyStatus.occupied.value,
+                            occupancy_status=OccupancyStatus.vacant.value,
                             is_primary_residence=0,
                         )
                         db.add(u)
@@ -1191,7 +1207,7 @@ def bulk_upload_properties(
                     if existing_units:
                         inv_unit_id = existing_units[0].id
                     else:
-                        auto_unit = Unit(property_id=prop.id, unit_label="1", occupancy_status=OccupancyStatus.occupied.value)
+                        auto_unit = Unit(property_id=prop.id, unit_label="1", occupancy_status=OccupancyStatus.vacant.value)
                         db.add(auto_unit)
                         db.flush()
                         inv_unit_id = auto_unit.id
@@ -1282,7 +1298,7 @@ def bulk_upload_properties(
         else:
             # Primary residence (owner-occupied) implies unit is occupied; same as tenant Occupied=YES
             owner_occ = primary_residence
-            new_occ_status = OccupancyStatus.occupied.value if (occupied or owner_occ) else OccupancyStatus.vacant.value
+            new_occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
             updates: dict[str, object] = {}
             if (existing_match.name or "").strip() != address_as_name:
                 # Preserve provided name; only fall back to address_as_name when CSV provides none.
@@ -1361,7 +1377,7 @@ def bulk_upload_properties(
                     user_agent=(request.headers.get("user-agent") or "").strip() or None,
                 )
             # When updating to occupied with tenant info, create invite (pending, STAGED) if none exists for this unit+tenant+dates
-            if occupied and (tenant_name or "").strip() and lease_start and lease_end:
+            if (tenant_name or "").strip() and lease_start and lease_end:
                 # Allow past lease start for existing tenancies
                 inv_code = "INV-" + secrets.token_hex(4).upper()
                 inv_unit_id_upd: int | None = None
@@ -1377,7 +1393,7 @@ def bulk_upload_properties(
                         u = Unit(
                             property_id=existing_match.id,
                             unit_label=unit_label,
-                            occupancy_status=OccupancyStatus.occupied.value,
+                            occupancy_status=OccupancyStatus.vacant.value,
                             is_primary_residence=0,
                         )
                         db.add(u)
@@ -1392,7 +1408,7 @@ def bulk_upload_properties(
                     if existing_units:
                         inv_unit_id_upd = existing_units[0].id
                     else:
-                        auto_unit = Unit(property_id=existing_match.id, unit_label="1", occupancy_status=OccupancyStatus.occupied.value)
+                        auto_unit = Unit(property_id=existing_match.id, unit_label="1", occupancy_status=OccupancyStatus.vacant.value)
                         db.add(auto_unit)
                         db.flush()
                         inv_unit_id_upd = auto_unit.id
@@ -1509,7 +1525,7 @@ def bulk_upload_properties(
                 u = Unit(
                     property_id=prop_for_units.id,
                     unit_label=unit_label,
-                    occupancy_status=OccupancyStatus.occupied.value if occupied else OccupancyStatus.vacant.value,
+                    occupancy_status=OccupancyStatus.vacant.value,
                     is_primary_residence=0,
                 )
                 db.add(u)
@@ -1734,20 +1750,27 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
             )
             treat_as_multi_unit = bool(group_counts.get(key, 0) > 1 or (unit_no or "").strip() or (occupied_unit_raw or "").strip())
 
-            if occupied:
+            lease_start = None
+            lease_end = None
+            has_tenant_lease_data = bool(
+                (tenant_name or "").strip()
+                or (lease_start_str or "").strip()
+                or (lease_end_str or "").strip()
+            )
+            if has_tenant_lease_data:
                 if not (tenant_name or "").strip():
                     failed_from_row = row_num
-                    failure_reason = "When Occupied=YES, Tenant Name is required."
+                    failure_reason = "Tenant Name is required when lease data is provided."
                     break
                 lease_start = _parse_date_cell(lease_start_str)
                 lease_end = _parse_date_cell(lease_end_str)
                 if not lease_start:
                     failed_from_row = row_num
-                    failure_reason = "When Occupied=YES, Lease Start is required (e.g. YYYY-MM-DD)."
+                    failure_reason = "Lease Start is required when tenant lease data is provided (e.g. YYYY-MM-DD)."
                     break
                 if not lease_end:
                     failed_from_row = row_num
-                    failure_reason = "When Occupied=YES, Lease End is required (e.g. YYYY-MM-DD)."
+                    failure_reason = "Lease End is required when tenant lease data is provided (e.g. YYYY-MM-DD)."
                     break
                 if lease_end <= lease_start:
                     failed_from_row = row_num
@@ -1776,7 +1799,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
 
             if existing_match is None:
                 owner_occ = primary_residence
-                occ_status = OccupancyStatus.occupied.value if (occupied or owner_occ) else OccupancyStatus.vacant.value
+                occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
                 prop = Property(
                     owner_profile_id=profile.id,
                     name=prop_name,
@@ -1832,7 +1855,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         occupancy_status=str(occ_status) if occ_status else None,
                     ),
                 )
-                if occupied and (tenant_name or "").strip():
+                if (tenant_name or "").strip() and lease_start and lease_end:
                     inv_code = "INV-" + secrets.token_hex(4).upper()
                     inv_unit_id: int | None = None
                     if treat_as_multi_unit:
@@ -1843,7 +1866,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         preferred_label = (occupied_unit_raw or unit_no or "").strip()
                         unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
                         if unit_label not in label_map:
-                            u = Unit(property_id=prop.id, unit_label=unit_label, occupancy_status=OccupancyStatus.occupied.value)
+                            u = Unit(property_id=prop.id, unit_label=unit_label, occupancy_status=OccupancyStatus.vacant.value)
                             db.add(u)
                             db.flush()
                             label_map[unit_label] = int(u.id)
@@ -1856,7 +1879,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         if existing_units:
                             inv_unit_id = existing_units[0].id
                         else:
-                            auto_unit = Unit(property_id=prop.id, unit_label="1", occupancy_status=OccupancyStatus.occupied.value)
+                            auto_unit = Unit(property_id=prop.id, unit_label="1", occupancy_status=OccupancyStatus.vacant.value)
                             db.add(auto_unit)
                             db.flush()
                             inv_unit_id = auto_unit.id
@@ -1943,7 +1966,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
             else:
                 # Update existing property fields (same logic as sync bulk upload)
                 owner_occ = primary_residence
-                new_occ_status = OccupancyStatus.occupied.value if (occupied or owner_occ) else OccupancyStatus.vacant.value
+                new_occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
                 updates: dict[str, object] = {}
                 if (existing_match.name or "").strip() != prop_name:
                     updates["name"] = prop_name
@@ -2018,7 +2041,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     )
 
                 # Create invitation for occupied tenant on update (with duplicate check)
-                if occupied and (tenant_name or "").strip() and lease_start and lease_end:
+                if (tenant_name or "").strip() and lease_start and lease_end:
                     inv_code = "INV-" + secrets.token_hex(4).upper()
                     inv_unit_id_upd: int | None = None
                     if treat_as_multi_unit:
@@ -2029,7 +2052,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         preferred_label = (occupied_unit_raw or unit_no or "").strip()
                         unit_label = preferred_label if preferred_label else _next_auto_unit_label(set(label_map.keys()))
                         if unit_label not in label_map:
-                            u = Unit(property_id=existing_match.id, unit_label=unit_label, occupancy_status=OccupancyStatus.occupied.value)
+                            u = Unit(property_id=existing_match.id, unit_label=unit_label, occupancy_status=OccupancyStatus.vacant.value)
                             db.add(u)
                             db.flush()
                             label_map[unit_label] = int(u.id)
@@ -2043,7 +2066,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         if existing_units:
                             inv_unit_id_upd = existing_units[0].id
                         else:
-                            auto_unit = Unit(property_id=existing_match.id, unit_label="1", occupancy_status=OccupancyStatus.occupied.value)
+                            auto_unit = Unit(property_id=existing_match.id, unit_label="1", occupancy_status=OccupancyStatus.vacant.value)
                             db.add(auto_unit)
                             db.flush()
                             inv_unit_id_upd = auto_unit.id
@@ -2154,7 +2177,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     u = Unit(
                         property_id=existing_match.id,
                         unit_label=unit_label,
-                        occupancy_status=OccupancyStatus.occupied.value if occupied else OccupancyStatus.vacant.value,
+                        occupancy_status=OccupancyStatus.vacant.value,
                         is_primary_residence=0,
                     )
                     db.add(u)
@@ -3557,6 +3580,83 @@ def _ensure_primary_unit_for_owner_occupied_multi(db: Session, prop: Property) -
     units_list[0].is_primary_residence = 1
 
 
+def _reconcile_property_occupancy_after_mutation(db: Session, prop: Property) -> None:
+    """Align Property.occupancy_status with effective unit occupancy (clears stale ``occupied`` rows)."""
+    clear_stored_unit_occupied_without_lease_or_stay(db, prop.id)
+    units = db.query(Unit).filter(Unit.property_id == prop.id).all()
+    occ_count = count_effectively_occupied_units(db, units) if units else 0
+    eff = get_property_display_occupancy_status(db, prop, units)
+    if occ_count == 0 and (eff or "").lower() == OccupancyStatus.occupied.value:
+        eff = normalize_occupancy_status_for_display(db, prop.id, None, OccupancyStatus.vacant.value)
+    prop.occupancy_status = eff
+
+
+def _property_update_triggering_events(changes_meta: dict, context_mode: str) -> list[dict]:
+    """Structured narrative for audit/ledger: why fields changed, not only raw deltas (e.g. personal residency)."""
+    ctx = (context_mode or "business").strip().lower()
+    if ctx not in ("business", "personal"):
+        ctx = "business"
+    events: list[dict] = []
+
+    if "owner_occupied" in changes_meta:
+        cm = changes_meta["owner_occupied"]
+        prev_b = bool(cm.get("old"))
+        next_b = bool(cm.get("new"))
+        ctx_note = (
+            "Dashboard context at save: Personal mode."
+            if ctx == "personal"
+            else "Dashboard context at save: Business mode."
+        )
+        if next_b and not prev_b:
+            occ_note = ""
+            if "occupancy_status" in changes_meta:
+                occ_note = (
+                    f" Occupancy set to {changes_meta['occupancy_status'].get('new')!s} as part of this update."
+                )
+            events.append(
+                {
+                    "event": "primary_residence_listing_enabled",
+                    "summary": (
+                        "Owner enabled primary residence listing (this property is flagged as the owner's residence "
+                        "for personal use). "
+                        + ctx_note
+                        + occ_note
+                    ).strip(),
+                }
+            )
+        elif prev_b and not next_b:
+            occ_note = ""
+            if "occupancy_status" in changes_meta:
+                occ_note = (
+                    f" Occupancy reconciled to {changes_meta['occupancy_status'].get('new')!s} using guest, tenant, "
+                    "and unit records (no standalone owner-occupancy hold)."
+                )
+            events.append(
+                {
+                    "event": "primary_residence_listing_disabled",
+                    "summary": (
+                        "Owner disabled primary residence listing (property no longer flagged as owner's personal "
+                        "residence listing). "
+                        + ctx_note
+                        + occ_note
+                    ).strip(),
+                }
+            )
+
+    if "occupancy_status" in changes_meta and "owner_occupied" not in changes_meta:
+        events.append(
+            {
+                "event": "occupancy_status_reconciled",
+                "summary": (
+                    "Occupancy status changed to match effective guest stays, tenant assignments, and unit occupancy "
+                    "(not triggered by primary residence listing toggle on this save)."
+                ),
+            }
+        )
+
+    return events
+
+
 @router.put("/properties/{property_id}", response_model=PropertyResponse)
 def update_property(
     request: Request,
@@ -3564,7 +3664,7 @@ def update_property(
     data: PropertyUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_owner_onboarding_complete),
-    _context_mode: str = Depends(get_context_mode),
+    context_mode: str = Depends(get_context_mode),
 ):
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
@@ -3590,9 +3690,6 @@ def update_property(
         prop.owner_occupied = data.owner_occupied
     if data.is_primary_residence is not None and data.owner_occupied is None:
         prop.owner_occupied = data.is_primary_residence
-    # When property is marked as Primary Residence (owner-occupied), unit status is Occupied
-    if prop.owner_occupied:
-        prop.occupancy_status = OccupancyStatus.occupied.value
     if data.property_type_enum is not None:
         prop.property_type = data.property_type_enum
     if data.property_type is not None:
@@ -3619,7 +3716,6 @@ def update_property(
             db.add(u)
         if primary_unit_idx is not None and primary_unit_idx >= 1:
             prop.owner_occupied = True
-            prop.occupancy_status = OccupancyStatus.occupied.value
         else:
             prop.owner_occupied = False
     # Multi-unit: update unit count, labels, and/or primary residence unit
@@ -3683,6 +3779,10 @@ def update_property(
         prop.shield_mode_enabled = 1
 
     _ensure_primary_unit_for_owner_occupied_multi(db, prop)
+    if prop.owner_occupied:
+        prop.occupancy_status = OccupancyStatus.occupied.value
+    else:
+        _reconcile_property_occupancy_after_mutation(db, prop)
 
     new = _snapshot_property(prop)
     changes = []
@@ -3709,19 +3809,36 @@ def update_property(
         property_name = (prop.name or "").strip() or property_address or f"Property {property_id}"
         if not property_address:
             property_address = property_name
+        triggering_events = _property_update_triggering_events(changes_meta, context_mode)
+        trigger_summaries = [e.get("summary", "").strip() for e in triggering_events if e.get("summary")]
+        trigger_prefix = (
+            " Triggering event(s): " + " | ".join(trigger_summaries) if trigger_summaries else ""
+        )
+        audit_meta = {
+            "property_id": property_id,
+            "property_name": property_address,
+            "changes": changes_meta,
+            "context_mode_at_save": context_mode,
+            "triggering_events": triggering_events,
+        }
         create_log(
             db,
             CATEGORY_STATUS_CHANGE,
             "Property updated",
-            f"Owner updated property: {property_address} (id={property_id}). Changes: " + "; ".join(changes),
+            f"Owner updated property: {property_address} (id={property_id}).{trigger_prefix} Field changes: "
+            + "; ".join(changes),
             property_id=prop.id,
             actor_user_id=current_user.id,
             actor_email=current_user.email,
             ip_address=ip,
             user_agent=ua,
-            meta={"property_id": property_id, "property_name": property_address, "changes": changes_meta},
+            meta=audit_meta,
         )
         changes_summary = "; ".join(changes) if changes else "details updated"
+        ledger_message = f"Property updated: {property_address}."
+        if trigger_summaries:
+            ledger_message += " " + " ".join(trigger_summaries)
+        ledger_message += f" Field changes: {changes_summary}"
         create_ledger_event(
             db,
             ACTION_PROPERTY_UPDATED,
@@ -3735,7 +3852,9 @@ def update_property(
                 "property_id": property_id,
                 "property_name": property_address,
                 "changes": changes_meta,
-                "message": f"Property updated: {property_address}. Change made: {changes_summary}",
+                "context_mode_at_save": context_mode,
+                "triggering_events": triggering_events,
+                "message": ledger_message,
             },
             ip_address=ip,
             user_agent=ua,
@@ -4332,7 +4451,7 @@ def owner_invite_tenant_by_property(
     if units:
         unit = units[0]
     else:
-        unit = Unit(property_id=property_id, unit_label="1", occupancy_status=OccupancyStatus.occupied.value)
+        unit = Unit(property_id=property_id, unit_label="1", occupancy_status=OccupancyStatus.vacant.value)
         db.add(unit)
         db.flush()
     tenant_name = (data.tenant_name or "").strip()
@@ -4376,8 +4495,8 @@ def owner_invite_tenant_by_property(
         purpose_of_stay=PurposeOfStay.other,
         relationship_to_owner=RelationshipToOwner.other,
         region_code=prop.region_code,
-        status="accepted",
-        token_state="BURNED",
+        status="pending",
+        token_state="STAGED",
         invitation_kind=inv_kind,
         dead_mans_switch_enabled=1,
         dead_mans_switch_alert_email=1,
@@ -4481,8 +4600,8 @@ def owner_invite_tenant(
         purpose_of_stay=PurposeOfStay.other,
         relationship_to_owner=RelationshipToOwner.other,
         region_code=prop.region_code,
-        status="accepted",
-        token_state="BURNED",
+        status="pending",
+        token_state="STAGED",
         invitation_kind=inv_kind,
         dead_mans_switch_enabled=1,
         dead_mans_switch_alert_email=1,

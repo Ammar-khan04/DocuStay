@@ -47,6 +47,10 @@ class LivePropertyInfo(BaseModel):
     token_state: str = "staged"  # staged | released – for Quick Decision layer
     tax_id: str | None = None
     apn: str | None = None
+    # Owner primary residence (dashboard “personal” / show in personal mode). Public wording avoids internal mode names.
+    owner_occupied: bool = False
+    # Plain-language explanation of why occupancy reads as it does (guest vs tenant vs owner residence).
+    occupancy_summary_detail: str = ""
 
 
 class LiveOwnerInfo(BaseModel):

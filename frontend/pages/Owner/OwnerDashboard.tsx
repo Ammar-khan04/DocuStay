@@ -39,6 +39,11 @@ function canOfferLeaseExtension(t: OwnerTenantView): boolean {
   return t.id > 0 && (t.status === 'active' || t.status === 'accepted');
 }
 
+function isTenantInvitationKind(kind?: string | null): boolean {
+  const normalized = (kind || '').trim().toLowerCase();
+  return normalized === 'tenant' || normalized === 'tenant_cotenant' || normalized === 'tenant_extension';
+}
+
 /** Invite ID token state badge: displays Pending | Active | Expired | Revoked (maps from STAGED | BURNED | EXPIRED | REVOKED) */
 function TokenStateBadge({ tokenState }: { tokenState?: string | null }) {
   const state = (tokenState || 'STAGED').toUpperCase();
@@ -495,6 +500,10 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
   }, [activeTab, billing?.subscription_status]);
 
   const canInvite = billing?.can_invite !== false;
+  const invitationsForActiveMode = useMemo(
+    () => (contextMode === 'business' ? invitations.filter((inv) => isTenantInvitationKind(inv.invitation_kind)) : invitations),
+    [contextMode, invitations],
+  );
 
   const pendingTenantCount = useMemo(
     () => tenants.filter((t) => t.status === 'pending' || t.status === 'pending_signup').length,
@@ -883,8 +892,9 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
           </div>
         ) : activeTab === 'invitations' ? (
           <InvitationsTabContent
-            invitations={invitations}
-            stays={stays}
+            invitations={invitationsForActiveMode}
+            stays={contextMode === 'business' ? [] : stays}
+            showCancelledGuestStays={contextMode !== 'business'}
             loadData={loadData}
             notify={notify}
             showVerifyQR={true}

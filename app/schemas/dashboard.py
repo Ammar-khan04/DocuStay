@@ -20,6 +20,7 @@ class OwnerInvitationView(BaseModel):
     stay_end_date: date
     region_code: str
     status: str  # pending, accepted, active, expired, cancelled
+    invitation_kind: str = "guest"  # guest | tenant | tenant_cotenant | tenant_extension
     token_state: str = "STAGED"  # STAGED | BURNED | EXPIRED | REVOKED | CANCELLED
     created_at: datetime | None
     is_expired: bool = False  # True when pending and created_at older than 12 hours

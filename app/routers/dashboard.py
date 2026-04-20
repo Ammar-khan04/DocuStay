@@ -994,6 +994,8 @@ def owner_invitations(
             .order_by(Invitation.created_at.desc())
             .all()
         )
+        # Defensive guard for legacy rows: owner business-mode invitations must never include guest invites.
+        invs = [i for i in invs if is_property_invited_tenant_signup_kind(getattr(i, "invitation_kind", None))]
         invs = [i for i in invs if i.property_id in owned_ids]
         return _invitations_to_owner_views(invs, db, get_invitation_expire_cutoff, viewer_user_id=current_user.id)
     all_invs = db.query(Invitation).filter(Invitation.owner_id == current_user.id).order_by(Invitation.created_at.desc()).all()
@@ -1012,7 +1014,7 @@ def _invitations_to_owner_views(
     viewer_user_id: int,
 ) -> list:
     """Build OwnerInvitationView list from invitation list. Shared by owner and manager. Redacts guest PII when viewer is not the relationship owner."""
-    from app.services.state_resolver import resolve_invite_status
+    from app.services.state_resolver import resolve_invite_status, resolve_tenant_state
     threshold = get_invitation_expire_cutoff_fn()
     out = []
     for inv in invs:
@@ -1038,10 +1040,29 @@ def _invitations_to_owner_views(
         )
         is_tenant_inv = is_property_invited_tenant_signup_kind(getattr(inv, "invitation_kind", None))
         if is_tenant_inv:
-            # Tenant invites: unify "accepted" with existence of an assignment (legacy CSV may leave inv.status=pending).
-            has_assignment = db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).first() is not None
-            invite_status = resolve_invite_status(inv)
-            display_status = "accepted" if has_assignment else ("pending" if invite_status in ("pending", "unknown") else invite_status)
+            # Tenant invites: status follows lease-window rules.
+            # pending  -> invite not accepted yet
+            # accepted -> invite accepted but lease start is in the future
+            # active   -> invite accepted and today is inside [start, end]
+            # expired  -> lease window ended (or invite revoked/cancelled/expired)
+            matching_assignment = None
+            if inv.unit_id is not None and inv.stay_start_date is not None:
+                asg_q = db.query(TenantAssignment).filter(
+                    TenantAssignment.unit_id == inv.unit_id,
+                    TenantAssignment.start_date == inv.stay_start_date,
+                )
+                if inv.stay_end_date is None:
+                    asg_q = asg_q.filter(TenantAssignment.end_date.is_(None))
+                else:
+                    asg_q = asg_q.filter(TenantAssignment.end_date == inv.stay_end_date)
+                matching_assignment = asg_q.first()
+            resolved_tenant = resolve_tenant_state(
+                db,
+                tenant_assignment=matching_assignment,
+                tenant_invitation=inv,
+            )
+            assignment_status = resolved_tenant.assignment_status
+            display_status = assignment_status if assignment_status in ("pending", "accepted", "active", "expired") else "pending"
         else:
             has_stay = db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None
             token_state = (getattr(inv, "token_state", None) or "STAGED").upper()
@@ -1070,6 +1091,7 @@ def _invitations_to_owner_views(
                 stay_end_date=inv.stay_end_date,
                 region_code=inv.region_code,
                 status=display_status,
+                invitation_kind=(getattr(inv, "invitation_kind", None) or "guest").strip().lower(),
                 token_state=getattr(inv, "token_state", None) or "STAGED",
                 created_at=inv.created_at,
                 is_expired=is_expired,
@@ -1125,13 +1147,13 @@ def owner_cancel_invitation(
         raise HTTPException(status_code=403, detail="Tenant-invited guest data is private to the tenant. Only the tenant who created the invitation can cancel it.")
     if not is_owner and not is_inviter:
         raise HTTPException(status_code=403, detail="Only the property owner or the person who created the invitation can cancel it")
-    if inv.status not in ("pending", "ongoing", "accepted"):
-        if inv.status == "accepted":
+    if inv.status != "pending":
+        if inv.status in ("accepted", "ongoing", "active"):
             raise HTTPException(
                 status_code=400,
                 detail="This invitation was already accepted. Use “Revoke stay” on the guest’s authorization row instead of cancelling the invitation.",
             )
-        raise HTTPException(status_code=400, detail="Only pending or ongoing invitations can be cancelled.")
+        raise HTTPException(status_code=400, detail="Only pending invitations can be cancelled.")
     inv.status = "cancelled"
     prev_token = getattr(inv, "token_state", None) or "STAGED"
     inv.token_state = "REVOKED"

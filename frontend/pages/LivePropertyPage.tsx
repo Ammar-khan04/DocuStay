@@ -36,6 +36,81 @@ function statusDisplay(status: string): string {
   return 'UNKNOWN';
 }
 
+/** When the verified owner opens their own live link: occupancy copy is tenant vs owner residence only (no guest wording). */
+function buildOwnerOwnLiveOccupancyContext(
+  occupancyStatus: string | undefined,
+  ownerOccupied: boolean | undefined,
+  tenantCheckedInStayCount: number,
+  tenantAssignmentRowCount: number,
+): string {
+  const occ = (occupancyStatus || 'unknown').toLowerCase();
+  const ownerOcc = Boolean(ownerOccupied);
+
+  if (occ === 'vacant') {
+    if (tenantCheckedInStayCount > 0) {
+      return (
+        'Vacant on the property record while checked-in tenant stay(s) still appear on this page — ' +
+        'verify the tenant section below.'
+      );
+    }
+    if (tenantAssignmentRowCount > 0) {
+      return (
+        'Vacant on the property record while tenant assignment row(s) still appear below — ' +
+        'verify dates and unit against your records.'
+      );
+    }
+    return (
+      'Vacant — no active tenant assignment is shown on this page. ' +
+      'Any other occupancy activity is managed in your owner dashboard, not summarized here.'
+    );
+  }
+
+  if (occ === 'unconfirmed') {
+    return (
+      'Unconfirmed — occupancy has not been confirmed on the property record. ' +
+      'Use tenant invitation states and the audit timeline below to verify.'
+    );
+  }
+
+  if (occ === 'unknown') {
+    return 'Unknown — occupancy has not been classified on the property record.';
+  }
+
+  const bits: string[] = [];
+  if (tenantCheckedInStayCount > 0) {
+    bits.push(
+      `${tenantCheckedInStayCount} checked-in tenant stay${tenantCheckedInStayCount !== 1 ? 's' : ''}`,
+    );
+  }
+  if (tenantAssignmentRowCount > 0 && tenantCheckedInStayCount === 0) {
+    bits.push(
+      `active tenant assignment${tenantAssignmentRowCount !== 1 ? 's' : ''} on file (${tenantAssignmentRowCount})`,
+    );
+  }
+
+  if (bits.length > 0) {
+    let lead = `Occupied — ${bits.join('; ')}.`;
+    if (ownerOcc) {
+      lead += ' You have also listed this address as a primary residence on file.';
+    } else {
+      lead += ' See tenant sections below for names and dates.';
+    }
+    return lead;
+  }
+
+  if (ownerOcc) {
+    return (
+      'Occupied — owner primary residence. This address is listed as your primary residence on file. ' +
+      'No checked-in tenant stay or tenant assignment appears on this page.'
+    );
+  }
+
+  return (
+    'Occupied on the property record — no checked-in tenant stay or tenant assignment appears on this page. ' +
+    'Verify tenant invitation states and the audit timeline below.'
+  );
+}
+
 function tenantAssignmentDisplayName(row: LiveTenantAssignmentInfo): string {
   return (row.tenant_full_name || row.tenant_email || '—').trim() || '—';
 }
@@ -720,6 +795,15 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     slug,
     tenantDashboardLeaseRow,
   );
+  const apiOccupancySummaryDetail = (prop.occupancy_summary_detail || '').trim();
+  const occupancyContextDetail = ownerViewingOwnLivePage
+    ? buildOwnerOwnLiveOccupancyContext(
+        prop.occupancy_status,
+        prop.owner_occupied,
+        activeTenants.length,
+        displayTenantAssignments.length,
+      )
+    : apiOccupancySummaryDetail;
   const authLabel = resolveLivePageAuthorizationDisplay(viewerSession, invitations, activeGuests, {
     todayYmd: getTodayLocal(),
     tenantAssignmentRows: displayTenantAssignments,
@@ -843,6 +927,9 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                 >
                   {statusLabel}
                 </span>
+                {occupancyContextDetail ? (
+                  <p className="text-sm text-slate-600 mt-2 max-w-2xl leading-relaxed">{occupancyContextDetail}</p>
+                ) : null}
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500 mb-0.5">Authorization state</p>
@@ -1017,7 +1104,14 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
           <div className="p-6 sm:p-8 space-y-4">
             <div className="grid gap-x-6 gap-y-2 text-sm">
               <p><span className="font-semibold text-slate-700">Property:</span> {propertySummaryLine}</p>
-              <p><span className="font-semibold text-slate-700">Status:</span> {statusLabel}</p>
+              <p>
+                <span className="font-semibold text-slate-700">Status:</span> {statusLabel}
+              </p>
+              {occupancyContextDetail ? (
+                <p className="text-slate-600">
+                  <span className="font-semibold text-slate-700">Occupancy context:</span> {occupancyContextDetail}
+                </p>
+              ) : null}
               <p>
                 <span className="font-semibold text-slate-700">Owner email:</span>{' '}
                 <span className="break-all text-slate-800">{ownerEmailNormalized || '—'}</span>
@@ -1032,9 +1126,6 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                           parts.push(
                             `${activeTenants.length} active tenant stay${activeTenants.length > 1 ? 's' : ''} (see Tenant summary for assignments)`,
                           );
-                        }
-                        if (activeGuestsOnly.length > 0) {
-                          parts.push('guest activity managed in dashboard');
                         }
                         return parts.length > 0 ? parts.join('; ') : `Occupancy ${statusLabel}`;
                       })()
@@ -1146,28 +1237,61 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             <p className="text-sm text-slate-700 pt-1">
               {hasActiveOccupants ? (
                 <span>
-                  {activeTenants.length > 0 && activeGuestsOnly.length > 0
-                    ? 'Active tenant and guest assignments (current stays).'
-                    : activeTenants.length > 0
-                      ? activeTenants.length > 1
-                        ? 'Active tenant assignments (current stays).'
-                        : 'Active tenant assignment (current stay).'
-                      : activeGuests.length > 1
-                        ? 'Active guest assignments (current stays).'
-                        : 'Active guest assignment (current stay).'}{' '}
-                  Signed agreements on this page are only for these active authorizations; prior agreements appear in the audit timeline below.
+                  {ownerViewingOwnLivePage ? (
+                    activeTenants.length > 0 ? (
+                      <>
+                        {activeTenants.length > 1
+                          ? 'Active tenant assignments (current stays).'
+                          : 'Active tenant assignment (current stay).'}{' '}
+                        Signed agreements on this page are only for these active authorizations; prior agreements appear
+                        in the audit timeline below.
+                      </>
+                    ) : (
+                      <>
+                        Active occupancy on this property is managed in your owner dashboard; this summary shows tenant
+                        lease and residence-listing context only.{' '}
+                        Signed agreements on this page are only for active authorizations shown above; prior agreements
+                        appear in the audit timeline below.
+                      </>
+                    )
+                  ) : (
+                    <>
+                      {activeTenants.length > 0 && activeGuestsOnly.length > 0
+                        ? 'Active tenant and guest assignments (current stays).'
+                        : activeTenants.length > 0
+                          ? activeTenants.length > 1
+                            ? 'Active tenant assignments (current stays).'
+                            : 'Active tenant assignment (current stay).'
+                          : activeGuests.length > 1
+                            ? 'Active guest assignments (current stays).'
+                            : 'Active guest assignment (current stay).'}{' '}
+                      Signed agreements on this page are only for these active authorizations; prior agreements appear in
+                      the audit timeline below.
+                    </>
+                  )}
                 </span>
               ) : displayTenantAssignments.length > 0 ? (
                 <span>
                   Active tenant lease assignment(s) on file for this property (see Tenant summary).{' '}
-                  No guest-stay check-in is currently recorded on this live record.{' '}
-                  Prior activity appears in the audit timeline below.
+                  {ownerViewingOwnLivePage ? (
+                    <>
+                      No checked-in tenant stay is currently recorded on this live view. Prior activity appears in the
+                      audit timeline below.
+                    </>
+                  ) : (
+                    <>
+                      No guest-stay check-in is currently recorded on this live record. Prior activity appears in the
+                      audit timeline below.
+                    </>
+                  )}
                 </span>
               ) : sessionAuthorityChainLines.length > 0 ? (
                 <span>
                   Your role on this property is listed in the authority chain above. See the Quick Decision layer and
                   Tenant summary for full occupancy context.
                 </span>
+              ) : ownerViewingOwnLivePage ? (
+                <span>No active tenant assignments appear on this summary. Verify the audit timeline or your owner dashboard.</span>
               ) : (
                 <span>No active guest or tenant assignments.</span>
               )}

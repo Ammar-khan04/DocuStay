@@ -370,16 +370,8 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   const activeStaysForProperty = propertyStays.filter((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
   const activeStays = stays.filter((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
   const activeStay = activeStaysForProperty.find((s) => !isOverstayed(s.stay_end_date)) ?? activeStaysForProperty[0];
-  // Business mode: use property status only (no guest data). Personal mode: use stays for occupancy.
-  const isOccupiedForDisplay = contextMode === 'business'
-    ? (property?.occupancy_status || '').toLowerCase() === 'occupied'
-    : activeStaysForProperty.length > 0;
   const isOccupied = activeStaysForProperty.length > 0;
-  // CR-1a: Shield is always on; API exposes `shield_mode_enabled` true — display does not use a toggle.
-  const shieldStatus = isOccupiedForDisplay ? 'PASSIVE GUARD' : 'ACTIVE MONITORING';
   const isInactive = !!(property?.deleted_at);
-  // Display status: active stay → OCCUPIED; else use property.occupancy_status (vacant | occupied | unknown | unconfirmed)
-  const displayStatus = isOccupiedForDisplay ? 'OCCUPIED' : (property?.occupancy_status ?? 'vacant').toUpperCase();
   const stayNeedingConfirmation = propertyStays.find((s) => s.show_occupancy_confirmation_ui);
   /** Stay to use for vacated/renewed/holdover: confirmation prompt stay, or any checked-in active stay on this property */
   const stayForOccupancyActions = stayNeedingConfirmation ?? (activeStaysForProperty.length > 0 ? activeStay ?? null : null);
@@ -390,6 +382,30 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
     () => ownerTenantsRows.filter((t) => t.property_id != null && t.property_id === property?.id),
     [ownerTenantsRows, property?.id],
   );
+
+  const hasActiveLeaseForProperty = useMemo(
+    () =>
+      tenantsForThisProperty.some(
+        (t) => t.status === 'active' || (t.assignment_status === 'active' && t.active),
+      ),
+    [tenantsForThisProperty],
+  );
+
+  // Business mode: stored property occupancy. Personal mode: primary residence (owner_occupied), checked-in stay, or active lease.
+  const isOccupiedForDisplay =
+    contextMode === 'business'
+      ? (property?.occupancy_status || '').toLowerCase() === 'occupied'
+      : activeStaysForProperty.length > 0 || hasActiveLeaseForProperty || !!property?.owner_occupied;
+  // CR-1a: Shield is always on; API exposes `shield_mode_enabled` true — display does not use a toggle.
+  const shieldStatus = isOccupiedForDisplay ? 'PASSIVE GUARD' : 'ACTIVE MONITORING';
+  const personalStoredLower = (property?.occupancy_status || 'vacant').toLowerCase();
+  const displayStatus = isOccupiedForDisplay
+    ? 'OCCUPIED'
+    : contextMode === 'personal' && (personalStoredLower === 'unconfirmed' || personalStoredLower === 'unknown')
+      ? (property?.occupancy_status ?? 'vacant').toUpperCase()
+      : contextMode === 'personal'
+        ? 'VACANT'
+        : (property?.occupancy_status ?? 'vacant').toUpperCase();
 
   const unitDetailDerived = useMemo(() => {
     if (!unitDetailModal || !property) return null;
