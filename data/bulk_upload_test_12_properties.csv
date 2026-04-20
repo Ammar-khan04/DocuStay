@@ -1,0 +1,20 @@
+Address,Unit No,City,State,Zip,Occupied,Tenant Name,Lease Start,Lease End,Tenant 2 Name,Tenant 2 Email,Tenant 3 Name,Tenant 3 Email,Property Name,Property Type,Units,Bedrooms,Occupied Unit,Shield Mode,Is Primary Residence,Tax ID,APN
+2100 Empty Nest Lane,,Austin,TX,78777,NO,,,,,,,,Bulk Upload Vacant Ranch,house,,3,,NO,NO,BU-TX-2100,APN-BU-2100
+2101 Solo Tenant Ct,,Austin,TX,78777,YES,Alex Rivera,2026-05-01,2027-04-30,,,,,Bulk Upload Single Tenant,house,,2,,NO,NO,BU-TX-2101,APN-BU-2101
+2102 Roommate Row,,Austin,TX,78777,YES,Jordan Lee,2026-06-01,2027-05-31,Morgan Casey,morgan.casey+bulk@test.example,,,Bulk Upload Duo Lease,house,,4,,NO,NO,BU-TX-2102,APN-BU-2102
+2103 Triple Share Dr,,Austin,TX,78777,YES,Riley Park,2026-04-15,2027-04-14,Taylor Kim,taylor.kim+bulk@test.example,Sam Patel,sam.patel+bulk@test.example,Bulk Upload Trio Lease,house,,3,,NO,NO,BU-TX-2103,APN-BU-2103
+2104 Stack Blvd,101,Austin,TX,78777,YES,Casey Nguyen,2026-03-01,2027-02-28,,,,,Bulk Upload Midrise,apartment,8,,101,NO,NO,BU-TX-2104,APN-BU-2104
+2104 Stack Blvd,102,Austin,TX,78777,NO,,,,,,,,Bulk Upload Midrise,apartment,8,,,NO,NO,BU-TX-2104,APN-BU-2104
+2104 Stack Blvd,103,Austin,TX,78777,YES,Jamie Fox,2026-07-01,2027-06-30,River Stone,river.stone+bulk@test.example,,,Bulk Upload Midrise,apartment,8,,103,NO,NO,BU-TX-2104,APN-BU-2104
+2104 Stack Blvd,104,Austin,TX,78777,YES,Drew Morgan,2026-08-01,2027-07-31,,,,,Bulk Upload Midrise,apartment,8,,104,NO,NO,BU-TX-2104,APN-BU-2104
+2105 Pair St,A,Austin,TX,78777,YES,Quinn Avery,2026-05-15,2027-05-14,,,,,Bulk Upload Duplex,duplex,2,,A,NO,NO,BU-TX-2105,APN-BU-2105
+2105 Pair St,B,Austin,TX,78777,YES,Blake Reed,2026-05-15,2027-05-14,,,,,Bulk Upload Duplex,duplex,2,,B,NO,NO,BU-TX-2105,APN-BU-2105
+2106 Triple Trace,1,Austin,TX,78777,NO,,,,,,,,Bulk Upload Triplex,triplex,3,,,NO,NO,BU-TX-2106,APN-BU-2106
+2106 Triple Trace,2,Austin,TX,78777,YES,Case Harper,2026-04-01,2027-03-31,,,,,Bulk Upload Triplex,triplex,3,,2,NO,NO,BU-TX-2106,APN-BU-2106
+2106 Triple Trace,3,Austin,TX,78777,YES,Sid Nova,2026-04-01,2027-03-31,Avery Lane,avery.lane+bulk@test.example,,,Bulk Upload Triplex,triplex,3,,3,NO,NO,BU-TX-2106,APN-BU-2106
+2107 Skyline Condos,,Austin,TX,78777,YES,Reese Park,2026-09-01,2027-08-31,,,,,Bulk Upload Condo Unit,condo,,2,,NO,NO,BU-TX-2107,APN-BU-2107
+2108 Brownstone Walk,,Austin,TX,78777,NO,,,,,,,,Bulk Upload Townhouse,townhouse,,3,,NO,NO,BU-TX-2108,APN-BU-2108
+2109 Tower Ave,PH1,Austin,TX,78777,YES,Sky Logan,2026-10-01,2027-09-30,,,,,Bulk Upload Tower,apartment,6,,PH1,NO,NO,BU-TX-2109,APN-BU-2109
+2109 Tower Ave,PH2,Austin,TX,78777,NO,,,,,,,,Bulk Upload Tower,apartment,6,,,NO,NO,BU-TX-2109,APN-BU-2109
+2110 Cedar Fill Rd,,Austin,TX,78777,NO,,,,,,,,Bulk Upload Extra Vacant,house,,2,,NO,NO,BU-TX-2110,APN-BU-2110
+2111 Final Occupied Ln,,Austin,TX,78777,YES,Dana Cruz,2026-11-01,2027-10-31,,,,,Bulk Upload Extra Occupied,house,,3,,NO,NO,BU-TX-2111,APN-BU-2111

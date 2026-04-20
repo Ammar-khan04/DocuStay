@@ -1,0 +1,6 @@
+Address,Unit No,City,State,Zip,Occupied,Tenant Name,Lease Start,Lease End,Shield Mode,Tax ID,APN
+123 Main St,,Sacramento,CA,90210,NO,,,,,34-12345-01,
+456 Ocean Dr,Suite 2B,Miami Beach,FL,33101,YES,Maria Garcia,2025-01-15,2025-12-15,NO,,12-3456-789
+789 Elm Ave,,Dallas,TX,77001,YES,James Wilson,2025-02-01,2026-01-31,YES,98-76543,
+100 Broadway,,New York,NY,10001,NO,,,,,,
+200 Pine St,,Seattle,WA,98101,YES,Emily Chen,2025-03-01,2026-02-28,NO,55-001,A-1234

@@ -1,0 +1,8 @@
+Address,Unit No,City,State,Zip,Occupied,Tenant Name,Lease Start,Lease End,Shield Mode,Tax ID,APN
+123 Ocean Ave,,Miami Beach,FL,33139,YES,Jane Doe,2025-01-15,2025-12-31,NO,,
+456 Oak St,2B,Austin,TX,78701,NO,,,,NO,12-3456-789,
+789 Pine Rd,,Denver,CO,80202,YES,Bob Smith,2025-02-01,2026-01-31,YES,,PARCEL-001
+100 Main St,,Seattle,WA,98101,NO,,,,NO,,
+222 Sunset Blvd,Apt 4,Los Angeles,CA,90028,YES,Alice Johnson,2025-03-01,2025-08-31,NO,987-65-4321,
+333 Lake Dr,,Chicago,IL,60601,NO,,,,YES,,
+444 Harbor Way,Suite 101,Boston,MA,02108,YES,Chris Wilson,2025-04-15,2026-04-14,NO,,APN-789-XYZ

@@ -1,0 +1,2167 @@
+provider_id,holding_company,technology_code,technology_code_desc,unit_count_res,unit_count_bus
+130002,"3 Rivers Telephone Cooperative, Inc.",10,Copper,25747,25747
+130008,Ace Telephone Association,10,Copper,49521,49568
+130011,"Adak Eagle Enterprises, LLC",50,Fiber to the Premises,203,26
+130012,Adams Telephone Co-Operative,50,Fiber to the Premises,39184,39184
+130017,Agate Mutual Telephone Cooperative Association,10,Copper,191,191
+130018,"Agri-Valley Communications, Inc.",10,Copper,62655,52724
+130019,"Air Advantage, LLC",50,Fiber to the Premises,52225,51366
+130029,Alaska Power & Telephone Company,10,Copper,8460,1727
+130030,"Covington Electric Cooperative, Inc.",50,Fiber to the Premises,26636,26636
+130031,Albany Mutual Telephone Association,50,Fiber to the Premises,6437,6437
+130032,"Albion Telephone Company, Inc.",10,Copper,7783,7783
+130034,"Alenco Communications, Inc.",10,Copper,42647,42647
+130035,Algona Municipal Utilities,40,Cable,2889,678
+130036,"Alhambra-Grantfork Communications, Inc.",40,Cable,3685,3685
+130037,"All West Communications, Inc.",10,Copper,73604,73604
+130039,"Allen's TV Cable Service, Inc.",40,Cable,31816,31816
+130040,"Alliance Communications Cooperative, Inc.",50,Fiber to the Premises,26282,26282
+130043,Alma Communications Company,50,Fiber to the Premises,759,759
+130044,"Alma Telecom, Inc.",40,Cable,24232,24232
+130045,"Alpine Communications, LLC",10,Copper,20572,20572
+130046,Alta Municipal Utilities,40,Cable,861,152
+130057,"Amery Telcom, Inc.",40,Cable,22716,22716
+130058,Amherst Telephone Company,10,Copper,19200,19200
+130059,"Amplex Electric, Inc.",10,Copper,175550,175550
+130065,Arapahoe Telephone Company,10,Copper,46229,46229
+130067,"Arctic Slope Telephone Association Cooperative, Inc.",10,Copper,2223,812
+130068,West Kentucky Rural Telephone Cooperative Corp. Inc.,10,Copper,77853,77853
+130069,"Arkansas Telephone Company, Inc.",10,Copper,8638,1536
+130070,"Spectracomm, Inc.",50,Fiber to the Premises,6133,6133
+130071,"Armstrong Holdings, Inc.",10,Copper,569601,572064
+130073,Arthur Mutual Telephone Company,50,Fiber to the Premises,2902,2902
+130074,"Arvig Enterprises, Inc.",10,Copper,256999,256999
+130077,AT&T Inc.,10,Copper,115007046,83627721
+130079,"Radiate Holdings, LP",10,Copper,5520191,5520191
+130081,"ATN International, Inc.",10,Copper,898461,157739
+130082,Atlantic Telephone Membership Corporation,40,Cable,139623,139623
+130083,"Atlas Telephone Company, Inc.",10,Copper,871,232
+130084,"Atwood Cable Systems, Inc.",40,Cable,900,900
+130087,Ayersville Telephone Company,10,Copper,2180,199
+130090,"Baca Valley Telephone Company, Inc.",10,Copper,6146,6146
+130092,"Baldwin Nashville Telephone Company, Inc.",50,Fiber to the Premises,480,480
+130093,"Baldwin Telecom, Inc.",50,Fiber to the Premises,14854,15160
+130094,"Ballard Rural Telephone Cooperative Corporation, Inc.",50,Fiber to the Premises,7308,7308
+130095,Baraga Telephone Company Inc.,10,Copper,35009,35009
+130096,Barnes City Cooperative Telephone Company,10,Copper,233,233
+130097,Barry County Services Company,10,Copper,25475,16881
+130098,Bascom Mutual Telephone Company,50,Fiber to the Premises,41750,41750
+130103,"Beamspeed, LLC",40,Cable,159245,159245
+130104,Beaver Creek Cooperative Telephone Company,10,Copper,21170,21170
+130105,"Bee Creek Communications, Inc.",70,Unlicensed Fixed Wireless,74619,74619
+130106,Beehive Telephone Companies,10,Copper,214198,214198
+130107,"Beggs Telephone Company, Inc.",10,Copper,2013,521
+130108,BEK Communications Cooperative,50,Fiber to the Premises,22218,22218
+130112,"Ben Lomand Rural Telephone Coop., Inc.",10,Copper,68693,13726
+130114,BW Telcom,50,Fiber to the Premises,2278,2278
+130115,Benton Cooperative Telephone Company,10,Copper,12440,12440
+130116,Benton Ridge Telephone Company,50,Fiber to the Premises,1250570,1250570
+130118,Beresford Municipal Telephone Company,50,Fiber to the Premises,1351,1351
+130119,Bergen Telephone Company,50,Fiber to the Premises,251,251
+130120,"Bernard Telephone Company, Inc.",50,Fiber to the Premises,5745,5745
+130122,Biddeford Internet Corporation,10,Copper,1239,4206
+130123,"Nevill Holdings, Inc.",10,Copper,52429,52429
+130124,"Big River Telephone, LLC",50,Fiber to the Premises,130506,22828
+130126,Bijou Telephone Cooperative Association Inc.,10,Copper,3555,3555
+130130,Bixby Telephone Company,10,Copper,26032,7716
+130132,"Blackfoot Telephone Cooperative, Inc.",10,Copper,71047,71047
+130133,Blanca Telephone Company/Jade Communications LLC,50,Fiber to the Premises,25033,25033
+130134,"Blanchard Telephone Association, Inc.",10,Copper,1964,1964
+130136,Bledsoe Telephone Cooperative Inc.,10,Copper,29628,29628
+130137,"Block Communications, Inc.",10,Copper,520552,527881
+130138,Bloomer Telephone Company,50,Fiber to the Premises,7692,7692
+130139,Bloomingdale Home Telephone Company,10,Copper,2367,640
+130140,"Bloomingdale Telephone Company, Inc.",50,Fiber to the Premises,10597,10597
+130141,"Blossom Telephone Co., Inc.",10,Copper,2660,2660
+130142,Rural Communications Holding Corporation,10,Copper,33011,33011
+130144,"Blue Valley Tele-Communications, Inc.",40,Cable,10538,10538
+130148,Colonial Telephone Company,10,Copper,1645,1645
+130150,Brandenburg Communications Corp.,10,Copper,68592,68592
+130151,"Strickland Communications, Inc.",50,Fiber to the Premises,12449,12449
+130152,Brazoria Telephone Company,10,Copper,14816,14816
+130153,"Brazos Telephone Cooperative, Inc.",10,Copper,10742,10742
+130154,Breda Telephone Corp.,50,Fiber to the Premises,23192,23192
+130160,Bristol Bay Telephone Cooperative,10,Copper,1348,1348
+130161,Broadband Corp.,50,Fiber to the Premises,32116,32116
+130169,Brooklyn Mutual Telecommunications Cooperative,10,Copper,1612,90
+130170,"Bruce Telephone Company, Inc.",10,Copper,2581,2581
+130171,Bryan Family Inc.,10,Copper,136,136
+130176,"Bulloch County Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,22400,22400
+130178,"Burke's Garden Telephone Co., Inc.",50,Fiber to the Premises,243,243
+130179,Butler-Bremer Mutual Telephone Company,50,Fiber to the Premises,10237,10237
+130183,"Cable One, Inc.",10,Copper,4322642,3304437
+130184,"Cable Services, Inc.",40,Cable,12485,12485
+130189,Calaveras Communications Company,10,Copper,6119,6119
+130192,"Cambridge TelCom, Inc.",10,Copper,9027,9027
+130193,"Cambridge Telephone Company, Inc.",10,Copper,5963,1861
+130195,Canadian Valley Telephone Company,10,Copper,2011,2011
+130196,Canby Telephone Association,10,Copper,13001,13001
+130199,"Cap Rock Telephone Cooperative, Inc.",50,Fiber to the Premises,8094,8094
+130201,Carnegie Telephone Company,10,Copper,9478,9478
+130203,"Carr Communications, Inc.",10,Copper,3933,3933
+130204,Cascade Communications Company,50,Fiber to the Premises,4496,4496
+130206,Day Management Corporation,10,Copper,45644,45644
+130207,Casey Mutual Telephone Company,10,Copper,795,795
+130208,"Cass Communications Management, Inc.",40,Cable,56440,56787
+130210,Castleberry Communications,10,Copper,1311,1311
+130218,Cedar Falls Municipal Communications Utility,50,Fiber to the Premises,19930,19930
+130223,"Center Junction Telephone Company, Inc.",50,Fiber to the Premises,186,186
+130224,"Central Arkansas Telephone Cooperative, Inc.",50,Fiber to the Premises,5721,5721
+130226,"Central Oklahoma Telephone Co., LLC",10,Copper,6444,6444
+130227,"Central Texas Telephone Cooperative, Inc.",10,Copper,14559,14559
+130228,"Lumen Technologies, Inc.",10,Copper,18043736,18043676
+130233,Chapin Communications Corporation,10,Copper,8792,8792
+130234,Chariton Valley Telephone Corporation,50,Fiber to the Premises,30577,8018
+130235,Charter Communications,40,Cable,50068448,11471652
+130238,Chazy & Westport Telephone Corp.,10,Copper,4283,4283
+130239,"Chequamegon Communications Cooperative, Inc.",10,Copper,27092,7698
+130240,Cherokee Telephone Company,10,Copper,7889,7889
+130242,"TruVista Communications, Inc.",10,Copper,84173,20992
+130243,Cheyenne River Sioux Tribe Telephone Authority,50,Fiber to the Premises,3737,3737
+130244,"Chibardun Telephone Cooperative, Inc.",10,Copper,27014,27014
+130245,Chickasaw Holding Company,10,Copper,31777,30683
+130250,Christensen Communications Company,10,Copper,4726,4726
+130252,"Churchill County, State of Nevada",10,Copper,14187,14187
+130254,Cincinnati Bell Inc.,10,Copper,1722868,1594673
+130258,Frontier Communications Corporation,10,Copper,10058590,1315926
+130259,Citizens Mutual Telephone Cooperative,50,Fiber to the Premises,10199,10199
+130263,Green Hills Telephone Corporation,10,Copper,20836,20836
+130264,Citizens Telephone Company of Kecksburg,50,Fiber to the Premises,14720,14720
+130265,Citizens Mutual Telephone Cooperative (GA),10,Copper,7586,7586
+130266,Citizens Telephone Cooperative (VA),10,Copper,25273,25604
+130267,"Citizens Telephone Cooperative, Inc. (WI)",50,Fiber to the Premises,9744,9744
+130268,Citizens Telephone Corporation,50,Fiber to the Premises,5821,5821
+130269,"Citizens Telephone Company of Hammond NY, Inc.",10,Copper,9519,9510
+130270,City of Barnesville Municipal Telephone,50,Fiber to the Premises,1317,1317
+130271,City of Brookings Telephone Fund,10,Copper,12377,12377
+130274,City of Faith Municipal Telephone Company,50,Fiber to the Premises,226,105
+130275,City of Ketchikan,10,Copper,15646,15646
+130279,City of Scottsburg,50,Fiber to the Premises,14434,14410
+130282,City of Wadsworth,40,Cable,12434,12585
+130283,City of Windom,50,Fiber to the Premises,2655,2655
+130285,"Clarence Telephone Company, Inc.",50,Fiber to the Premises,2549,2549
+130287,Clarksville Mutual Telephone Company,50,Fiber to the Premises,324,324
+130288,"Clay County Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,31468,31468
+130289,Clear Creek Mutual Telephone Company,10,Copper,4012,4012
+130290,Clear Lake Independent Telephone Company,50,Fiber to the Premises,9017,9017
+130291,"Clear Lake Telephone Company, Inc.",50,Fiber to the Premises,3818,4034
+130292,"Clear Rate Communications, LLC",10,Copper,0,339949
+130302,C-M-L Telephone Cooperative Association,50,Fiber to the Premises,1847,1847
+130303,Coast Communications Co. Inc.,40,Cable,7789,7790
+130305,Cochrane Cooperative Telephone Company,50,Fiber to the Premises,3018,761
+130307,"Coleman County Telephone Cooperative, Inc.",10,Copper,15301,15301
+130309,COLI Inc.,50,Fiber to the Premises,51406,51406
+130310,Colo Telephone Company,50,Fiber to the Premises,1855,1855
+130311,"Colorado Valley Telephone Cooperative, Inc.",10,Copper,34440,34440
+130312,Colton Telephone Company,50,Fiber to the Premises,1160,121
+130314,Columbus Telephone Company,50,Fiber to the Premises,6473,6473
+130315,TOTE Holdings LLC,10,Copper,31475,31475
+130316,"Combined Technologies, Inc.",70,Unlicensed Fixed Wireless,195,75
+130317,Comcast Corporation,40,Cable,58289409,58832812
+130321,"Communications 1 Network, Inc.",50,Fiber to the Premises,11701,11701
+130322,"Community Antenna Service, Inc.",40,Cable,35682,3003
+130325,Community Internet Service,70,Unlicensed Fixed Wireless,1141,0
+130327,"Community Telephone Co., Inc.",50,Fiber to the Premises,41802,41802
+130331,"Computer Sales & Services, Inc.",70,Unlicensed Fixed Wireless,4,50
+130335,"Consolidated Communications, Inc.",0,Other,2106168,229770
+130337,Consolidated Telcom,40,Cable,29624,29624
+130338,Consolidated Telephone Company,10,Copper,45651,45651
+130340,Conway Corporation,40,Cable,31852,31852
+130344,"Coon Valley Cooperative Telephone Association, Inc.",50,Fiber to the Premises,3271,3271
+130345,Coon Valley Farmers Telephone Company,50,Fiber to the Premises,4839,4839
+130346,Cooperative Telephone Company,50,Fiber to the Premises,3193,3193
+130347,Cooperative Telephone Exchange,50,Fiber to the Premises,801,801
+130349,Copper Valley Telephone Cooperative,10,Copper,7529,7529
+130352,"Cordova Telephone Cooperative, Inc.",10,Copper,1258,1258
+130353,Corn Belt Telephone Company,50,Fiber to the Premises,4084,4084
+130360,"Cox Communications, Inc.",10,Copper,9957305,2258653
+130361,Cozad Telephone Company,10,Copper,3044,3044
+130362,"CP-Tel Holdings, Inc.",10,Copper,12593,4146
+130363,"Craigville Telephone Company, Inc.",10,Copper,6782,6748
+130364,Craw-Kan Telephone Cooperative Inc.,10,Copper,41276,41276
+130368,"Crossville Consolidated Communications, Inc.",10,Copper,658,658
+130369,Crown Point Telephone Corporation,10,Copper,2616,742
+130370,Altice USA,40,Cable,11974276,13923536
+130374,Cumberland Telephone Company,50,Fiber to the Premises,1327,1327
+130375,"Cumby Telephone Cooperative, Inc.",10,Copper,9616,10816
+130378,Custer Telephone Cooperative Inc.,10,Copper,4856,799
+130380,Grayson Collin Electric Cooperative,10,Copper,19444,19444
+130385,"D & P Communications, Inc.",10,Copper,27599,6583
+130386,"D D & B, Inc.",10,Copper,15922,15922
+130387,Dakota Central Telecommunications Cooperative,50,Fiber to the Premises,17163,17163
+130390,Danville Mutual Telephone Company,50,Fiber to the Premises,1802,1802
+130391,"Darien Telephone Company, Inc.",40,Cable,7685,7685
+130393,Daviess-Martin County Rural Telephone Corporation,10,Copper,19759,19759
+130395,"Decatur Holding Company, Inc.",10,Copper,3302,2917
+130396,"DeKalb Telephone Cooperative, Inc.",10,Copper,32721,33361
+130398,Delcambre Telephone Co.,50,Fiber to the Premises,2163,2163
+130399,Delhi Telephone Company,10,Copper,14542,14542
+130400,"Dell Telephone Cooperative, Inc.",10,Copper,23299,23299
+130403,"T-Mobile USA, Inc.",50,Fiber to the Premises,109023195,117360810
+130405,Dickey Rural Telephone Cooperative,50,Fiber to the Premises,20576,20576
+130416,Doylestown Telephone Company,10,Copper,14509,14509
+130419,Dumont Telephone Company,50,Fiber to the Premises,3964,3964
+130420,"Dunbarton Telephone Company, Inc.",50,Fiber to the Premises,1532,1532
+130421,Dunkerton Telephone Cooperative,50,Fiber to the Premises,953,953
+130423,Duo County Telephone Cooperative Inc.,10,Copper,29978,30761
+130425,"Dobson Technologies, Inc.",10,Copper,221309,221309
+130427,"E. Ritter Communications Holdings, Inc.",10,Copper,189150,314774
+130431,"Eagle Telephone Systems, Inc.",10,Copper,441,441
+130432,EATEL Corp.,40,Cable,119468,119468
+130433,East Buchanan Telephone Cooperative,50,Fiber to the Premises,2638,2638
+130437,"Eastern Indiana WIFI, Inc.",50,Fiber to the Premises,9694,9661
+130439,"Eastern Slope Rural Telephone Association, Inc.",10,Copper,7718,7718
+130440,"Eastex Telephone Cooperative, Inc.",10,Copper,50675,50675
+130444,Egyptian Telephone Cooperative Association,10,Copper,2801,962
+130445,Electric and Water Plant Board of the City of Frankfort,40,Cable,53167,53167
+130446,"Electric Plant Board of the City of Glasgow, KY",40,Cable,9138,9138
+130449,Ellington Telephone Company,10,Copper,2220,2220
+130450,Ellsworth Cooperative Telephone Association,50,Fiber to the Premises,839,839
+130453,Emery Telcom,40,Cable,33866,33866
+130454,Emily Cooperative Telephone Company,50,Fiber to the Premises,5905,5905
+130455,Empire Telephone Corporation/North Penn Telephone Company,10,Copper,197359,13070
+130458,"ENMR Telephone Cooperative, Inc.",10,Copper,156486,156486
+130460,Epic Touch Company,50,Fiber to the Premises,1295,1295
+130464,"Etex Telephone Cooperative, Inc.",10,Copper,43581,43581
+130473,"F&B Communications, Inc.",50,Fiber to the Premises,3107,3107
+130475,Farmers Cooperative Telephone Company-Dysart,10,Copper,1449,1449
+130476,Farmers Independent Telephone Company,10,Copper,5506,5506
+130477,Farmers Mutual Cooperative Telephone Company-Harlan,50,Fiber to the Premises,4043,4043
+130478,Farmers Mutual Cooperative Telephone Company-Moulton,50,Fiber to the Premises,2499,2499
+130479,Farmers Mutual Telephone Company (ID),10,Copper,11757,11757
+130481,Farmers Mutual Telephone Company (OH),50,Fiber to the Premises,39504,37687
+130482,"Farmers Mutual Telephone Company of Stanton, Iowa",50,Fiber to the Premises,7722,7722
+130483,Farmers Mutual Telephone Company-Jesup,10,Copper,2359,2359
+130484,Farmers Mutual Telephone Company-Nora Springs,50,Fiber to the Premises,17247,17247
+130485,Farmers Mutual Telephone Cooperative of Shellsburg,10,Copper,13238,13238
+130487,"Farmers Telephone Company, Inc.",10,Copper,1612,1612
+130488,Farmers Telephone Company-Batavia,50,Fiber to the Premises,698,698
+130489,Farmers Telephone Company-Essex,50,Fiber to the Premises,10927,10927
+130490,"Farmers Telephone Cooperative, Inc. (SC)",10,Copper,110743,110743
+130491,Fayetteville Public Utilities,40,Cable,12509,2767
+130492,FDF Communications Co.,10,Copper,58924,6991
+130494,Farmers Mutual Telephone Company (MN),50,Fiber to the Premises,5296,5298
+130495,Fenton Cooperative Telephone Company,50,Fiber to the Premises,320,77
+130499,"First Communications, LLC",10,Copper,0,885
+130500,"First Step Internet, LLC",50,Fiber to the Premises,82678,26975
+130502,"Five Area Telephone Cooperative, Inc.",50,Fiber to the Premises,8502,8502
+130503,"Flat Rock Telephone Co-Op, Inc.",50,Fiber to the Premises,1112,1112
+130507,"Foothills Rural Telephone Cooperative Corporation, Inc.",50,Fiber to the Premises,31349,31349
+130509,"Fort Mojave Telecommunications, Inc.",50,Fiber to the Premises,4158,4158
+130511,Waldron Communication Company,10,Copper,725,725
+130514,"Franklin Telephone Co., Inc.",10,Copper,2076,2076
+130524,"Ganado Telephone Company, Inc.",10,Copper,8017,8017
+130526,Garden Valley Telephone Company,10,Copper,26940,26940
+130527,Gardonville Cooperative Telephone Association,10,Copper,8781,8059
+130528,"Gargoyle Technologies, Inc.",50,Fiber to the Premises,18428,18428
+130532,Geetingsville Telephone Company Inc.,10,Copper,3262,3262
+130534,GCI Holdings LLC,10,Copper,278060,278060
+130535,"Geneseo Communications, Inc.",10,Copper,66054,66054
+130538,"Germantown Telephone Company, Inc.",50,Fiber to the Premises,5457,732
+130539,Gervais Telephone Company,10,Copper,4821,4821
+130540,GEUS,40,Cable,8956,2073
+130542,"Gila River Telecommunications, Inc.",10,Copper,2875,2875
+130543,"Glandorf Telephone Co., Inc.",50,Fiber to the Premises,2861,615
+130544,Glasford Telephone Company,50,Fiber to the Premises,1476,1476
+130545,Glenwood Telephone Company,10,Copper,3230,3230
+130546,Glenwood Telephone Membership Corp.,50,Fiber to the Premises,40713,40713
+130550,"Golden West Telecommunications Cooperative, Inc.",10,Copper,57263,57263
+130551,"Golden Wheat, Inc.",50,Fiber to the Premises,3587,3587
+130553,Gonthier Inc.,50,Fiber to the Premises,4485,928
+130555,"Gorham Communications, Inc.",50,Fiber to the Premises,878,878
+130557,"Grafton Communications, Inc.",10,Copper,8904,8904
+130558,Granby Telephone Company,50,Fiber to the Premises,3705,3705
+130559,Grand Mound Cooperative Telephone Association,50,Fiber to the Premises,12979,12979
+130560,Grand River Mutual Telephone Corporation,10,Copper,28670,28670
+130561,Grand Telephone Company,10,Copper,5429,5429
+130563,Grandview Mutual Telephone Company,10,Copper,127,127
+130565,Grauer Management Inc.,50,Fiber to the Premises,3089,3089
+130569,"Great Plains Communications, Inc.",10,Copper,131037,131037
+130574,Griswold Cooperative Telephone Company,50,Fiber to the Premises,2242,2242
+130578,"Guadalupe Valley Telephone Cooperative, Inc.",10,Copper,145614,145614
+130580,Gunnison Telephone Company,10,Copper,3928,870
+130581,H&B Enterprises Inc.,50,Fiber to the Premises,5388,5394
+130583,Halstad Telephone Company,50,Fiber to the Premises,5858,5858
+130584,Hamilton County Telephone Co-Op,10,Copper,26058,26058
+130586,Hancock Rural Telephone Corporation,10,Copper,38081,40011
+130588,"Hardy Telecommunications, Inc.",10,Copper,19423,19423
+130590,Harmony Telephone Company,50,Fiber to the Premises,9568,9568
+130592,"Hartington Telecommunications Co., Inc.",50,Fiber to the Premises,2633,2633
+130596,Hawkeye Telephone Company,50,Fiber to the Premises,5298,5298
+130597,"Hayneville Holding Company, Inc.",10,Copper,13670,13670
+130598,Heart of Iowa Communications Cooperative,50,Fiber to the Premises,9803,9803
+130602,Hemingford Cooperative Telephone Company,50,Fiber to the Premises,3315,3315
+130603,Henderson Cooperative Telephone Company,50,Fiber to the Premises,1021,1021
+130604,"Henry County Communications, Inc.",10,Copper,4036,4036
+130605,Hershey Cooperative Telephone Company,50,Fiber to the Premises,3968,3968
+130606,"Hiawatha Broadband Communications, Inc.",40,Cable,103266,103266
+130607,"Hiawatha Communications, Inc.",10,Copper,19141,19141
+130609,"Hickory Utility Services, Inc.",50,Fiber to the Premises,7999,7999
+130610,Highland Telephone Cooperative (VA),10,Copper,1465,1465
+130612,"Hill Country Telephone Cooperative, Inc.",10,Copper,76702,74572
+130613,"Hillsboro Telephone Company, Inc.",50,Fiber to the Premises,3829,3829
+130614,Hinton Holding Company,10,Copper,26404,26404
+130616,"Home Enterprises, Inc.",50,Fiber to the Premises,4353,4353
+130617,"Home Telephone Company, Inc. (SC)",10,Copper,80207,80207
+130619,The Chillicothe Telephone Co,10,Copper,55907,55907
+130620,"Horry Telephone Cooperative, Inc.",10,Copper,234333,234333
+130622,Hot Springs Telephone Company,10,Copper,2076,2076
+130623,"Hotwire Communications, Ltd.",40,Cable,325018,164875
+130624,HTC Holding Co.,10,Copper,31683,31683
+130626,Hubbard Cooperative Telephone Association,50,Fiber to the Premises,917,917
+130627,EchoStar Corporation,60,GSO Satellite,164142033,164142033
+130630,Huxley Communications Cooperative,50,Fiber to the Premises,8762,1436
+130631,"IAMO Communications, Inc.",50,Fiber to the Premises,3524,3524
+130634,ICON Technologies Inc.,70,Unlicensed Fixed Wireless,93384,93384
+130641,Independence Light and Power,40,Cable,3874,3874
+130645,Industry Telephone Company,10,Copper,4236,4236
+130647,"Info-Ed, Inc.",70,Unlicensed Fixed Wireless,86,86
+130651,Western Elite Incorporated Services,10,Copper,6418,6431
+130655,Gearheart Communications,40,Cable,42833,42833
+130657,"InterBel Telephone Cooperative, Inc.",10,Copper,5622,3307
+130662,"Interstate Telecommunications Cooperative, Inc.",50,Fiber to the Premises,29343,29343
+130663,"Inventive Wireless of Nebraska, LLC",50,Fiber to the Premises,289046,289046
+130667,Ironton Telephone Company,10,Copper,4223,522
+130668,"Irvine Community Television, Inc.",40,Cable,9776,2138
+130673,James Valley Cooperative Telephone Company,10,Copper,38500,38500
+130674,"JED Enterprises, Inc.",10,Copper,1609,1609
+130677,Jefferson Telephone Company,50,Fiber to the Premises,3516,3516
+130678,Johnson Telephone Company,10,Copper,3291,3291
+130679,"K & M Telephone Company, Inc.",10,Copper,821,821
+130681,"Kalida Telephone Company, Inc.",50,Fiber to the Premises,1451,268
+130682,Kalona Cooperative Telephone Company,50,Fiber to the Premises,23213,23213
+130683,"KALTELCO, Inc.",10,Copper,3335,387
+130684,"KanOkla Telephone Association, Inc.",10,Copper,152308,152308
+130685,"Kaplan Telephone Company, Inc.",10,Copper,26378,26378
+130686,Kasson & Mantorville Telephone Company,10,Copper,8767,8767
+130690,"Atlas Connectivity, LLC",10,Copper,64109,10130
+130691,"Kennebec Telephone Company, Inc.",50,Fiber to the Premises,961,961
+130692,"Kentec Communications, Inc.",50,Fiber to the Premises,30457,30457
+130693,Keystone Farmers Cooperative Telephone Company,50,Fiber to the Premises,1090,1090
+130695,Killduff Telephone Company,50,Fiber to the Premises,162,36
+130696,"Kinex Telecom, Inc.",50,Fiber to the Premises,13246,13246
+130697,Kingdom Telephone Company,50,Fiber to the Premises,20820,20820
+130699,Kinsman Mutual Telephone Co.,10,Copper,103,103
+130705,Kraus Electronics Systems Inc.,40,Cable,9563,9563
+130707,La Canada Wireless Association,70,Unlicensed Fixed Wireless,1413,1413
+130708,La Jicarita Rural Telephone Cooperative,10,Copper,3854,3854
+130709,La Motte Telephone Company,50,Fiber to the Premises,3151,3151
+130710,"La Ward Telephone Exchange, Inc.",10,Copper,1591,1591
+130711,"LaHarpe Telephone Company, Inc. (KS)",50,Fiber to the Premises,1414,151
+130712,Lake Livingston Telephone Company,10,Copper,6023,6023
+130714,"Lakeland Communications, Inc.",40,Cable,12582,12582
+130718,"Larson Utilities, Inc.",10,Copper,2397,2397
+130721,"Laurel Highland Total Communications, Inc.",10,Copper,15454,15454
+130724,Laurens Municipal Communications Utility,50,Fiber to the Premises,697,227
+130726,"LaValle Telephone Cooperative, Inc.",50,Fiber to the Premises,4498,1592
+130728,"Leaco Rural Telephone Cooperative, Inc.",10,Copper,32970,32970
+130732,Lehigh Valley Cooperative Telephone Association,50,Fiber to the Premises,3449,3449
+130733,Lemonweir Valley Telephone Company,50,Fiber to the Premises,15251,15251
+130734,Lennon Telephone Company,10,Copper,4903,1054
+130735,"Leonore Mutual Telephone Co., Inc.",10,Copper,228,228
+130736,STEL-CO,10,Copper,2072,471
+130741,Liberty Latin America Ltd.,40,Cable,1474039,1474039
+130742,"Ligonier Telephone Co., Inc.",50,Fiber to the Premises,20658,20658
+130743,"Lincoln Communications, Inc.",10,Copper,4107,4107
+130744,"Lincoln Telephone Company, Inc.",10,Copper,1561,1561
+130745,Lincolnville Telephone Company,10,Copper,20167,20167
+130746,"Lintel, Inc.",10,Copper,17548,17548
+130747,Lipan Telecommunications Inc.,10,Copper,3511,3511
+130748,Lismore Cooperative Telephone Company,50,Fiber to the Premises,5728,5728
+130754,"Logan Telephone Cooperative, Inc.",10,Copper,9650,9650
+130755,"Logix Communications, LP",0,Other,0,14001
+130756,Lone Rock Cooperative Telephone Company,50,Fiber to the Premises,336,336
+130757,Long Lines,10,Copper,29367,4507
+130759,Lost Nation-Elwood Telephone Company,50,Fiber to the Premises,1221,1221
+130766,Lynnville Telephone Company,50,Fiber to the Premises,475,82
+130767,Mabel Cooperative Telephone Company,50,Fiber to the Premises,2212,2212
+130768,MADCO Holding Company,50,Fiber to the Premises,5290,5290
+130769,"Schwartz Ventures, Inc.",10,Copper,20435,20435
+130771,"Madison Telephone, LLC",50,Fiber to the Premises,7094,7094
+130772,"Magazine Telephone Company, Inc.",10,Copper,1367,1367
+130774,"Mahaska Communication Group, LLC",50,Fiber to the Premises,29218,29218
+130777,Manchester-Hartland Telephone Company,50,Fiber to the Premises,634,634
+130780,"Margaretville Telephone Company, Inc.",50,Fiber to the Premises,1842,1842
+130781,Mark Twain Rural Telephone Company,10,Copper,49076,49076
+130782,Marne & Elk Horn Telephone Company,50,Fiber to the Premises,6614,6614
+130783,"Marquette-Adams Telephone Cooperative, Inc.",50,Fiber to the Premises,15968,15968
+130784,"Martell Enterprises, Inc.",10,Copper,9827,9828
+130785,Martelle Cooperative Telephone Association,10,Copper,1207,1205
+130786,Mashell Inc.,10,Copper,116914,21562
+130787,Massena Telephone Company,50,Fiber to the Premises,1239,1034
+130788,"Massillon Cable TV, Inc.",40,Cable,105039,105437
+130791,"Matanuska Telecom Association, Inc.",10,Copper,76613,12691
+130794,"NBVDS Investment, LLC",10,Copper,71026,71026
+130795,Court Square Capital Partners,10,Copper,79620,80617
+130796,McClure Telephone Company,50,Fiber to the Premises,2713,2713
+130797,"TrioTel Communications, Inc.",50,Fiber to the Premises,3683,3683
+130798,McDonald County Telephone Company,10,Copper,3922,3923
+130799,McDonough Telephone Cooperative Inc.,50,Fiber to the Premises,17676,8936
+130802,"McNabb Communications, Inc.",50,Fiber to the Premises,631,631
+130803,Mechanicsville Telephone Company,50,Fiber to the Premises,1995,1995
+130804,Mediacom Communications Corp.,40,Cable,3452412,3452412
+130805,MTC Technologies,50,Fiber to the Premises,3377,3377
+130810,"Mescalero Apache Telecom, Inc.",50,Fiber to the Premises,1951,1951
+130814,"MGW Communications, Inc.",10,Copper,33037,33037
+130817,"Micrologic, Inc.",50,Fiber to the Premises,33098,33098
+130819,Mid Century Telephone Co-operative,10,Copper,25622,25622
+130821,Midcontinent Communications,40,Cable,1276034,1276034
+130825,"Mid-Plains Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,10265,10265
+130826,"Mid-Rivers Telephone Cooperative, Inc.",10,Copper,28952,28952
+130828,"Midstate Communications, Inc. (SD)",50,Fiber to the Premises,8708,8708
+130829,"Mid-States Services, LLC",50,Fiber to the Premises,5545,1224
+130831,Midvale Telephone Exchange,10,Copper,60936,61174
+130833,McCammon Enterprises,70,Unlicensed Fixed Wireless,246,48
+130834,"Midwest Telecom of America, Inc.",70,Unlicensed Fixed Wireless,175,2
+130837,Miles Cooperative Telephone Association,50,Fiber to the Premises,5164,5164
+130839,"Milford Communications, LLC",40,Cable,5113,5113
+130844,Millry Corporation,10,Copper,9938,9938
+130845,Minburn Telephone Company,50,Fiber to the Premises,12043,12043
+130846,"Minerva Valley Telephone Company, Inc.",50,Fiber to the Premises,1099,1099
+130847,Minford Telephone Company,50,Fiber to the Premises,5180,5180
+130849,Modern Cooperative Telephone Company,50,Fiber to the Premises,1629,1629
+130850,Molalla Communications Company,50,Fiber to the Premises,7756,7756
+130851,"Mon-Cre Telephone Cooperative, Inc.",50,Fiber to the Premises,5813,5813
+130852,Monitor Cooperative Telephone Company,50,Fiber to the Premises,601,135
+130853,Monon Telephone Company Inc.,50,Fiber to the Premises,2472,2472
+130854,Monroe Telephone Company,10,Copper,2162,2162
+130856,Griggs County Telephone Company,50,Fiber to the Premises,7372,7499
+130860,The Moundridge Telephone Company,50,Fiber to the Premises,2463,2463
+130862,Mount Horeb Telephone Company,10,Copper,13291,13291
+130865,"Mountain Rural Telephone Cooperative Corporation, Inc.",50,Fiber to the Premises,20934,20934
+130872,MTCO Corporation,10,Copper,17712,17712
+130874,"Mud Lake Telephone Cooperative Association, Inc.",10,Copper,1884,1884
+130875,Mulberry Cooperative Telephone Co. Inc.,10,Copper,6652,6652
+130877,Mutual Telephone Company (IA),10,Copper,56771,56450
+130878,"Mutual Telephone Company of Morning Sun, Iowa",10,Copper,11953,11953
+130880,"Myakka Communications, Inc.",50,Fiber to the Premises,6137,6137
+130882,"NATCO Communications, Inc.",10,Copper,14187,14187
+130885,North Dakota Telephone Company,50,Fiber to the Premises,22484,22484
+130886,"NE Colorado Cellular, Inc.",50,Fiber to the Premises,132031,132031
+130887,"Nedelco, Inc.",10,Copper,58235,58238
+130889,Nelson Telephone Cooperative,40,Cable,7481,7481
+130890,"Nemont Telephone Cooperative, Inc.",10,Copper,41231,41231
+130892,"NetCarrier Telecom, Inc.",50,Fiber to the Premises,0,1040
+130901,New Hope Telephone Cooperative (VA),50,Fiber to the Premises,1113,1113
+130902,"New Hope Telephone Cooperative, Inc. (AL)",50,Fiber to the Premises,11913,11913
+130903,"New Knoxville Telephone Company/GoldStar Communications, LLC",10,Copper,73212,83790
+130904,"New Lisbon Telephone Company, Inc.",50,Fiber to the Premises,18538,12509
+130905,"New Paris Telephone Company, Inc.",10,Copper,41816,41816
+130906,"Nuvera Communications, Inc.",10,Copper,101113,101113
+130908,"New Windsor Communications, Inc.",10,Copper,2094,2094
+130915,"Next Metro, LLC",50,Fiber to the Premises,0,116
+130919,Wittenberg Telephone Company,40,Cable,9322,9322
+130921,NITCO Holding Corporation,10,Copper,174126,174212
+130925,Nortex Communications,10,Copper,28196,28196
+130926,North Carolina RSA 3 Cellular Telephone Company,71,Licensed Fixed Wireless,409119,409119
+130929,"North Central Telephone Cooperative, Inc.",50,Fiber to the Premises,71780,71780
+130930,North English Cooperative Telephone Company,10,Copper,1510,1510
+130937,"Northeast Communications of Wisconsin, Inc.",10,Copper,100314,58183
+130938,Northeast Iowa Telephone Company,50,Fiber to the Premises,5245,5245
+130939,"Northeast Louisiana Telephone Co., Inc.",50,Fiber to the Premises,2114,599
+130940,Northeast Missouri Rural Telephone Company,50,Fiber to the Premises,15004,15004
+130941,Northeast Nebraska Telephone Company,50,Fiber to the Premises,11509,11509
+130944,Northern Telephone Company/Wilderness Valley Telephone Company,10,Copper,175,175
+130945,"Northern Telephone Cooperative, Inc.",50,Fiber to the Premises,1297,525
+130950,Northwest Communications Cooperative,10,Copper,48148,48148
+130953,Northwest Communications Cooperative Association,10,Copper,46324,45327
+130956,"KCL Enterprises, Inc.",10,Copper,1881,233
+130962,Nucla-Naturita Telephone Company,10,Copper,5408,5408
+130963,Nunn Telephone Company,50,Fiber to the Premises,1234,1234
+130964,"Nushagak Electric & Telephone Cooperative, Inc.",10,Copper,2118,2118
+130967,OACYS Technology,50,Fiber to the Premises,0,96014
+130969,Ogden Telephone Company,50,Fiber to the Premises,6223,6223
+130974,"Olin Telephone Company, Inc.",50,Fiber to the Premises,1591,1591
+130976,Northland Telephone Systems,10,Copper,4543,28517
+130977,"Oneida Telephone Exchange, Inc.",10,Copper,1319,1319
+130979,Onslow Cooperative Telephone Association,50,Fiber to the Premises,291,291
+130982,"Zayo Group, LLC",10,Copper,0,111561
+130983,Oran Mutual Telephone Company,50,Fiber to the Premises,301,301
+130986,Oregon Telephone Corporation,10,Copper,41835,47222
+130988,"Orlando Telephone Company, Inc.",10,Copper,88687,48601
+130989,Osage Municipal Utilities,40,Cable,3130,3130
+130993,"Firstlight Fiber, Inc.",10,Copper,14214,31348
+130996,"US Signal Company, LLC",10,Copper,0,2543
+130999,"NTT DoCoMo, Inc.",40,Cable,81467,81467
+131003,Palmer Mutual Telephone Company,50,Fiber to the Premises,427,427
+131005,"Palmetto Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,47694,47694
+131006,Palo Cooperative Telephone Association,50,Fiber to the Premises,940,940
+131007,"Panhandle Telephone Cooperative, Inc.",10,Copper,30230,30230
+131008,Panora Communications Cooperative,40,Cable,5709,5642
+131009,Park Region Mutual Telephone Company,10,Copper,35588,35588
+131010,Partner Communications Cooperative,10,Copper,7460,7460
+131011,"PATHWAYZ Communications, Inc.",50,Fiber to the Premises,25206,25206
+131013,Pattersonville Telephone Company (NY),10,Copper,1334,1334
+131014,Paul Bunyan Rural Telephone Cooperative,10,Copper,78528,78528
+131016,"PCC Holdings, Inc.",50,Fiber to the Premises,2075886,2075886
+131019,Peace Valley Telephone Company,10,Copper,521,521
+131021,The Peetz Cooperative Telephone Company,50,Fiber to the Premises,1679,1679
+131023,"Pembroke Telephone Company, Inc.",50,Fiber to the Premises,8997,8997
+131024,Pembroke Telephone Cooperative,10,Copper,4452,4452
+131025,"Penasco Valley Telephone Cooperative, Inc.",10,Copper,49577,49577
+131026,"Pencor Services, Inc.",10,Copper,298524,857151
+131027,Pennsylvania Telephone Company,10,Copper,1322,468
+131029,"Peoples Rural Telephone Cooperative Corporation, Inc.",50,Fiber to the Premises,18111,18111
+131030,"Peoples Telecommunications, LLC",10,Copper,5338,5338
+131031,Peoples Telephone Cooperative,10,Copper,235478,270678
+131032,"Perry-Spencer Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,24971,24971
+131034,Phillips County Telephone Company,40,Cable,5831,5831
+131036,"Piedmont Rural Telephone Cooperative, Inc.",10,Copper,27488,27488
+131037,"Pierce Telecommunications, Inc.",10,Copper,2892,2892
+131038,Pine Belt Communications Co. Inc.,0,Other,10196,10197
+131039,Pine Telephone Company,10,Copper,73709,73709
+131041,"Pineland Telephone Cooperative, Inc.",50,Fiber to the Premises,36831,39331
+131042,Town of Pineville,10,Copper,5167,5167
+131043,"Pinpoint Holdings, Inc.",10,Copper,21813,21813
+131044,"Pioneer Telephone Association, Inc.",10,Copper,18914,18914
+131045,Pioneer Telephone Cooperative (OK),10,Copper,133796,135761
+131046,Pioneer Telephone Cooperative (OR),10,Copper,19933,19933
+131047,Pioneer Telephone Holding Company,50,Fiber to the Premises,687,168
+131049,"Plains Cooperative Telephone Association, Inc.",50,Fiber to the Premises,5558,5558
+131050,Plainview Telephone Company Inc.,50,Fiber to the Premises,1577,1577
+131051,Plant Telephone Company,10,Copper,29884,29884
+131052,"Planters Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,19263,2879
+131055,"Poka Lambro Telephone Cooperative, Inc.",40,Cable,53602,53602
+131056,Polar Communication Mutual Aid Corporation,50,Fiber to the Premises,18402,18402
+131057,"Ponderosa Communications, Inc.",10,Copper,29337,29337
+131060,"TPC ACC Acquisition, LLC",10,Copper,99154,15607
+131071,Preston Telephone Company,50,Fiber to the Premises,1833,1833
+131073,"Progressive Rural Telephone Co-Op., Inc.",50,Fiber to the Premises,9159,9159
+131074,"Progressive Voice & Data, Inc.",10,Copper,1524,1523
+131075,"Project Mutual Telephone Cooperative Association, Inc.",10,Copper,44579,44579
+131076,"Public Service Communications, Inc.",10,Copper,107420,107420
+131078,"Pulaski White Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,9416,9416
+131081,"Metronet Holdings, LLC",50,Fiber to the Premises,2756866,2756866
+131085,"Radcliffe Telephone Company, Inc.",50,Fiber to the Premises,681,681
+131086,"Ragland Telephone Co., Inc.",10,Copper,3287,3287
+131087,"Rainbow Telecommunications Association, Inc.",40,Cable,17272,17272
+131089,Randolph Telephone Membership Corporation,10,Copper,41242,41242
+131090,"Range Telephone Cooperative, Inc.",10,Copper,44844,44844
+131096,Readlyn Telephone Company,50,Fiber to the Premises,984,984
+131097,Red River Rural Telephone Association,50,Fiber to the Premises,21213,21213
+131100,Reedsburg Utility Commission,50,Fiber to the Premises,15398,15398
+131102,Reservation Telephone Cooperative,10,Copper,26563,26563
+131103,"Reserve Holdings, Inc.",40,Cable,40176,40176
+131106,Reynolds Telephone Company,50,Fiber to the Premises,2426,2426
+131108,"Smithville Holding Company, Inc.",10,Copper,44922,8256
+131109,"Richland-Grant Telephone Cooperative, Inc.",10,Copper,10103,4543
+131113,Ringgold Telephone Company,10,Copper,19882,19882
+131114,Ringsted Telephone Company,10,Copper,2329,2329
+131116,River Valley Telecommunications Cooperative,50,Fiber to the Premises,2015,2015
+131117,"Riviera Telephone Company, Inc.",10,Copper,17219,17219
+131118,RJB Telecommunications Corp.,40,Cable,15673,15673
+131122,Roberts County Telephone Cooperative Association,50,Fiber to the Premises,3873,3873
+131123,Robinson Communications Corporation,10,Copper,2071,2071
+131124,"Rochester Telephone Company, Inc.",50,Fiber to the Premises,27234,27234
+131125,"Comporium, Inc.",10,Copper,249261,249261
+131126,Rock Port Telephone Company,10,Copper,12822,12822
+131127,Rockwell Cooperative Telephone Association,50,Fiber to the Premises,2452,2452
+131128,Roggen Telephone Cooperative Company,50,Fiber to the Premises,5861,5861
+131129,"CommunityTel, Inc.",10,Copper,27264,27264
+131130,Roome Telecommunications Inc.,10,Copper,1049,1049
+131131,"Roosevelt County Rural Telephone Cooperative, Inc.",10,Copper,10709,10709
+131135,Royal Telephone Company,50,Fiber to the Premises,653,653
+131139,Runestone Telephone Association,10,Copper,10945,10945
+131141,Rural Telephone Service Company,50,Fiber to the Premises,105320,111929
+131145,S&T Telephone Cooperative Association,40,Cable,46234,46234
+131146,Sac County Mutual Telephone Company,50,Fiber to the Premises,1474,1474
+131148,Saddleback Communications Inc.,10,Copper,3719,3730
+131152,Salina Spavinaw Telephone Company Inc.,10,Copper,8686,2633
+131157,Sand Creek Communications Company,50,Fiber to the Premises,1380,107
+131158,"Sandhill Telephone Cooperative, Inc.",10,Copper,33855,14245
+131161,"Waimana Enterprises, Inc.",10,Copper,90,3
+131162,"Santa Rosa Telephone Cooperative, Inc.",10,Copper,148901,148901
+131163,Santel Communications Cooperative,50,Fiber to the Premises,10164,10164
+131165,Scatter Creek Ltd.,10,Copper,7301,7301
+131166,Schaller Telephone Company,50,Fiber to the Premises,1904,1904
+131167,"Schurz Communications, Inc.",40,Cable,196089,201096
+131168,Scio Mutual Telephone Association,50,Fiber to the Premises,2040,2036
+131169,Cypress Break,10,Copper,319,319
+131170,Scott County Telephone Cooperative,10,Copper,54606,54606
+131171,Scranton Telephone Company,50,Fiber to the Premises,626,626
+131172,Searsboro Telephone Company,50,Fiber to the Premises,239,49
+131173,Sebastian Enterprises,10,Copper,18294,18294
+131175,Selectronics Corporation,10,Copper,19594,19594
+131179,Sharon Telephone Company (IL & WI),50,Fiber to the Premises,2631,2631
+131180,"Shawnee Communications, Inc.",50,Fiber to the Premises,16311,16311
+131181,Shenandoah Telecommunications Company,10,Copper,574915,574915
+131183,"Sherwood Mutual Telephone Association, Inc.",50,Fiber to the Premises,5219,1018
+131186,Sierra Tel Communications Group,10,Copper,18698,18698
+131190,"Horizon Communications, Inc.",10,Copper,89776,88768
+131191,"Simply Bits, LLC",70,Unlicensed Fixed Wireless,498145,498145
+131194,"Siren Telephone Company, Inc.",10,Copper,12782,12782
+131195,"Siskiyou Communications, Inc.",10,Copper,4693,4693
+131197,Sjoberg's Inc.,40,Cable,17635,17636
+131199,Skyline Telephone Membership Corporation,10,Copper,105856,105856
+131206,"Smartcom Telephone, LLC",50,Fiber to the Premises,47736,47736
+131207,"SmarterBroadband, LLC",70,Unlicensed Fixed Wireless,60535,60535
+131208,"Smith Bagley, Inc.",70,Unlicensed Fixed Wireless,51672,51829
+131211,"Consolidated Companies, Inc.",10,Copper,7528,7528
+131214,South Arkansas Telephone Co.,50,Fiber to the Premises,5653,27365
+131216,South Central Rural Telecommunications Cooperative Inc.,10,Copper,42872,42872
+131218,"South Central Telephone Association, Inc.",50,Fiber to the Premises,8761,8761
+131219,"South Central Utah Telephone Association, Inc.",10,Copper,51569,10777
+131221,"South Plains Telephone Cooperative, Inc.",50,Fiber to the Premises,8035,8035
+131222,"South Slope Cooperative Telephone Company, Inc.",10,Copper,13772,22089
+131223,"Southeast Nebraska Communications, Inc.",50,Fiber to the Premises,4164,4164
+131225,Southeastern Indiana Rural Telephone Cooperative,50,Fiber to the Premises,9332,9332
+131226,American Broadband Holding Company,10,Copper,133419,25749
+131231,Southern Montana Telephone Company,50,Fiber to the Premises,1398,1398
+131232,"Southwest Arkansas Telephone Cooperative, Inc.",50,Fiber to the Premises,8300,8300
+131234,"Southwest Texas Telcom, Inc.",10,Copper,9035,9035
+131239,Spencer Municipal Communications Utility,50,Fiber to the Premises,5940,1236
+131240,Spring Grove Communications,50,Fiber to the Premises,1404,1404
+131241,"Spring Valley Telephone Company, Inc.",50,Fiber to the Premises,1299,1299
+131242,"Springcom, Inc.",10,Copper,5951,5951
+131243,"Springville Cooperative Telephone Association, Inc.",10,Copper,1848,1848
+131245,"Spruce Knob Seneca Rocks Telephone, Inc.",50,Fiber to the Premises,4395,4395
+131246,"SRT Communications, Inc.",10,Copper,41496,41496
+131247,"St. John Telephone, Inc.",50,Fiber to the Premises,3055,3055
+131248,St. Paul Cooperative Telephone Association,50,Fiber to the Premises,311,207
+131249,"Standard Tobacco Company, Inc.",40,Cable,9328,9328
+131250,"Stanton Telecom, Inc.",50,Fiber to the Premises,2227,2227
+131252,Star Telephone Membership Corporation,10,Copper,36279,36279
+131255,"StarVision, Inc.",50,Fiber to the Premises,11198,11198
+131257,"State Telephone Company, Inc.",10,Copper,9840,9840
+131259,Stayton Cooperative Telephone Company,10,Copper,9399,9399
+131260,"Steelville Telephone Exchange, Inc.",10,Copper,6569,1210
+131261,Stelle Telephone Company,70,Unlicensed Fixed Wireless,55,55
+131265,Stoneham Cooperative Telephone Corporation,50,Fiber to the Premises,126,126
+131267,Stratford Mutual Telephone Company,50,Fiber to the Premises,4627,4627
+131272,"Sunflower Enterprises, Inc.",10,Copper,1535,1535
+131276,Superior Telephone Cooperative,50,Fiber to the Premises,182,182
+131283,Surry Telephone Membership Corporation,10,Copper,57241,57241
+131285,Fiberhawk,10,Copper,7279,7279
+131286,"Sweetser Rural Telephone Company, Inc.",10,Copper,4351,4351
+131290,Sycamore Telephone Company,10,Copper,2631,703
+131296,"Taylor Telephone Cooperative, Inc.",10,Copper,21731,21731
+131302,"Telapex, Inc.",10,Copper,1164885,1268083
+131303,"TelAtlantic, Inc.",10,Copper,4869,4869
+131308,"Telefonica International Holding, BV",10,Copper,0,1722
+131309,"TeleGuam Holdings, Inc.",10,Copper,81248,82820
+131310,"Telephone and Data Systems, Inc.",10,Copper,13929603,4777682
+131311,Telephone Electronics Corporation,10,Copper,76323,22049
+131315,Templeton Telephone Company,50,Fiber to the Premises,406,406
+131320,Terral Telephone Company,50,Fiber to the Premises,479,161
+131321,Terril Telephone Cooperative,50,Fiber to the Premises,378,378
+131328,"Thacker-Grigsby Telephone Company, Inc.",40,Cable,37449,37449
+131329,The Champaign Telephone Company,10,Copper,9766,9267
+131330,Champlain Telephone Company,10,Copper,5641,5641
+131332,The Conneaut Telephone Company,40,Cable,10683,10683
+131337,The Hancock Telephone Company,50,Fiber to the Premises,1795,387
+131339,The Middleburgh Telephone Company,10,Copper,12579,12623
+131340,The Nebraska Central Telephone Co.,10,Copper,10136,10136
+131341,The North-Eastern Pennsylvania Telephone Company,10,Copper,19391,19391
+131342,The Ottoville Mutual Telephone Company,50,Fiber to the Premises,1944,1944
+131344,Ridgeville Telephone Company,50,Fiber to the Premises,4060,4060
+131347,The Toledo Telephone Company,50,Fiber to the Premises,5094,5088
+131349,Three River Telco,10,Copper,7082,7082
+131354,Titonka Telephone Company,50,Fiber to the Premises,1095,1095
+131357,Tohono O'Odham Utility Authority,10,Copper,2833,2833
+131358,"Tonica Technologies, Inc.",10,Copper,1231,1231
+131359,"Totah Communications, Inc.",10,Copper,4986,4986
+131361,Town of Shrewsbury,40,Cable,24682,24682
+131362,"Townes Telecommunications, Inc.",10,Copper,44129,44139
+131363,"Traceroad, Inc.",10,Copper,1819,1819
+131365,Trenton Telephone Co.,50,Fiber to the Premises,8610,8610
+131366,"BHT Holdings, Inc.",10,Copper,42179,41396
+131367,"Triangle Telephone Cooperative Assn., Inc.",10,Copper,46660,46660
+131368,"Tri-County Communications Cooperative, Inc.",40,Cable,17865,17865
+131378,"Future Fiber FinCo, LLC",10,Copper,689021,688538
+131379,"City of Muscatine, Iowa",50,Fiber to the Premises,12480,2198
+131383,"Tularosa Basin Telephone Company, Inc.",10,Copper,22291,22291
+131384,Twin Lakes Telephone Cooperative Corporation,50,Fiber to the Premises,71239,75070
+131386,U.S. TelePacific Holdings Corp.,10,Copper,0,65517
+131387,"UBTA-UBET Communications, Inc.",10,Copper,73711,43039
+131388,Union River Telephone Company,50,Fiber to the Premises,4315,4315
+131394,Evertek Enterprises,50,Fiber to the Premises,60902,60902
+131395,"United Telephone Association, Inc.",40,Cable,76530,76544
+131396,"MTE Holdings, LLC",10,Copper,160412,24410
+131397,"UniTek, Inc.",10,Copper,6837,6837
+131400,Unwired Ltd.,71,Licensed Fixed Wireless,1493597,1493597
+131401,Upsala Cooperative Telephone Association,40,Cable,3368,3368
+131407,UTMA,50,Fiber to the Premises,14972,14972
+131409,"Valley Telecommunications Cooperative Association, Inc.",50,Fiber to the Premises,13122,13122
+131411,"Valley Telephone Cooperative, Inc. (AZ/NM)",10,Copper,32750,32750
+131412,"Valliant Telephone Company, Inc.",10,Copper,10288,4082
+131413,"Windstream Holdings, Inc.",10,Copper,4838665,4838665
+131414,"Van Buren Telephone Co., Inc.",50,Fiber to the Premises,3497,3497
+131415,Van Horne Cooperative Telephone Company,50,Fiber to the Premises,516,516
+131416,"Varcomm Holdings, Inc.",10,Copper,27926,27926
+131418,Vaughnsville Telephone Company,10,Copper,9275,9275
+131422,"Venture Communications Cooperative, Inc.",50,Fiber to the Premises,22435,22435
+131423,Venus Telephone Corporation,50,Fiber to the Premises,1534,615
+131425,Verizon Communications Inc.,50,Fiber to the Premises,56876681,51646469
+131426,"Vermont Telephone Company, Inc.",10,Copper,20186,20315
+131427,"Vernon Telephone Cooperative, Inc.",50,Fiber to the Premises,17475,17475
+131431,Viola Holding Company,50,Fiber to the Premises,1543,1543
+131441,Volcano Communications Company,10,Copper,13542,2230
+131444,Wabash Mutual Telephone Company,10,Copper,59532,59532
+131445,"Wabash Telephone Cooperative, Inc.",50,Fiber to the Premises,36657,36657
+131448,"Wamego Telephone Company, Inc.",50,Fiber to the Premises,26563,26563
+131451,Washington County Rural Telephone Cooperative,10,Copper,5317,5317
+131453,Wave Wireless LLC,50,Fiber to the Premises,13921,17182
+131457,Webster-Calhoun Cooperative Telephone Association,50,Fiber to the Premises,9356,9356
+131458,Wellman Cooperative Telephone Association,10,Copper,2424,2424
+131459,"West Carolina Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,116687,116687
+131460,West Central Telephone Assn.,50,Fiber to the Premises,8054,8054
+131461,West Iowa Telephone Company,50,Fiber to the Premises,8222,8222
+131463,West Liberty Telephone Company,50,Fiber to the Premises,42953,42953
+131465,West River Telecommunications Cooperative,50,Fiber to the Premises,22668,22668
+131466,West Texas Rural Telephone Cooperative Inc.,10,Copper,14314,14314
+131467,"West Wisconsin Telcom Cooperative, Inc.",10,Copper,15260,15260
+131469,"Westelcom Network, Inc.",50,Fiber to the Premises,9766,3716
+131472,Western Iowa Telephone Association,50,Fiber to the Premises,5541,5541
+131475,Wahkiakum West Inc.,50,Fiber to the Premises,2997,449
+131476,"Wes-Tex Telephone Cooperative, Inc.",50,Fiber to the Premises,27603,27603
+131478,"Abound Ventures, Inc.",10,Copper,14295,1032
+131480,"WideOpenWest Finance, LLC",10,Copper,2274160,446074
+131481,Wiggins Telephone Association,50,Fiber to the Premises,3922,3922
+131482,"Wikstrom Telephone Company, Inc.",10,Copper,16774,16774
+131485,"Dycom Holding, Inc.",50,Fiber to the Premises,12972,12972
+131486,Wilkes Telephone Membership Corporation,10,Copper,312662,312662
+131487,Willard Telephone Company,50,Fiber to the Premises,106,106
+131492,WinDBreak Cable,40,Cable,3086,3086
+131494,Winnebago Cooperative Telecom Association,10,Copper,21874,21874
+131497,"Wired or Wireless, Inc.",50,Fiber to the Premises,303634,227255
+131505,"Woodhull Communications, Inc.",10,Copper,2000,2000
+131506,Woodstock Telephone Company,50,Fiber to the Premises,13316,13316
+131507,Woolstock Mutual Telephone Association,50,Fiber to the Premises,4107,4107
+131510,Wyoming Mutual Telephone Company,50,Fiber to the Premises,982,982
+131512,"XIT Rural Telephone Cooperative, Inc.",50,Fiber to the Premises,8891,8891
+131516,Yadkin Valley Telephone Membership Corporation,10,Copper,104145,104145
+131517,Granite State Communications,10,Copper,11134,11134
+131518,"Yelcot Holding Group, Inc.",10,Copper,27646,27646
+131520,Yeoman Telephone Company,10,Copper,5000,5000
+131611,"Highland Telephone Cooperative, Inc. (KY & TN)",50,Fiber to the Premises,31834,31834
+131612,Sharon Telephone Company (IA),50,Fiber to the Premises,4044,4044
+131613,Sully Telephone Association,50,Fiber to the Premises,999,195
+131900,"Cunningham Management, Inc.",40,Cable,18774,18798
+140001,"Access Cable Television, Inc.",40,Cable,6962,6962
+140012,Axiom Technologies,50,Fiber to the Premises,6171,1183
+140018,Cable America Missouri LLC,40,Cable,1467,0
+140020,PUD No. 1 of Chelan County,50,Fiber to the Premises,37790,37790
+140030,Fail Telecommunication Corporation,10,Copper,23723,5718
+140033,Filer Mutual Telephone Company,50,Fiber to the Premises,5249,5249
+140036,Fort Jennings Telephone Company,50,Fiber to the Premises,1382,1426
+140043,"Hopi Telecommunications, Inc.",10,Copper,1548,1548
+140048,"JAB Wireless, Inc.",50,Fiber to the Premises,5676528,5676528
+140055,LAT Inc.,70,Unlicensed Fixed Wireless,58423,58339
+140064,"Defiance Holdings, LLC",50,Fiber to the Premises,391229,391229
+140076,"Reasnor Telephone Company, LLC",10,Copper,301,51
+140078,"Royell Communications, Inc.",50,Fiber to the Premises,50018,50018
+140084,SPITwSPOTS Inc.,70,Unlicensed Fixed Wireless,80623,80623
+140092,"Twin Valley Management, Inc.",10,Copper,82426,82426
+140101,West River Cooperative Telephone Company,50,Fiber to the Premises,4495,4495
+140106,"WTC Communications, Inc.",10,Copper,4253,4253
+150119,Pattersonville Telephone Company (OH),10,Copper,368,67
+150120,Mutual Telephone Company (KS),50,Fiber to the Premises,24897,24897
+150225,Buckland Telephone Co.,50,Fiber to the Premises,870,267
+150237,City of North Kansas,50,Fiber to the Premises,797,797
+150245,"CresComm WiFi, LLC",50,Fiber to the Premises,7731,7731
+150249,"DC Access, LLC",70,Unlicensed Fixed Wireless,40941,40941
+150250,DTC Holding Company,50,Fiber to the Premises,26522,26522
+150254,"DoveTel Communications, LLC",50,Fiber to the Premises,13593,7881
+150258,Ellijay Telephone Company,10,Copper,69414,69414
+150266,"Hanson Communications, Inc.",10,Copper,72323,72417
+150272,Iowa Connect Inc.,70,Unlicensed Fixed Wireless,4189,4189
+150287,"Moapa Valley Telecommunications, Inc.",10,Copper,3289,3289
+150290,"Neptuno Media, Inc.",50,Fiber to the Premises,1123201,1123201
+150307,"Remote Control, Inc.",50,Fiber to the Premises,197,42
+150312,Russellville Electric Plant Board,50,Fiber to the Premises,5987,5987
+150316,Socket Telecom LLC,10,Copper,196559,242979
+150317,Wood County Telephone Company,10,Copper,34952,35925
+150323,"TecInfo Communications, LLC",50,Fiber to the Premises,13458,13458
+150327,"United Electric Cooperative, Inc.",50,Fiber to the Premises,94177,94427
+150330,"Upward Access, LLC",70,Unlicensed Fixed Wireless,4643,0
+150334,"WEHCO Video, Inc.",40,Cable,223212,223212
+150335,"Wharton County Electric Cooperative, Inc.",70,Unlicensed Fixed Wireless,550,550
+150336,"Whiz to Coho, Inc.",50,Fiber to the Premises,1068,1068
+150339,"Worldnet Telecommunications, Inc.",10,Copper,490,2248
+150341,Yellowstone Media Design,70,Unlicensed Fixed Wireless,742,742
+160103,Allband Communications Cooperative,50,Fiber to the Premises,2981,2981
+160108,Bristol Tennessee Essential Services,50,Fiber to the Premises,33828,33828
+160115,"E-Vergent.com, LLC",50,Fiber to the Premises,120702,119545
+160118,Eastern Cable Corporation,40,Cable,2699,2699
+160127,LICT Corporation,10,Copper,300670,292283
+160129,Manning Municipal Communications and Television Systems Utility,50,Fiber to the Premises,1209,1209
+160135,"Ogden Communications, Inc.",50,Fiber to the Premises,561,561
+160141,Plumas-Sierra Rural Electric Cooperative,40,Cable,12808,12808
+160146,"Ralls Technologies, LLC",50,Fiber to the Premises,7942,7942
+160151,"Southeastern Services, Inc.",50,Fiber to the Premises,287,142
+160157,"Zito West Holding, LLC",40,Cable,402253,402253
+160160,Hawkeye Topco Holdings LLC,40,Cable,129717,16714
+160162,"TerraNovaNet, Inc.",70,Unlicensed Fixed Wireless,14876,2584
+170001,"Puerto Rico Telephone Company, Inc.",10,Copper,1403279,99
+170012,"American Samoa Telecom, LLC",40,Cable,15439,15439
+170014,Atkins Telephone Company,50,Fiber to the Premises,1978,1978
+170025,CMS Internet LLC,50,Fiber to the Premises,64474,64474
+170044,Fishers Island Telephone Corporation,10,Copper,1010,1010
+170047,"GMN Tri-County CAC, Inc.",50,Fiber to the Premises,8740,8741
+170050,Harlan Municipal Utilities,40,Cable,2257,538
+170054,"FIF St. George, LLC",50,Fiber to the Premises,154971,166161
+170058,Jackson Energy Authority,50,Fiber to the Premises,40390,40390
+170066,Monmouth Independence Network,50,Fiber to the Premises,16541,16541
+170067,Monmouth Internet Corporation,10,Copper,0,1116
+170071,"Newmax, LLC",40,Cable,178694,178501
+180010,City of Auburn,50,Fiber to the Premises,12241,12241
+180011,City of Cartersville,50,Fiber to the Premises,0,438
+180012,"City of Elberton, Georgia",40,Cable,9742,9742
+180014,City of LaGrange,50,Fiber to the Premises,0,1357
+180032,"Home Town Cable TV, LLC",40,Cable,10179,313
+180048,"Rapid Systems, Inc.",72,LBR Fixed Wireless,633847,140103
+180058,"Com Net, Inc.",50,Fiber to the Premises,0,48
+180064,"Web Fire Communications, Inc.",50,Fiber to the Premises,24459,24702
+190002,101Netlink,71,Licensed Fixed Wireless,92171,92171
+190003,"1stel, Inc.",70,Unlicensed Fixed Wireless,58620,58620
+190013,Adams CATV Inc.,40,Cable,46130,46130
+190015,"Aeneas Communications, LLC",50,Fiber to the Premises,79807,79807
+190020,"City of Albany, Georgia",50,Fiber to the Premises,350,973
+190025,America Internet & Communications,70,Unlicensed Fixed Wireless,138,5
+190046,Beaver Valley Cable Company,40,Cable,2338,2338
+190047,"Bee Line, Inc.",40,Cable,18450,18450
+190053,"Bluebird Wireless Broadband Services, LLC",10,Copper,1630,1799
+190058,"Board of Water, Light & Sinking Fund Commissioners of the City of Dalton, GA",50,Fiber to the Premises,33362,33362
+190059,"Boycom Cablevision, Inc.",40,Cable,5420,268
+190071,Cable Co-Op,40,Cable,3415,475
+190075,Catalina Broadband Solutions LLC,40,Cable,2292,2292
+190080,City of Bellevue,50,Fiber to the Premises,1021,388
+190083,City of Coffeyville,50,Fiber to the Premises,347,347
+190084,City of Glenwood Springs,50,Fiber to the Premises,6070,6070
+190085,City of Hawarden,40,Cable,1240,401
+190086,City of Holyoke Gas & Electric Department,50,Fiber to the Premises,23,310
+190089,City of Williamstown,40,Cable,2542,2263
+190093,Cloud Alliance LLC,72,LBR Fixed Wireless,2980,2965
+190096,Coldwater Board of Public Utilities,40,Cable,13640,13640
+190101,Community Cable Television Agency of O'Brien County,40,Cable,4863,1681
+190102,Community Telecom Services,40,Cable,4406,92
+190103,"Computer Dynamics of NW Illinois, LLC",70,Unlicensed Fixed Wireless,45778,45778
+190107,ConnectTo Communications Inc.,10,Copper,197864,6995
+190123,"DigitalPath, Inc.",70,Unlicensed Fixed Wireless,580658,580658
+190126,Douglas Electric Cooperative Inc.,40,Cable,68045,77065
+190131,Easton Utilities Commission,40,Cable,15476,15476
+190134,"Electric Power Board of Chattanooga, Tennessee",50,Fiber to the Premises,192128,192128
+190139,"e-Polk, Inc.",50,Fiber to the Premises,9313,4529
+190146,"FastTrack Communications, Inc.",10,Copper,14,917
+190155,"Fisher Wireless Services, Inc.",70,Unlicensed Fixed Wireless,68,68
+190163,"Fulair, LLC",70,Unlicensed Fixed Wireless,21497,21258
+190169,"Geneva On-Line, Inc.",50,Fiber to the Premises,2541,1110
+190172,Golden Rain Foundation,40,Cable,21400,0
+190180,Grundy Center Municipal Light & Power,40,Cable,1241,193
+190181,Haefele TV Inc.,40,Cable,15127,15127
+190182,"Harlan Community Television, Inc.",40,Cable,19248,6174
+190184,Henderson Municipal Power & Light,50,Fiber to the Premises,12945,12945
+190187,"Electric Plant Board of the City of Hopkinsville, Kentucky",50,Fiber to the Premises,35102,4637
+190188,Hudson Valley Wireless,72,LBR Fixed Wireless,245327,245278
+190208,"JB-Nets, LLC",50,Fiber to the Premises,17385,17385
+190211,"Joink, LLC",50,Fiber to the Premises,68300,68300
+190219,Lafayette City Parish Consolidated Government,50,Fiber to the Premises,91123,22614
+190223,Lenox Municipal Utilities,50,Fiber to the Premises,751,751
+190227,InstarAGF,50,Fiber to the Premises,90,1797
+190233,"Hilliary Communications, LLC",10,Copper,135527,135527
+190236,"Mercury Broadband, LLC",50,Fiber to the Premises,940971,202957
+190244,Minnesota Valley Television Improvement Corporation,70,Unlicensed Fixed Wireless,30958,30958
+190256,Foremost Telecommunications Corporation,10,Copper,0,600155
+190265,Nittany Media Inc.,70,Unlicensed Fixed Wireless,1988,1988
+190275,Oak Run Associates Ltd.,40,Cable,4541,21
+190280,"Optivon, LLC",10,Copper,0,874
+190281,"OTZ Telephone Cooperative, Inc.",10,Copper,2824,2824
+190282,Owensboro Municipal Utilities,50,Fiber to the Premises,16925,26370
+190284,Pacific Data Systems,10,Copper,47305,3498
+190290,"Peerless Network Holdings, Inc.",0,Other,0,359
+190303,Public Utility District No. 1 of Douglas County,10,Copper,18282,18282
+190304,Pulaski Electric System,50,Fiber to the Premises,9238,9238
+190305,"Quantum Telecommunications, Inc.",50,Fiber to the Premises,9290,13518
+190308,Cable TV of East Alabama,40,Cable,50020,50020
+190311,Razzolink Inc.,70,Unlicensed Fixed Wireless,256966,256966
+190312,"RB3, LLC",40,Cable,19313,19313
+190313,Rebeltec Communications LLC,50,Fiber to the Premises,13282,13098
+190323,Savage Communications Inc.,40,Cable,31858,31858
+190335,"Southern Ohio Communication Services, Inc.",50,Fiber to the Premises,23009,23009
+190336,Southern Tier Wireless,70,Unlicensed Fixed Wireless,55742,55741
+190341,"Eagle Internet Services, LLC",70,Unlicensed Fixed Wireless,100,100
+190349,"Syringa Networks, LLC",50,Fiber to the Premises,0,197841
+190365,"Tel-Star Cablevision, Inc.",40,Cable,6543,0
+190367,The Utilities Board of the City of Sylacauga,50,Fiber to the Premises,6218,1868
+190380,"Troy Cablevision, Inc.",10,Copper,5854,5854
+190405,Westfield Gas & Electric,50,Fiber to the Premises,32620,32620
+190406,Westgate Communications LLC,70,Unlicensed Fixed Wireless,114,12
+190410,"IdeaTek Telcom, LLC",10,Copper,182472,182414
+190425,"Sonic Telecom, LLC",50,Fiber to the Premises,634396,641827
+190428,"San Carlos Apache Telecommunications Utility, Inc.",10,Copper,2746,2746
+190429,Barbourville Utility Commission,50,Fiber to the Premises,4256,4256
+190431,City Utilities of Springfield,50,Fiber to the Premises,0,118302
+190435,"Citynet, LLC",50,Fiber to the Premises,20438,52492
+190501,4 SIWI LLC,50,Fiber to the Premises,22869,22869
+190504,Allo Communications LLC,50,Fiber to the Premises,558165,558165
+190506,"Cyber Mesa Computer Systems, Inc.",10,Copper,1272,360
+190508,"Atlantech Online, Inc.",50,Fiber to the Premises,0,4499
+200006,"Blip Networks, LLC",70,Unlicensed Fixed Wireless,11287,11287
+200008,"BendTel, Inc.",50,Fiber to the Premises,2713,2713
+200014,Cogent Communications Group,50,Fiber to the Premises,0,18108
+200019,"Express Dial Internet, Inc.",70,Unlicensed Fixed Wireless,6603,6437
+200041,"Raw Bandwidth Communications, Inc.",10,Copper,1310,1310
+200057,"Orcas Online, Inc.",50,Fiber to the Premises,859,859
+210001,3 Rooms Communications LLC,50,Fiber to the Premises,104861,104861
+210018,"Cherry Capital Connection, LLC",10,Copper,4051,4066
+210019,City of Wilson,50,Fiber to the Premises,33732,33732
+210042,Imagine Networks,10,Copper,2869,0
+210046,"JCMM Ventures, LLC",70,Unlicensed Fixed Wireless,205,205
+210061,"Pavlov Media, Inc.",50,Fiber to the Premises,136319,209139
+210080,Traer Municipal Utilities,50,Fiber to the Premises,78,14
+210087,Wintek Corporation,50,Fiber to the Premises,20043,20043
+210090,Richmond Telephone Company LLC,10,Copper,882,56
+210092,C&W Communications,70,Unlicensed Fixed Wireless,35728,3623
+210101,Xchange Telecom Corp.,10,Copper,131899,131899
+210105,LVWifi.com,70,Unlicensed Fixed Wireless,291,291
+220001,PTI Pacifica Inc.,10,Copper,48664,50350
+220005,"Allied Telecom Group, LLC",10,Copper,0,9689
+220007,BreezeAir Networks LLC,50,Fiber to the Premises,2237,1483
+220008,Bayou Cable Inc.,40,Cable,3161,3161
+220015,"CellTex Networks, LLC",72,LBR Fixed Wireless,47324,47324
+220016,City of Morganton,40,Cable,7177,1452
+220027,"Fourway Computer Products, Inc.",50,Fiber to the Premises,4300,4300
+220028,Full Service Network LP,10,Copper,0,292
+220031,"IsoFusion, Inc.",50,Fiber to the Premises,90502,90502
+220046,NTInet Inc.,50,Fiber to the Premises,1265,280
+220048,"Netwurx, LLC",50,Fiber to the Premises,25483,7282
+220052,"QCOL, Inc.",50,Fiber to the Premises,15495,15495
+220058,Rocky Ridge Wireless,70,Unlicensed Fixed Wireless,727,35
+220066,Seimitsu Corporation,50,Fiber to the Premises,3151,3151
+220069,City of Valparaiso,40,Cable,1736,12
+220071,Vogtmann Engineering Inc.,40,Cable,2859,68
+220073,Mountain West Technologies Corporation,50,Fiber to the Premises,103176,103176
+220078,Crystal Broadband Networks,40,Cable,8326,8326
+220079,Blue Mountain Networks LLC,10,Copper,105022,102493
+230006,City of Chanute Kansas,50,Fiber to the Premises,3574,449
+230008,"Computer Office Solutions, Inc./Negia, Inc.",70,Unlicensed Fixed Wireless,0,43457
+230011,"Cyberdyne Networks, Inc.",72,LBR Fixed Wireless,17188,17188
+230021,"Ind. Co. Cable TV, Inc.",40,Cable,11478,11478
+230022,Intermart Inc.,70,Unlicensed Fixed Wireless,260014,260014
+230025,"Konceptio Data Services, LLC",50,Fiber to the Premises,41686,41734
+230036,"Rebus Communications, LLC",70,Unlicensed Fixed Wireless,6244,6244
+230043,Southeast Colorado Power Association,50,Fiber to the Premises,146665,146665
+230050,"USFon, Inc.",10,Copper,32,2
+230051,Utah Telecommunication Open Infrastructure Agency,50,Fiber to the Premises,287682,287682
+230056,"Xclutel, LLC",10,Copper,0,211
+230062,"Hillbilly Wireless Internet, Inc.",50,Fiber to the Premises,33818,24597
+240006,"BalsamWest FiberNET, LLC",50,Fiber to the Premises,5751,1942
+240009,Bolt Internet Inc.,70,Unlicensed Fixed Wireless,102440,102440
+240012,Bryan Municipal Utilties,50,Fiber to the Premises,0,5141
+240014,"CalNeva Broadband, LLC",40,Cable,7693,7693
+240017,Chaparral Holding Corporation,40,Cable,320551,82772
+240022,CND Acquisition Corp.,40,Cable,9416,7083
+240025,"Community Antenna System, Inc.",40,Cable,1292,474
+240031,Davis Communications Inc.,40,Cable,5219,593
+240032,DayStarr LLC,50,Fiber to the Premises,13174,13174
+240035,"Fast-Air Internet, Inc.",70,Unlicensed Fixed Wireless,4522,4192
+240037,Fort Pierce Utilities Authority,50,Fiber to the Premises,1833,1871
+240038,Frank Howard TV Cable Inc.,40,Cable,3718,3718
+240041,Google LLC,50,Fiber to the Premises,2495521,229804
+240044,Highland Communication Services,50,Fiber to the Premises,5218,5218
+240046,"Hughes Computer Services, Inc.",70,Unlicensed Fixed Wireless,313,0
+240056,LTD Broadband LLC,50,Fiber to the Premises,840729,823535
+240058,Mid-Hudson Cablevision,40,Cable,66201,65773
+240061,Montana Opticom LLC,50,Fiber to the Premises,35855,35855
+240062,"Mountain Communications, LLC",50,Fiber to the Premises,4980,4980
+240063,Murray Electric System,40,Cable,10750,12234
+240064,Nelson County Cablevision Corp.,50,Fiber to the Premises,3779,3779
+240065,"Nelsonville TV Cable, Inc.",40,Cable,12732,12732
+240068,"Neu Ventures, Inc.",40,Cable,14014,14014
+240081,Reinbeck Municipal Telecommunications Utility,40,Cable,2377,556
+240085,Scottsboro Electric Power Board,40,Cable,14844,14844
+240090,"Stowe Communications, LLC",40,Cable,8076,8076
+240102,Jefferson County Cable,40,Cable,15562,15562
+240109,Montana Internet Corporation,50,Fiber to the Premises,54425,54425
+240110,"Public Utility District of Grant County, Washington",50,Fiber to the Premises,41708,8777
+240119,Transtelco Holding,50,Fiber to the Premises,0,188
+250003,"360 Communications, LLC (OR & WA)",70,Unlicensed Fixed Wireless,20703,20703
+250014,"Arbuckle Communications, LLC",70,Unlicensed Fixed Wireless,51204,51204
+250027,City of Lebanon Utilities,50,Fiber to the Premises,10892,10898
+250028,"Collins Communications, LLC",70,Unlicensed Fixed Wireless,30974,30974
+250053,"Lobo Internet Services, Ltd.",70,Unlicensed Fixed Wireless,429622,429622
+250066,"Ridgetop Networks, LLC",10,Copper,1476,1476
+250069,Satellite Operations Inc.,40,Cable,2504,2504
+250070,Servpac Inc.,10,Copper,0,5393
+250081,"Urban Communications, Inc.",70,Unlicensed Fixed Wireless,3386,1817
+250085,"Wireless Data Net, LLC",50,Fiber to the Premises,10594,10594
+250090,Wyoming.Com,50,Fiber to the Premises,42781,42664
+250099,Resonance Broadband LLC,70,Unlicensed Fixed Wireless,4001,4001
+250102,Rural Farm Networks LLC,70,Unlicensed Fixed Wireless,282,0
+260000,"Farmers Telecommunications Cooperative, Inc.",50,Fiber to the Premises,42915,42915
+260003,Bertram Communications LLC,50,Fiber to the Premises,849760,849760
+260007,City of Burbank/Burbank Water and Power,50,Fiber to the Premises,0,882
+260009,Columbia Power and Water Systems,40,Cable,23171,1443
+260010,"MiFiber Holding, LLC",40,Cable,277063,277063
+260016,Digi Comm Enterprises LLC,70,Unlicensed Fixed Wireless,38250,38250
+260017,District of Columbia Government/Office of the Chief Technology Officer,50,Fiber to the Premises,0,456
+260019,"G5 Internet, LLC",50,Fiber to the Premises,2705,2705
+260025,Broadband on Demand LLC,70,Unlicensed Fixed Wireless,44693,44693
+260042,Roller Network LLC,10,Copper,0,60
+260049,SMR Communications,40,Cable,1029,1029
+260051,Spry Wireless Communications Inc.,70,Unlicensed Fixed Wireless,23159,23159
+260052,Succeed.Net,50,Fiber to the Premises,300629,297297
+260056,Total Highspeed LLC,50,Fiber to the Premises,421506,421506
+260062,WVVA.net Inc.,50,Fiber to the Premises,23513,6570
+260068,"SnowCloud Services, LLC",71,Licensed Fixed Wireless,6235,6235
+260069,Spanish Fork City,40,Cable,28814,28814
+260070,Warm Springs Telecommunications Company,70,Unlicensed Fixed Wireless,1136,1136
+270002,1 Point Communications,50,Fiber to the Premises,42,14
+270011,"Alyrica Networks, Inc.",10,Copper,337442,336825
+270012,Aristotle Unified Communications Inc.,50,Fiber to the Premises,74234,74234
+270014,Bowling Green Municipal Utilities,50,Fiber to the Premises,0,2780
+270016,Bethesda Wireless LLC,50,Fiber to the Premises,1361,30
+270020,"Cal.net, Inc.",50,Fiber to the Premises,1481292,1481292
+270023,"City of Richmond, Indiana",50,Fiber to the Premises,8,7195
+270024,City of Wyandotte,40,Cable,23234,23234
+270025,"ClearSKY Systems, Inc.",70,Unlicensed Fixed Wireless,56782,56782
+270027,Columbia Energy LLC,50,Fiber to the Premises,30278,30278
+270045,Getwireless.net,50,Fiber to the Premises,2765,0
+270051,"Impulse Internet Services, LLC",50,Fiber to the Premises,5,38
+270061,Maxwire Inc.,70,Unlicensed Fixed Wireless,13065,13065
+270063,"MontanaSky Networks, Inc.",50,Fiber to the Premises,21385,21385
+270065,Noize Communications LLC,70,Unlicensed Fixed Wireless,14709,14709
+270074,"Skywave Wireless, Inc.",50,Fiber to the Premises,11716,11716
+270076,"Sonic Spectrum, Inc.",50,Fiber to the Premises,16699,16699
+270077,SonicNet Inc.,50,Fiber to the Premises,1961,225
+270084,TC LLC,40,Cable,2153,2153
+270090,CG Computer Works LLC,50,Fiber to the Premises,28352,6574
+270096,"Velocity Broadband Internet, Inc.",70,Unlicensed Fixed Wireless,3379,3379
+270099,"Western Communications, Inc.",70,Unlicensed Fixed Wireless,84,84
+270101,"WireFree Communications, Inc.",70,Unlicensed Fixed Wireless,42331,42331
+270102,X1 Communications Inc.,70,Unlicensed Fixed Wireless,12439,12439
+270115,Webhiway Communications LLC,70,Unlicensed Fixed Wireless,141,9
+280001,Cogeco Cable Holdings II Inc.,40,Cable,1875125,574442
+280004,"Air Link Rural Broadband, LLC",50,Fiber to the Premises,49244,49244
+280005,Aureon Network Services Inc.,10,Copper,598,1577
+280010,Borough of Kutztown,50,Fiber to the Premises,2734,2734
+280011,"James Bouse Enterprises, LLC",50,Fiber to the Premises,12818,12818
+280014,City of Longmont,50,Fiber to the Premises,46879,46879
+280017,"Co-Mo Electric Cooperative, Inc.",50,Fiber to the Premises,59554,59554
+280020,"Eastern Shore Communications, LLC",50,Fiber to the Premises,15402,15402
+280024,FractalVision,70,Unlicensed Fixed Wireless,1222,1222
+280035,Mile High Networks,72,LBR Fixed Wireless,0,71834
+280046,"Professional Satellite Services, Inc.",70,Unlicensed Fixed Wireless,1148,1148
+280047,"Rayfield Communications, Inc.",70,Unlicensed Fixed Wireless,1234,571
+280052,"San Juan Cable, Inc.",40,Cable,2527,2527
+280057,"Tekify, LLC",50,Fiber to the Premises,242638,242638
+280063,Veloxnet Inc.,50,Fiber to the Premises,659,590
+280067,"Rural Connect, LLC",70,Unlicensed Fixed Wireless,115,14
+280069,ZMP Holding Company,50,Fiber to the Premises,2249,2723
+280073,LARIAT,50,Fiber to the Premises,14975,14975
+280078,"Horizon Cable TV, Inc.",40,Cable,3508,3508
+290004,"AtLink Services, LLC",50,Fiber to the Premises,693074,693074
+290006,"AirFiber, Inc.",70,Unlicensed Fixed Wireless,42886,42886
+290007,Alamo Broadband Inc.,50,Fiber to the Premises,69406,68709
+290008,AlignTec Inc.,50,Fiber to the Premises,17871,0
+290010,AMG Technology Investment Group LLC,50,Fiber to the Premises,3630701,3630701
+290015,"Bear River Communications, LLC",70,Unlicensed Fixed Wireless,10382,9798
+290016,"Believe Wireless, LLC",50,Fiber to the Premises,790285,790285
+290018,Pocomoke Holdings,50,Fiber to the Premises,349510,349510
+290031,"Computer Techniques, Inc.",50,Fiber to the Premises,27599,27599
+290037,"Digital Connections, Inc.",50,Fiber to the Premises,11184,11184
+290039,"DMCI Broadband, LLC",50,Fiber to the Premises,27558,26648
+290042,"Electronic Corporate Pages, Inc.",70,Unlicensed Fixed Wireless,136706,136706
+290052,In The Stix Broadband LLC,50,Fiber to the Premises,71726,70973
+290053,Innovative Financial Technologies LLC,10,Copper,147314,146313
+290057,"Interstate Wireless, Inc.",70,Unlicensed Fixed Wireless,4754,0
+290058,JMZ Corporation,50,Fiber to the Premises,214390,214390
+290061,Lake Region Technology & Communications LLC,50,Fiber to the Premises,29295,29295
+290065,ISP Industries LLC,70,Unlicensed Fixed Wireless,1088280,1088280
+290074,Northern Arapaho Tribal Industries,50,Fiber to the Premises,14281,14281
+290075,Northwest Open Access Network,50,Fiber to the Premises,3108,2826
+290079,"Portative Technologies, LLC",70,Unlicensed Fixed Wireless,4490,4490
+290087,Rural Broadband Network Services LLC,70,Unlicensed Fixed Wireless,1149,210
+290088,San Diego Broadband,70,Unlicensed Fixed Wireless,308948,376334
+290091,SmartBurst LLC,70,Unlicensed Fixed Wireless,6124,6103
+290093,"Declaration Networks Group, Inc.",40,Cable,199438,199438
+290097,"Splash Wireless Internet, LLC",70,Unlicensed Fixed Wireless,36885,36884
+290099,"Taos Net, LLC",70,Unlicensed Fixed Wireless,17551,17551
+290103,TELE-PAGE Inc.,70,Unlicensed Fixed Wireless,671,671
+290105,Television Association of Republic,40,Cable,2087,2087
+290106,The Junction Internet LLC,50,Fiber to the Premises,97208,97208
+290108,Tnet Broadband Internet,70,Unlicensed Fixed Wireless,5684,1850
+290111,"Viasat, Inc.",60,GSO Satellite,129968036,162566550
+290118,Webformix Company,70,Unlicensed Fixed Wireless,53444,2
+290121,Wificow Wyoming Corporation,70,Unlicensed Fixed Wireless,83,83
+290123,Fluid-Blu Technologies,70,Unlicensed Fixed Wireless,13723,13723
+290128,"Kern Valley Wireless, Inc.",70,Unlicensed Fixed Wireless,8119,8039
+300005,"Acme Communications, Inc.",50,Fiber to the Premises,2386,2386
+300008,"Airosurf Communications, Inc.",70,Unlicensed Fixed Wireless,65595,65595
+300010,"Anvil Communications, Inc.",70,Unlicensed Fixed Wireless,5493,0
+300015,City of Bagley,40,Cable,907,282
+300016,"Basin 2 Way Radio, Inc.",70,Unlicensed Fixed Wireless,371,0
+300019,"Bluespan Wireless, LLC",70,Unlicensed Fixed Wireless,43249,43249
+300020,Borealis Broadband Inc.,70,Unlicensed Fixed Wireless,100829,100829
+300024,"Brolly Communications, Inc.",70,Unlicensed Fixed Wireless,8260,8191
+300025,Hilbert Communications LLC,50,Fiber to the Premises,958053,958053
+300027,"CTI Networks, Inc.",70,Unlicensed Fixed Wireless,243510,243510
+300029,Cirra Networks,70,Unlicensed Fixed Wireless,77780,75070
+300031,City of Monticello,50,Fiber to the Premises,6028,6028
+300034,Communications Management Group LLC,50,Fiber to the Premises,0,749
+300042,"Critical Hub Networks, Inc.",50,Fiber to the Premises,135949,135949
+300043,Cruzio Internet,50,Fiber to the Premises,156891,156891
+300044,GI DI Vertigo Acquisition LLC,50,Fiber to the Premises,0,4795
+300049,Eastern Shore of Virginia Broadband Authority,50,Fiber to the Premises,25919,25919
+300057,"Fatbeam Holdings, LLC",50,Fiber to the Premises,12979,1098
+300066,Hunter Communications & Technologies LLC,40,Cable,178341,178341
+300069,Freeway Networks LLC,70,Unlicensed Fixed Wireless,543,0
+300074,Jo-Carroll Electric Cooperative Inc.,50,Fiber to the Premises,35074,35073
+300077,"Kansas Broadband Internet, Inc.",70,Unlicensed Fixed Wireless,26646,0
+300078,Windfield Enterprises LLC,71,Licensed Fixed Wireless,460173,460173
+300079,"King Street Wireless, LP",71,Licensed Fixed Wireless,34,34
+300083,Local Internet Service Company,50,Fiber to the Premises,3648,3648
+300085,"Tower Bridge Mobile Holdings, LLC",71,Licensed Fixed Wireless,47613,47613
+300086,MCNC,50,Fiber to the Premises,0,582
+300087,Marshall Municipal Utilities,50,Fiber to the Premises,7039,7039
+300091,Midwest Energy Cooperative,50,Fiber to the Premises,97581,97581
+300092,"Mission Valley Communications, LLC",70,Unlicensed Fixed Wireless,17988,17988
+300093,Mosier WiNet LLC,50,Fiber to the Premises,797,809
+300097,"XTel Communications, Inc.",10,Copper,0,2059
+300103,"NetFortris Acquisition Co., Inc.",50,Fiber to the Premises,0,2370
+300107,"Night Owl Wireless, LLC",50,Fiber to the Premises,2121,2121
+300110,Mohawk Networks LLC,50,Fiber to the Premises,1275,256
+300111,"Northern Network Concepts, Inc.",70,Unlicensed Fixed Wireless,7694,7694
+300112,Okanogan County PUD No. 1,50,Fiber to the Premises,16275,16068
+300113,Orange S.A.,50,Fiber to the Premises,0,24
+300116,"Pasty.net, Inc.",70,Unlicensed Fixed Wireless,1154,1154
+300117,"Peak WiFi, LLC",70,Unlicensed Fixed Wireless,2280,2280
+300118,Princeton Electric Plant Board,50,Fiber to the Premises,40,249
+300120,"Professional Value Internet Services, LLC",50,Fiber to the Premises,70907,70907
+300125,"Richon, Inc.",70,Unlicensed Fixed Wireless,24443,24443
+300131,Router12 Networks LLC,40,Cable,32415,7289
+300132,Royce's Electronics Inc.,70,Unlicensed Fixed Wireless,18311,18311
+300135,SDN Communications,50,Fiber to the Premises,0,3535
+300136,SDWISP,70,Unlicensed Fixed Wireless,946,0
+300138,"SS Ventures, Inc.",50,Fiber to the Premises,3434,2298
+300144,"Siuslaw Broadband, LLC",50,Fiber to the Premises,4990,4969
+300149,Southwest Minnesota Broadband Services,50,Fiber to the Premises,4374,4374
+300150,"Stratus Networks, Inc.",50,Fiber to the Premises,0,135949
+300159,"Texas CellNet, Inc.",70,Unlicensed Fixed Wireless,8368,7879
+300160,"Texhoma Wireless, LLC",70,Unlicensed Fixed Wireless,40966,40966
+300164,"Unified Communications, Inc.",50,Fiber to the Premises,47439,47439
+300168,VVD Funding LLC,50,Fiber to the Premises,17774,17774
+300169,"Virginia Broadband, LLC",70,Unlicensed Fixed Wireless,65776,65776
+300170,"Virginia Everywhere, LLC",50,Fiber to the Premises,135571,135571
+300171,"Visionary Communications, Inc.",50,Fiber to the Premises,437763,437763
+300172,Wireless Internet Corporation,70,Unlicensed Fixed Wireless,63589,63589
+300173,WISPRENN,70,Unlicensed Fixed Wireless,98416,98416
+300180,"rNetworks, LLC",70,Unlicensed Fixed Wireless,20906,20906
+300181,"BEH Communications, LLC",70,Unlicensed Fixed Wireless,9465,9465
+300182,Bridger Valley Electric Association Inc.,70,Unlicensed Fixed Wireless,2977,0
+300186,ICS Advanced Technologies,50,Fiber to the Premises,3299,0
+300187,RC Wireless Inc.,70,Unlicensed Fixed Wireless,38087,38087
+300188,Standing Rock Sioux Tribe,71,Licensed Fixed Wireless,4465,1888
+300191,"Trailblazer Holdco, LLC",10,Copper,351184,36766
+300192,"USConnect Holdings, Inc.",10,Copper,81123,81123
+300194,Interlakes Wireless LLC,70,Unlicensed Fixed Wireless,2483,2289
+300205,Ruhl Moore Technologies,70,Unlicensed Fixed Wireless,46,46
+310000,Brick Skirt Holdings,10,Copper,26803,19515
+310006,Ampersand Technologies LLC,70,Unlicensed Fixed Wireless,153138,152278
+310013,Blue Ridge Mountain Electric Membership Corporation,50,Fiber to the Premises,22148,22148
+310014,"Blue River Networks, Inc.",70,Unlicensed Fixed Wireless,1096,1096
+310015,California Internet,71,Licensed Fixed Wireless,0,3061523
+310017,Cascades Digital Forensics LLC,50,Fiber to the Premises,38530,38530
+310018,"CCT Telecommunications, Inc.",70,Unlicensed Fixed Wireless,0,328
+310022,City of Sandersville,50,Fiber to the Premises,2,114
+310023,"Clarity Telecom, LLC",10,Copper,416286,119686
+310024,"Clearnetworx, LLC",10,Copper,55634,55634
+310026,"Sinch US Holding, Inc.",10,Copper,0,493
+310027,"Conifer Communications, Inc.",70,Unlicensed Fixed Wireless,44962,44962
+310033,Demopolis CATV Co.,40,Cable,3885,3885
+310036,E.L. Automation Inc.,40,Cable,11285,11285
+310037,TXOL Internet Inc.,70,Unlicensed Fixed Wireless,11050,11050
+310040,Gtek Communications,70,Unlicensed Fixed Wireless,242041,242041
+310041,Habersham Electric Membership Corporation,50,Fiber to the Premises,35527,35527
+310042,"Helmsco, Inc.",70,Unlicensed Fixed Wireless,70152,70152
+310045,Iron River Cooperative TV Antenna Corp,40,Cable,2738,2738
+310052,"Network Professionals, Inc.",70,Unlicensed Fixed Wireless,26104,26104
+310053,New Source Broadband I LLC,70,Unlicensed Fixed Wireless,31173,31173
+310059,"Redburn Infrastructure, LLC",50,Fiber to the Premises,2188,2188
+310061,"Salish Networks, Inc.",10,Copper,2653,251
+310062,Sebewaing Light and Water,50,Fiber to the Premises,1085,87
+310063,Signal West LLC,50,Fiber to the Premises,60876,60876
+310065,"Softcom Internet Communications, Inc.",72,LBR Fixed Wireless,51380,4968
+310066,"Surf Air Wireless, LLC",50,Fiber to the Premises,377892,377892
+310067,Surfnet Communications,71,Licensed Fixed Wireless,97026,97026
+310078,"Velocity.Net Communications, Inc.",50,Fiber to the Premises,24720,21367
+310079,Verso Networks Inc.,70,Unlicensed Fixed Wireless,4454,1333
+310082,WaveLinc Communications LLC,50,Fiber to the Premises,16244,16244
+310085,Istari Holdings LLC,70,Unlicensed Fixed Wireless,81872,81872
+310088,Zulu Internet Inc.,70,Unlicensed Fixed Wireless,5158,5158
+310092,"Town of Concord, Massachusetts",50,Fiber to the Premises,5445,844
+310094,"Arrowhead Electric Cooperative, Inc.",50,Fiber to the Premises,6573,6573
+310096,"VGI Technology, Inc.",50,Fiber to the Premises,98323,98323
+320007,Aptitude Internet LLC,50,Fiber to the Premises,5929,845
+320013,"B&B Communications, Ltd.",70,Unlicensed Fixed Wireless,52474,6122
+320014,Backroads Broadband,70,Unlicensed Fixed Wireless,10743,10743
+320018,Brown Dog Networks LLC,70,Unlicensed Fixed Wireless,856461,856461
+320031,"Country Wireless, LLC",50,Fiber to the Premises,56276,56276
+320039,Morrison Global,0,Other,0,41
+320045,Giggle Fiber LLC,40,Cable,38673,38673
+320047,"Greenlight Networks, LLC",50,Fiber to the Premises,304926,227927
+320049,"High Mountain Farm, LLC",50,Fiber to the Premises,1328,1328
+320050,Hilltown Networks,70,Unlicensed Fixed Wireless,450,314
+320051,"HPAZ.net, LLC",70,Unlicensed Fixed Wireless,14605,14124
+320053,Illinois Electric Cooperative,50,Fiber to the Premises,36589,36589
+320055,"Internet Services, LLC",70,Unlicensed Fixed Wireless,492208,0
+320056,"Island Networks, LLC",50,Fiber to the Premises,6065,6065
+320057,iWiSP LLC,50,Fiber to the Premises,12603,12307
+320059,"Last Mile Wireless, LLC",70,Unlicensed Fixed Wireless,11135,11135
+320062,Mojavewifi.com LLC,70,Unlicensed Fixed Wireless,31157,31157
+320075,"Prairie Hills Wireless, LLC",70,Unlicensed Fixed Wireless,5771,5771
+320080,"SBT Internet, Inc.",70,Unlicensed Fixed Wireless,173,12
+320081,SkyHi Corp.,70,Unlicensed Fixed Wireless,25522,25522
+320082,SkyNet Communications of Kentucky LLC,70,Unlicensed Fixed Wireless,1612,1612
+320084,Small Business Solutions Group LLC,50,Fiber to the Premises,9847,9791
+320088,"Stratosnet Technologies, Inc.",70,Unlicensed Fixed Wireless,259762,259762
+320090,Complete Computers,70,Unlicensed Fixed Wireless,591,591
+320091,"Coba Systems, LLC",40,Cable,11542,11542
+320093,The Laffoon Corporation,50,Fiber to the Premises,2533,2533
+320094,"Total Radio Service, Inc.",70,Unlicensed Fixed Wireless,2408,2408
+320113,"New Era Broadband, LLC",70,Unlicensed Fixed Wireless,5332,5066
+320114,"TISD, Inc.",70,Unlicensed Fixed Wireless,107434,107434
+320115,"Centre WISP Venture Company, LLC",50,Fiber to the Premises,17555,17555
+320116,"Hawaii Dialogix Telecom, LLC",10,Copper,3632,4133
+320117,"Hot Spot Broadband, Inc.",70,Unlicensed Fixed Wireless,324401,324401
+320118,Inland Development Corporation,50,Fiber to the Premises,0,1408
+320126,"Spring City Cable TV, Inc.",40,Cable,5615,5615
+320127,Safelink Internet,50,Fiber to the Premises,434975,434975
+330002,Service Electric Television Inc.,40,Cable,559053,559539
+330004,"AirFiber WISP, LLC",70,Unlicensed Fixed Wireless,880839,880838
+330006,"ANTS-Technology, Inc.",50,Fiber to the Premises,4978,5138
+330010,Byte Networking LLC,50,Fiber to the Premises,619,619
+330013,City of Ocala,50,Fiber to the Premises,153,93
+330023,"Echo IT Consulting, LLC",70,Unlicensed Fixed Wireless,35,0
+330025,Uniti Group Inc.,50,Fiber to the Premises,0,25775
+330031,Franklin Electric Plant Board,50,Fiber to the Premises,7250,7250
+330035,Go Bee Wireless LLC,70,Unlicensed Fixed Wireless,15,15
+330042,Kelly Supply Company,70,Unlicensed Fixed Wireless,448,23
+330044,"Legacy ISP, LLC",50,Fiber to the Premises,105159,105159
+330052,"Nedernet, Inc.",70,Unlicensed Fixed Wireless,3909,3909
+330053,NETEO Inc.,70,Unlicensed Fixed Wireless,23770,23528
+330054,Nez Perce Tribe,50,Fiber to the Premises,6011,6011
+330055,"Northeast Rural Services, Inc.",50,Fiber to the Premises,32327,32327
+330059,PrineTime Internet Solutions,50,Fiber to the Premises,52899,52899
+330062,"Race Telecommunications, Inc.",50,Fiber to the Premises,137169,137169
+330064,RS Fiber Cooperative,50,Fiber to the Premises,5749,5749
+330070,SkyNet Communications LLC,70,Unlicensed Fixed Wireless,62703,62699
+330071,"Skyweb Networks, Inc.",70,Unlicensed Fixed Wireless,318,318
+330072,"Smoky Valley Internet, Inc.",70,Unlicensed Fixed Wireless,751,751
+330074,SyncWave LLC,70,Unlicensed Fixed Wireless,10384,9922
+330082,"Washington Broadband, Inc.",40,Cable,46878,45761
+330083,Whitestone Community Association,50,Fiber to the Premises,15,10
+330086,"LaHarpe Telephone Company, Inc. (IL)",50,Fiber to the Premises,1447,1447
+340001,"Valley Telephone Cooperative, Inc. (TX)",10,Copper,1003650,1003650
+340002,Airhawk Wireless,70,Unlicensed Fixed Wireless,439,439
+340004,Allamakee-Clayton Electric Cooperative Inc.,50,Fiber to the Premises,3547,727
+340009,"AWC, LLC",70,Unlicensed Fixed Wireless,45276,45008
+340012,"Callabyte Technology, LLC",50,Fiber to the Premises,23918,23918
+340015,"Comelec Services, Inc.",50,Fiber to the Premises,60069,55720
+340020,"DesertGate Internet, LLC",70,Unlicensed Fixed Wireless,11403,10484
+340026,FiberSpark Inc.,50,Fiber to the Premises,5196,5196
+340029,BHT Investment Holdings LLC,50,Fiber to the Premises,235122,234841
+340032,"HUB Electronics, Inc.",70,Unlicensed Fixed Wireless,12344,12344
+340036,Intercept Wireless,50,Fiber to the Premises,4444,2657
+340041,Com-Pair Services,70,Unlicensed Fixed Wireless,106235,106235
+340042,Karuk Tribe,72,LBR Fixed Wireless,146,146
+340055,"Oso Internet Solutions, LLC",50,Fiber to the Premises,978,889
+340059,"Plains Internet, LLC",50,Fiber to the Premises,217019,217019
+340060,"QCSTelecom, Inc.",50,Fiber to the Premises,0,64
+340066,Sail Internet Holdings LLC,10,Copper,278832,49437
+340068,Skynet Country Inc.,70,Unlicensed Fixed Wireless,6840,2601
+340069,"Starwire Technologies, LLC",10,Copper,4643,4643
+340070,"Point Broadband Fiber Holding, LLC",50,Fiber to the Premises,950571,950571
+340076,"Ultimate Internet Access, Inc.",50,Fiber to the Premises,13111,603275
+340091,Aroostook Technologies Inc.,70,Unlicensed Fixed Wireless,18631,18631
+340093,Dillon Beach Internet Service LLC,70,Unlicensed Fixed Wireless,446,446
+340094,Fastlink Communications Inc.,70,Unlicensed Fixed Wireless,35306,0
+340095,"Keltgen Technology, Inc.",70,Unlicensed Fixed Wireless,1521,1521
+340096,"Mechcom Communications, Inc.",70,Unlicensed Fixed Wireless,25591,6263
+350005,"Kcindur Communications, Inc.",70,Unlicensed Fixed Wireless,1292,269
+350009,American Samoa Telecommunications Authority,50,Fiber to the Premises,8843,8843
+350012,"ATV Holdings, LLC",10,Copper,9646,9646
+350014,"Bays-ET Highspeed, LLC",50,Fiber to the Premises,34169,34169
+350015,"Belzoni Cable, LLC",40,Cable,6923,6923
+350018,"Byhalia.net, LLC",70,Unlicensed Fixed Wireless,25158,25158
+350019,"CASCO Communications, Inc.",50,Fiber to the Premises,81715,81715
+350023,"City of Fairlawn, Ohio",50,Fiber to the Premises,12707,12769
+350024,City of Hudson,50,Fiber to the Premises,1603,1603
+350025,Waverly Utilities,50,Fiber to the Premises,5313,5313
+350030,Corridor Wireless LLC,70,Unlicensed Fixed Wireless,101984,1
+350032,CVIN LLC,50,Fiber to the Premises,0,104919
+350036,"Digital Aurora Radio Technologies, LLC",70,Unlicensed Fixed Wireless,3174,3174
+350039,"EBTX Wireless, LLC",70,Unlicensed Fixed Wireless,1285,1218
+350042,"Fiber Platform, LLC",50,Fiber to the Premises,0,644505
+350051,"iGo Technology, Inc.",50,Fiber to the Premises,3670,3670
+350058,"Jenco Wireless, LLC",70,Unlicensed Fixed Wireless,10886,10703
+350060,Killians Electronics LLC,70,Unlicensed Fixed Wireless,26045,26045
+350064,Mid MO Micro Computers,50,Fiber to the Premises,32,1
+350068,"MR Systems Wireless, LLC",50,Fiber to the Premises,19686,19586
+350071,North Central Kansas Community Network,70,Unlicensed Fixed Wireless,1616,759
+350073,"NuWave Technology, Inc.",70,Unlicensed Fixed Wireless,20594,0
+350080,Ranch WiFi LLC,70,Unlicensed Fixed Wireless,51361,48912
+350081,River Valley Internet LLC,70,Unlicensed Fixed Wireless,61035,61035
+350085,"WH i3B Bidco LLC/WH i3B Topco, LLC",10,Copper,351012,351067
+350087,Adept Internet Solutions LLP,70,Unlicensed Fixed Wireless,3042,3010
+350088,Shelby Electric Cooperative Inc.,70,Unlicensed Fixed Wireless,1445,1445
+350091,"Skyrunner, Inc.",50,Fiber to the Premises,367060,367060
+350093,SOS Communications LLC,50,Fiber to the Premises,112411,112416
+350094,South Valley Internet,10,Copper,800,273
+350100,Telecom West Inc.,70,Unlicensed Fixed Wireless,415,0
+350106,"Tri-Co Technologies, LLC",50,Fiber to the Premises,4264,4264
+350110,"Velocity Communications, Inc.",40,Cable,141335,143466
+350116,"Whittrio, Inc.",40,Cable,231645,1178951
+350117,"Wireless Internet Services, Inc.",70,Unlicensed Fixed Wireless,32873,32827
+350120,Xtreme Enterprises LLC,71,Licensed Fixed Wireless,40830,7204
+350128,Kingsburg Media Foundation,70,Unlicensed Fixed Wireless,41771,41570
+350134,AV Wireless Inc.,70,Unlicensed Fixed Wireless,413,103
+350139,"KNR Wireless, LLC.",70,Unlicensed Fixed Wireless,19470,19470
+350140,"Northern Nevada High Speed, LLC",70,Unlicensed Fixed Wireless,2798,2798
+360006,"Bandera Electric Cooperative, Inc.",50,Fiber to the Premises,26583,26583
+360007,Barry Electric Cooperative,50,Fiber to the Premises,9022,9022
+360009,"Mainstream Fiber Networks, LLC",50,Fiber to the Premises,39486,39486
+360010,Blue Pulse Networks LLC,70,Unlicensed Fixed Wireless,590,20480
+360013,"Cajun Broadband, Inc.",50,Fiber to the Premises,94016,94016
+360014,"CarolinaConnect Cooperative, Inc.",50,Fiber to the Premises,122317,122317
+360018,Click Computers Inc.,70,Unlicensed Fixed Wireless,1770,1770
+360025,EagleZip.com LLC,40,Cable,2242,2246
+360028,"Encore Communications, Inc.",50,Fiber to the Premises,0,2695
+360029,Erwin Utilities,50,Fiber to the Premises,8801,8801
+360030,"Etheric Communications, LLC.",50,Fiber to the Premises,1802738,408156
+360032,Georgia Highspeed Country Internet,70,Unlicensed Fixed Wireless,7821,7821
+360038,"High Rapid Networks, LLC",70,Unlicensed Fixed Wireless,945,430
+360049,"Local TV & Electronics, Inc.",70,Unlicensed Fixed Wireless,11506,104
+360052,Maquoketa Valley Rural Electric Cooperative,50,Fiber to the Premises,17457,4752
+360055,Morristown Utility System,50,Fiber to the Premises,18076,18076
+360061,"One Ring Networks, Inc.",70,Unlicensed Fixed Wireless,2303,11538
+360064,OptimERA Inc.,70,Unlicensed Fixed Wireless,736,736
+360065,"Ozarks Electric Cooperative, Inc.",50,Fiber to the Premises,99318,99318
+360067,"Peninsula Fiber Network, LLC",50,Fiber to the Premises,0,1699
+360068,"Pioneer Wireless, Inc.",10,Copper,24020,0
+360069,Prince George Electric Cooperative,50,Fiber to the Premises,13745,13745
+360071,Rocket Connect LLC,70,Unlicensed Fixed Wireless,15720,15720
+360076,Stealth Communications,50,Fiber to the Premises,0,1011308
+360078,Stream It Networks LLC,70,Unlicensed Fixed Wireless,8776,8735
+360085,"Texoma Communications, LLC",70,Unlicensed Fixed Wireless,24054,23868
+360090,Town of Warwick,70,Unlicensed Fixed Wireless,325,0
+360092,"Two Tin Cans, LLC",70,Unlicensed Fixed Wireless,323,322
+360094,"Valley Communications Association, LLC",50,Fiber to the Premises,44305,21081
+360097,Wells Community Internet Project,70,Unlicensed Fixed Wireless,10658,10658
+360100,Zetalink LP,70,Unlicensed Fixed Wireless,15788,15788
+360103,"WestPAnet, Inc.",40,Cable,6123,11520
+360104,"Ethoplex, LLC",70,Unlicensed Fixed Wireless,36251,36251
+360105,"NMsurf, Inc.",50,Fiber to the Premises,486379,486379
+360106,LakeNet LLC,50,Fiber to the Premises,7205,7205
+360111,City of Greenfield,50,Fiber to the Premises,6098,6308
+360113,"Smiling J, LLC",50,Fiber to the Premises,61375,61375
+360114,Union Holding Corp.,10,Copper,37063,37076
+360115,AIRCELL Inc.,50,Fiber to the Premises,6044,6044
+360117,"Fusion Connect, Inc.",10,Copper,0,9310
+360118,"Good Connections, LLC",70,Unlicensed Fixed Wireless,16572,16572
+360119,Hankins Information Technology,50,Fiber to the Premises,70047,0
+360122,"ProTek Communications, LLC",50,Fiber to the Premises,7694,7694
+360124,Red Spectrum Communications LLC,50,Fiber to the Premises,12427,12427
+360125,"Redzone Wireless, LLC",50,Fiber to the Premises,331275,84409
+360128,Net Vision Communications LLC,50,Fiber to the Premises,2433,111
+360129,Zinnia Networks Inc.,70,Unlicensed Fixed Wireless,39434,39434
+360134,Fybercom LLC,50,Fiber to the Premises,201290,201290
+370004,"600Amps Internet Services, Inc.",70,Unlicensed Fixed Wireless,7104,7104
+370012,Azure Standard,70,Unlicensed Fixed Wireless,245,245
+370013,Babcock Enterprises LLC,70,Unlicensed Fixed Wireless,39725,39725
+370015,Bay Country Communications,40,Cable,5219,319
+370019,"Bits of Technology Wireless Internet, LLC",70,Unlicensed Fixed Wireless,2696,64
+370020,"CableSouth Media III, LLC",40,Cable,119566,119566
+370026,City Wireless,70,Unlicensed Fixed Wireless,8047,8047
+370028,"Consolidated Smart Broadband Systems, LLC",10,Copper,13577,291
+370029,"Continental Divide Electric Cooperative, Inc.",50,Fiber to the Premises,12905,12905
+370032,Delta Montrose Electric Association,50,Fiber to the Premises,34506,34506
+370034,"Echo Broadband, Inc.",70,Unlicensed Fixed Wireless,1921,812
+370035,"Engineer Austin, LLC",50,Fiber to the Premises,38,14
+370037,"Falcon Broadband, Inc.",10,Copper,48870,61069
+370038,Falcon Internet,70,Unlicensed Fixed Wireless,14631,14457
+370039,"Florida WiFi, LLC",50,Fiber to the Premises,14954,14954
+370044,"Hill Country Towers, Inc.",50,Fiber to the Premises,7877,3328
+370048,Hillcom Inc.,50,Fiber to the Premises,1490,65
+370050,Holland Board of Public Works,50,Fiber to the Premises,15622,15622
+370063,ISP Management Inc.,70,Unlicensed Fixed Wireless,23386,22627
+370064,KEPS Technologies Inc.,50,Fiber to the Premises,7685,65891
+370065,"Lake County Broadband Solutions, LLC",70,Unlicensed Fixed Wireless,17643,17643
+370066,"Lavalink, LLC",70,Unlicensed Fixed Wireless,849,849
+370067,"Locl-Net, Inc.",70,Unlicensed Fixed Wireless,4140,4140
+370068,"MCC Network Services, LLC",40,Cable,125507,26457
+370069,Megawatt Communications LLC,50,Fiber to the Premises,2323,2323
+370071,"Native Network, Inc.",10,Copper,53954,24190
+370073,Net NV LLC,70,Unlicensed Fixed Wireless,82605,82605
+370075,NewarkNet,70,Unlicensed Fixed Wireless,4511,4511
+370078,Northwest Ohio Broadband LLC,70,Unlicensed Fixed Wireless,19914,19914
+370079,"Nuvisions Solutions, LLC",10,Copper,8704,726
+370082,Pacific Lightwave Inc.,70,Unlicensed Fixed Wireless,1614,1614
+370087,"Pilot Fiber, Inc.",50,Fiber to the Premises,0,1407800
+370088,PocketiNet Communications Inc.,10,Copper,251673,251673
+370101,"Integrated Business Networks, LLC",71,Licensed Fixed Wireless,104,19
+370106,Softworx Inc.,70,Unlicensed Fixed Wireless,320,79
+370108,"South Central Communications, Inc.",50,Fiber to the Premises,28957,28957
+370110,"Midstates Data Transport, LLC",50,Fiber to the Premises,45761,53518
+370115,"Netafy, Inc.",70,Unlicensed Fixed Wireless,301168,300980
+370121,TellerWifi LLC,70,Unlicensed Fixed Wireless,11860,11860
+370127,Tullahoma Utilities Authority,50,Fiber to the Premises,10664,10664
+370128,Tuttle Development Authority,50,Fiber to the Premises,3017,3017
+370129,Union City Energy Authority,50,Fiber to the Premises,4494,1107
+370131,Uplink Internet LLC,50,Fiber to the Premises,4732,4729
+370132,"UpNet WI, LLC",50,Fiber to the Premises,45428,45046
+370135,"VPNet, Inc.",50,Fiber to the Premises,20401,0
+370138,Warp Networks Inc.,70,Unlicensed Fixed Wireless,751,750
+370141,"Wi-Fiber, Inc.",50,Fiber to the Premises,1755954,1755023
+370142,"Wifinity, LLC",70,Unlicensed Fixed Wireless,17296,17296
+370146,"X-Tech, LLC",70,Unlicensed Fixed Wireless,1725,277
+370151,Aeronet Wireless Broadband LLC,50,Fiber to the Premises,1010046,1010046
+370154,Aerux LLP,50,Fiber to the Premises,144567,144567
+370155,Midstate Broadband,70,Unlicensed Fixed Wireless,101,49
+370157,"Mountain iNet, Inc.",70,Unlicensed Fixed Wireless,3,3
+370160,Smith Internet Solutions LLC,70,Unlicensed Fixed Wireless,749,749
+370162,"San Luis Valley Rural Electric Cooperative, Inc.",50,Fiber to the Premises,30631,30631
+370164,"Fiber Connect, LLC.",50,Fiber to the Premises,4657,4657
+380003,Acadiana Wireless LLC,70,Unlicensed Fixed Wireless,7272,7183
+380012,"Andrena, Inc.",70,Unlicensed Fixed Wireless,22122,22122
+380013,"Anza Electric Cooperative, Inc.",50,Fiber to the Premises,2650,2650
+380016,BARC Electric Cooperative,50,Fiber to the Premises,11767,11767
+380028,Cobalt Ridge LLC,70,Unlicensed Fixed Wireless,15539,15539
+380034,"Consolidated Electric Cooperative, Inc.",50,Fiber to the Premises,11018,11018
+380038,ENCO Electronic System LLC,10,Copper,4076,4076
+380039,"Esparto Broadband, Inc.",40,Cable,2260,2260
+380042,Fireball Wireless LLC,70,Unlicensed Fixed Wireless,439,439
+380045,French Broad Electric Membership Corporation,50,Fiber to the Premises,22876,22876
+380048,"Gigabeam Internet, LLC",50,Fiber to the Premises,104557,104557
+380051,Ravalli Electric Cooperative,50,Fiber to the Premises,36485,36485
+380059,Jackson County Rural Electric Membership Corporation,50,Fiber to the Premises,27814,27814
+380062,"JORP, LLC",70,Unlicensed Fixed Wireless,171173,171173
+380063,JTN Communications,50,Fiber to the Premises,13664,13664
+380064,"KC Web, Inc.",50,Fiber to the Premises,39692,39692
+380065,KGI Communications LLC,50,Fiber to the Premises,1176,1063
+380069,Liberty Broadband LLC,70,Unlicensed Fixed Wireless,10062,10062
+380070,"LightGig Communications, LLC",50,Fiber to the Premises,2708,2708
+380072,"LR Communications, Inc.",70,Unlicensed Fixed Wireless,41026,41026
+380077,AeroFlight Internet,70,Unlicensed Fixed Wireless,874,874
+380079,"Mike Gunther Industries, Inc.",70,Unlicensed Fixed Wireless,1090,1090
+380080,Mille Lacs Energy Cooperative,50,Fiber to the Premises,3900,3900
+380086,"Network Tool and Die Company, Inc.",10,Copper,135,167
+380087,"Networx Technologies, LLC",70,Unlicensed Fixed Wireless,234,234
+380089,"North Arkansas Electric Cooperative, Inc.",50,Fiber to the Premises,38381,38381
+380093,North Alabama Electric Cooperative,50,Fiber to the Premises,13898,13898
+380095,"On-Ramp Indiana, Inc.",50,Fiber to the Premises,90206,90170
+380097,Pacific Independent Technology Alliance LLC,70,Unlicensed Fixed Wireless,4597,0
+380098,Valley Center Wireless,70,Unlicensed Fixed Wireless,12650,12650
+380099,Paragould Light and Water Commission,50,Fiber to the Premises,14565,14565
+380107,RTA of America,50,Fiber to the Premises,408456,408456
+380110,Roanoke Electric Membership Corp.,50,Fiber to the Premises,26944,2765
+380132,Peoples State Bank,70,Unlicensed Fixed Wireless,5530,5530
+380138,VEOpoint,70,Unlicensed Fixed Wireless,3189,3189
+380139,Connection Concepts LLC,70,Unlicensed Fixed Wireless,25746,25655
+380146,W S Electronics LLC,70,Unlicensed Fixed Wireless,5708,5708
+380149,"WiFires Communications, LLC",50,Fiber to the Premises,22643,22238
+380150,WiSpan Internet LLC,70,Unlicensed Fixed Wireless,12882,12882
+380153,"Zion Broadband, Inc.",70,Unlicensed Fixed Wireless,9195,9160
+380158,"Ayera Technologies, Inc.",71,Licensed Fixed Wireless,222312,222312
+380159,"Xbar7 Communications, inc",50,Fiber to the Premises,985,985
+380167,"Net Ops Communications, LLC",70,Unlicensed Fixed Wireless,106015,106014
+380173,Valley Internet,70,Unlicensed Fixed Wireless,16504,16515
+380175,SkyRider Communications LLC,50,Fiber to the Premises,1800,53797
+380177,"Xiber, LLC",50,Fiber to the Premises,53002,18090
+380178,"MidwayNet, LLC",70,Unlicensed Fixed Wireless,10946,10742
+390001,A&A Communications LLC,50,Fiber to the Premises,1022,1022
+390002,Acadiana Broadband,70,Unlicensed Fixed Wireless,16101,16101
+390006,Air Bridge Broadband LLC,50,Fiber to the Premises,81435,57339
+390008,"Applied Technology Group, Inc.",70,Unlicensed Fixed Wireless,279355,279355
+390015,"Bluegrass Fiber, LLC",72,LBR Fixed Wireless,24499,24499
+390018,Central Virginia Electric Cooperative,50,Fiber to the Premises,71773,71773
+390021,City of Mont Belvieu,50,Fiber to the Premises,3790,3790
+390031,"Crazy Communications, LLC",50,Fiber to the Premises,14458,1455
+390034,"Eastern Carolina Broadband, LLC",70,Unlicensed Fixed Wireless,4430,1938
+390044,Gibson Electric Membership Corporation,50,Fiber to the Premises,36155,36155
+390046,"Great Lakes Energy Connections, Inc.",50,Fiber to the Premises,60258,60258
+390048,"Hawk Networks, Inc.",10,Copper,68698,65831
+390050,Holston Electric Cooperative,50,Fiber to the Premises,30662,30662
+390052,Indianola Municipal Utilities,50,Fiber to the Premises,7144,7144
+390056,ShastaBeam,70,Unlicensed Fixed Wireless,76170,76170
+390057,IT Works LLC,70,Unlicensed Fixed Wireless,5357,0
+390061,Kit Carson Electric Cooperative Inc.,50,Fiber to the Premises,24356,4926
+390062,Krms Products LLC,70,Unlicensed Fixed Wireless,13847,13847
+390065,"Lightwave Communications, LLC",50,Fiber to the Premises,1773,1484
+390067,Locality Networks Inc.,50,Fiber to the Premises,626,80
+390068,Logonix Corporation,50,Fiber to the Premises,26040,26040
+390073,"Michwave Technologies, Inc.",50,Fiber to the Premises,64488,64016
+390075,"MINetworks, Inc.",70,Unlicensed Fixed Wireless,1686,57
+390080,Fiberwave,70,Unlicensed Fixed Wireless,936,776
+390085,"PD Fiber, LLC",50,Fiber to the Premises,10983,10983
+390089,Premier Holdings LLC,50,Fiber to the Premises,12587,12510
+390099,Project A Inc.,70,Unlicensed Fixed Wireless,94718,94718
+390101,SEMO Electric Cooperative,50,Fiber to the Premises,23283,23283
+390102,"Shawn Barker Construction, Inc.",70,Unlicensed Fixed Wireless,16667,2048
+390103,"Sierra Nevada Communications, LLC",40,Cable,4167,292
+390106,South Central Arkansas Electric Cooperative,50,Fiber to the Premises,39464,39464
+390107,"Southeast MN Wifi, LLC",50,Fiber to the Premises,50140,50140
+390110,"Starry, Inc.",50,Fiber to the Premises,2827890,0
+390111,"Strada Communications, LLC",50,Fiber to the Premises,7299,7299
+390113,SWIFT Services LLC,50,Fiber to the Premises,2891,2891
+390116,Taylor Electric Cooperative,50,Fiber to the Premises,3988,42
+390120,Tennessee Independent Telecom Group LLC,50,Fiber to the Premises,0,61
+390121,"The Butler Rural Electric Cooperative Association, Inc.",50,Fiber to the Premises,63305,63305
+390122,"Tombigbee Electric Cooperative, Inc.",50,Fiber to the Premises,57664,57664
+390123,Tri-County Electric Cooperative,50,Fiber to the Premises,31467,31467
+390124,Tri-County Electric Membership Corporation,50,Fiber to the Premises,33937,33937
+390138,"Egyptian Communication Services, Inc.",10,Copper,1452,1452
+390139,"American Georgetown, Inc.",10,Copper,522,522
+390142,Barger Creek LLC,50,Fiber to the Premises,3289,245
+390152,Wireless Broadband Solutions Inc.,70,Unlicensed Fixed Wireless,828,141
+390155,DM Wireless LLC,50,Fiber to the Premises,905153,905153
+390157,"yondoo Broadband, LLC",40,Cable,7905,7905
+390162,"Planet Networks, Inc.",50,Fiber to the Premises,74680,74680
+390164,"Southern Fiber Worx, LLC",50,Fiber to the Premises,5577,5577
+390166,"Mansfield Community Fiber, Inc.",50,Fiber to the Premises,1788,1788
+390167,ZiTEL LLC,50,Fiber to the Premises,21143,21143
+400001,Advantage Communications,70,Unlicensed Fixed Wireless,1581,1581
+400002,Big Red Communications,70,Unlicensed Fixed Wireless,35936,35843
+400006,"Carbon Valley Internet, LLC",50,Fiber to the Premises,908,908
+400008,Chisholm Broadband,10,Copper,89191,88718
+400009,"City of Bardstown, KY",40,Cable,28602,28602
+400010,"City of Marshall, Michigan",50,Fiber to the Premises,3557,3557
+400012,Countrymen Communications Inc.,70,Unlicensed Fixed Wireless,646,646
+400015,Faster Cajun LLC,50,Fiber to the Premises,12256,12197
+400016,"Fiber Wave, LLC",70,Unlicensed Fixed Wireless,2831,2823
+400018,Great Lakes High Speed LLC,70,Unlicensed Fixed Wireless,7876,7804
+400020,HDER Link Ltd.,50,Fiber to the Premises,74732,74732
+400021,"Heritage Broadband, LLC",50,Fiber to the Premises,47847,47847
+400022,"Horton's TV & Electronics, Inc.",70,Unlicensed Fixed Wireless,8844,8844
+400023,"Hudson Technology Solutions, Inc.",70,Unlicensed Fixed Wireless,21308,21308
+400025,JackRabbit Wireless LLC,70,Unlicensed Fixed Wireless,25302,25302
+400026,Jackson Electric Cooperative,50,Fiber to the Premises,14600,3285
+400027,"Kayenta Technologies, LLC",70,Unlicensed Fixed Wireless,42237,42237
+400028,"Kentucky Wireless, LLC",70,Unlicensed Fixed Wireless,12316,12316
+400029,"Lockridge Networks, LLC",50,Fiber to the Premises,24846,24779
+400034,Outernet Broadband LLC,50,Fiber to the Premises,5859,5859
+400035,Pathfinder LLC,50,Fiber to the Premises,31003,31003
+400036,Pear Networks LLC,50,Fiber to the Premises,1637,1637
+400038,"Salsgiver, Inc.",50,Fiber to the Premises,28215,28215
+400041,"SML Wireless, Inc.",70,Unlicensed Fixed Wireless,3414,3414
+400044,"SVE Connect, LLC",50,Fiber to the Premises,14431,14431
+400046,"Ting Fiber, Inc.",50,Fiber to the Premises,200029,200029
+400047,Tipmont Rural Electric Membership Corporation,50,Fiber to the Premises,18451,18451
+400050,TREPIC Networks LLC,50,Fiber to the Premises,164740,164740
+400051,"Trinity Communications, LLC",50,Fiber to the Premises,8001,2058
+400053,"Unlimited Net Partners, LLC",70,Unlicensed Fixed Wireless,591,586
+400054,"WideOpen Networks, Inc.",50,Fiber to the Premises,1568,1568
+400055,Willard Communications LLC,70,Unlicensed Fixed Wireless,642,642
+400056,"WON Communications, LLC",70,Unlicensed Fixed Wireless,22324,22324
+400083,"Forked Deer Electric Cooperative, Inc.",50,Fiber to the Premises,9872,9872
+400086,Johnson City Energy Authority,50,Fiber to the Premises,59506,59506
+400094,Mecklenburg Electric Cooperative,10,Copper,28237,28237
+400100,Newport Utilities,50,Fiber to the Premises,21858,21858
+400102,"Otsego Electric Cooperative, Inc.",50,Fiber to the Premises,7277,7277
+400103,Oklahoma Electric Cooperative,50,Fiber to the Premises,110908,110908
+400105,Orange County REMC,50,Fiber to the Premises,33893,33893
+400115,Simple Fiber Communications LLC,50,Fiber to the Premises,1264,166744
+400118,South Central Indiana Rural Electric Membership Corporation,50,Fiber to the Premises,30442,398
+400130,"Wtechlink, Inc.",50,Fiber to the Premises,26267,26267
+400137,US Internet Corp.,50,Fiber to the Premises,187918,187918
+400138,Western Iowa Wireless,50,Fiber to the Premises,13003,13003
+400139,Tongue River Communications,40,Cable,1665,1665
+410005,"Alternative Choice Wireless, LLC",50,Fiber to the Premises,186,242
+410008,Arkansas Valley Electric Cooperative Corporation,50,Fiber to the Premises,59384,11959
+410018,City of Fort Collins,50,Fiber to the Premises,45515,4698
+410025,Cosner-Neipp Corporation,10,Copper,22,44
+410027,Crowsnest Broadband LLC,70,Unlicensed Fixed Wireless,68968,68968
+410031,DigitalC,10,Copper,150643,0
+410037,Express WISP LLC,70,Unlicensed Fixed Wireless,474,474
+410054,KGT LLC,70,Unlicensed Fixed Wireless,38111,38071
+410063,Luminate Fiber LLC,50,Fiber to the Premises,13931,13931
+410064,Martek Wireless LLC,50,Fiber to the Premises,967,649
+410066,Meeker Cooperative Light & Power Association,50,Fiber to the Premises,27250,5920
+410067,Meriwether Lewis Electric Cooperative,50,Fiber to the Premises,35469,35469
+410073,North Coast Wireless Communications,50,Fiber to the Premises,36325,36325
+410076,"Optimus Communications, LLC",50,Fiber to the Premises,88930,17776
+410077,"Ozborn Communications, LLC",70,Unlicensed Fixed Wireless,44769,43356
+410084,"Reynolds Media, Inc.",70,Unlicensed Fixed Wireless,666,26
+410085,Roseau Electric Cooperative,50,Fiber to the Premises,2643,2643
+410086,Rural Broadband Cooperative,70,Unlicensed Fixed Wireless,4536,4536
+410090,Siyeh Communications,10,Copper,5379,5379
+410092,Southern California Telephone Company Inc.,70,Unlicensed Fixed Wireless,238629,238629
+410098,"Talkie Communications, Inc.",50,Fiber to the Premises,32828,32828
+410100,Tennessee Telecommunications Company,50,Fiber to the Premises,2861,2861
+410103,"Treehouse Broadband, LLC",70,Unlicensed Fixed Wireless,4815,4814
+410114,Vyve Broadband Investments (GTCR),40,Cable,725540,725540
+410115,White Cloud Communications US LLC,40,Cable,31786,30232
+410120,Belhaven Cable TV Inc.,40,Cable,1113,1113
+410121,Canyon Wireless,70,Unlicensed Fixed Wireless,3131,0
+410125,LAN Communications Corp.,50,Fiber to the Premises,318,33
+410126,Ocracoke Cable TV LLC,40,Cable,1128,1128
+410131,318 HighSpeed LLC,70,Unlicensed Fixed Wireless,7323,7323
+410133,Alpha Technologies Inc.,50,Fiber to the Premises,74,0
+410134,BerryComm LLC,50,Fiber to the Premises,4893,4893
+410135,"City of Sandy, Oregon",50,Fiber to the Premises,5820,6928
+410136,"Compass Broadband Network, Inc.",70,Unlicensed Fixed Wireless,71861,71861
+410138,"Double Dog Communications, Inc.",70,Unlicensed Fixed Wireless,29902,29902
+410139,Eclipse Communications,70,Unlicensed Fixed Wireless,12324,12324
+410141,Minnesota WiFi,70,Unlicensed Fixed Wireless,38903,38903
+410143,Morgan Wireless LLC,70,Unlicensed Fixed Wireless,37398,37398
+410145,Natural G.C. Inc.,50,Fiber to the Premises,454486,454486
+410147,Somerfield Cable TV,40,Cable,1067,1067
+410149,"ThinkBig Networks, LLC",50,Fiber to the Premises,13300,13300
+410150,LiveStream LLC,70,Unlicensed Fixed Wireless,21244,18124
+410151,"TurboNet Technologies, Inc.",50,Fiber to the Premises,980,980
+410153,Craighead Elecric Cooperative Corporation,50,Fiber to the Premises,37641,37641
+410155,Lakeland Internet,50,Fiber to the Premises,102479,102722
+410156,Satview Broadband Ltd.,40,Cable,2439,2439
+410157,"NETworx Broadband, Inc.",50,Fiber to the Premises,1815,1815
+410159,"Airwave Networks, LLC",50,Fiber to the Premises,1334,1334
+410160,CNS Internet Services,50,Fiber to the Premises,8096,8096
+410161,Graymont Cooperative Assn.,70,Unlicensed Fixed Wireless,4830,4818
+410164,Mason County Public Utility District No. 3,50,Fiber to the Premises,6617,6617
+410165,"Optimal Home Solutions, LLC",70,Unlicensed Fixed Wireless,46,8
+410168,"Skymesh, Inc.",50,Fiber to the Premises,28489,28513
+410169,Inyo Networks Inc.,50,Fiber to the Premises,7644,3267
+410170,LightSpeed Technologies LLC,70,Unlicensed Fixed Wireless,580,580
+410172,"Tri-County Telephone Association, Inc. (KS)",50,Fiber to the Premises,8351,8351
+410174,Cloud 9 Wireless LLC,50,Fiber to the Premises,4706,4706
+410177,S. Bryer Cable TV Corporation,40,Cable,1560,1560
+410180,"Zeta Broadband, Inc.",70,Unlicensed Fixed Wireless,0,141781
+410182,XAirnet Corp.,50,Fiber to the Premises,411331,411331
+410183,"Bluegrass Broadband, LLC",70,Unlicensed Fixed Wireless,85,85
+410184,"SP Broadband, Inc.",70,Unlicensed Fixed Wireless,20677,20677
+410185,East Central Oklahoma Electric Cooperative,50,Fiber to the Premises,35933,35933
+410186,"City of Clarksville, Arkansas",50,Fiber to the Premises,4487,4487
+410188,"HiCountryNet, LLC",50,Fiber to the Premises,5581,0
+410189,Red River Cellular Telephone Corporation,50,Fiber to the Premises,9654,9654
+410192,Inland Cellular Telephone Company,40,Cable,29381,8835
+420004,AmigoNet,70,Unlicensed Fixed Wireless,6710,6710
+420012,"Blue Sky Wireless, LLC",70,Unlicensed Fixed Wireless,5580,277
+420017,Central Alabama Electric Cooperative,50,Fiber to the Premises,44823,44823
+420020,City of Anacortes,50,Fiber to the Premises,3027,3027
+420021,City of Loveland,50,Fiber to the Premises,41060,41060
+420025,"CopperNet Systems, Inc.",50,Fiber to the Premises,138224,138224
+420027,"Critical Links, LLC",70,Unlicensed Fixed Wireless,7813,7813
+420028,"Cumberland Connect, LLC",50,Fiber to the Premises,96992,10853
+420029,Current Inc.,50,Fiber to the Premises,3978,2979
+420036,"DSI Management Holdings, LLC",50,Fiber to the Premises,26370,1264
+420040,ENC Access Investments LLC,50,Fiber to the Premises,2164,447
+420042,ORI.NET LLC,50,Fiber to the Premises,4733,4734
+420045,"FIF AireBeam, LLC",50,Fiber to the Premises,88505,88505
+420048,Gateway Fiber Holdings LLC,50,Fiber to the Premises,105120,105120
+420059,"Hub66, Inc.",50,Fiber to the Premises,7390,7390
+420061,"Intellipop, LLC",70,Unlicensed Fixed Wireless,0,8763
+420067,"Kentucky Fi, LLC",70,Unlicensed Fixed Wireless,10961,10961
+420069,"KL Broadband, Inc.",70,Unlicensed Fixed Wireless,598,598
+420073,"Little Miami Gig, LLC",50,Fiber to the Premises,8865,2177
+420074,"Lost Creek Wireless, LLC",70,Unlicensed Fixed Wireless,2552,2552
+420080,MS Wifi Zone,50,Fiber to the Premises,58388,58388
+420084,"Nola Broadband, Inc.",70,Unlicensed Fixed Wireless,55608,55608
+420091,Osnet Wireless Corp.,70,Unlicensed Fixed Wireless,40660,41247
+420094,Patriot Cable System LLC,40,Cable,858,71
+420099,"Precision Technology, LLC",70,Unlicensed Fixed Wireless,2842,2842
+420101,Prologic Technology Services LLC,70,Unlicensed Fixed Wireless,7731,7731
+420110,Rocky Mountain Internet Inc.,72,LBR Fixed Wireless,22943,22943
+420115,"SkyNet360, LLC",50,Fiber to the Premises,129839,129766
+420116,Skypacket Networks Inc.,70,Unlicensed Fixed Wireless,208738,39707
+420117,Smyth Technology Group Inc.,70,Unlicensed Fixed Wireless,7565,7565
+420124,Tallahatchie Valley Internet Services,50,Fiber to the Premises,28994,28994
+420125,"Taluslink, LLC",50,Fiber to the Premises,144,99
+420133,Town of Islesboro,50,Fiber to the Premises,872,65
+420135,Tri-County Rural Electric Cooperative,50,Fiber to the Premises,21793,21793
+420137,Foursight Communications LLC,50,Fiber to the Premises,49393,49393
+420139,Us New Era Internet Corp.,70,Unlicensed Fixed Wireless,390,390
+420146,"Victoria Electric Cooperative, Inc.",50,Fiber to the Premises,10851,2086
+420147,Vinton Municipal Communications Utility,50,Fiber to the Premises,2422,2422
+420150,Wavelength LLC,50,Fiber to the Premises,7860,7860
+420163,Zero2 Wireless,70,Unlicensed Fixed Wireless,11057,10948
+420165,"Zoom Telcom, LLC",50,Fiber to the Premises,7032,7032
+420167,Digital Technology Solutions Inc.,50,Fiber to the Premises,4414,4414
+420168,GoNetworkPR Inc.,50,Fiber to the Premises,2830,2828
+420170,PowerNet Wireless,70,Unlicensed Fixed Wireless,14634,14363
+420173,"Northwest Fiber, LLC",10,Copper,1527145,1527145
+420175,Central Connect LLC,70,Unlicensed Fixed Wireless,88,7
+420178,Comptinet,70,Unlicensed Fixed Wireless,1,0
+420181,Newaygo County Regional Educational Service Agency,50,Fiber to the Premises,8119,8119
+420186,"Craion, Inc.",70,Unlicensed Fixed Wireless,40170,0
+420187,"Golden Belt Telephone Association, Inc",40,Cable,14353,14353
+430001,"Acrospire Networks, LLC",70,Unlicensed Fixed Wireless,13212,11858
+430005,Atherton Fiber LLC,50,Fiber to the Premises,5314,560
+430010,Bayfield Wireless,70,Unlicensed Fixed Wireless,10047,3605
+430011,"Beacon Broadband, Inc.",50,Fiber to the Premises,14770,3627
+430014,"BlueNet Communications, LLC",70,Unlicensed Fixed Wireless,347229,347229
+430018,Canebrake Connections LLC,70,Unlicensed Fixed Wireless,383,68
+430021,Coast Electric Power Association,50,Fiber to the Premises,74828,74828
+430023,"Communications Unlimited, Inc.",50,Fiber to the Premises,0,14
+430026,"Satellite Center, LLC",70,Unlicensed Fixed Wireless,5190,851
+430028,Delta Electric Power Association,50,Fiber to the Premises,21891,21891
+430030,East Mississippi Electric Power Association,50,Fiber to the Premises,38043,38043
+430031,"Everywhere Wireless, LLC",71,Licensed Fixed Wireless,23331,23331
+430033,Alcorn County Electric Power Association,50,Fiber to the Premises,29564,29564
+430034,"Force Broadband, LLC",50,Fiber to the Premises,17229,16075
+430035,"Foster Communications, LLC",70,Unlicensed Fixed Wireless,159,16
+430037,"Further Reach, Inc.",10,Copper,18649,18649
+430041,Hancock Telephone Company,50,Fiber to the Premises,390,93
+430042,"Helio Broadband, LLC",10,Copper,1374,1374
+430044,"HRcom, Inc.",50,Fiber to the Premises,29711,29786
+430051,"Lynches River Communications, Inc.",50,Fiber to the Premises,23964,23964
+430052,"MCEC Fiber, Inc.",50,Fiber to the Premises,8884,8884
+430054,Milan Department of Public Utilities,50,Fiber to the Premises,2666,699
+430055,MORnet Communications,70,Unlicensed Fixed Wireless,6072,0
+430056,"M-Pulse Fiber, LLC",50,Fiber to the Premises,13893,13893
+430061,Nexus Air Fiber LLC,70,Unlicensed Fixed Wireless,15479,15479
+430062,Northern Broadband,50,Fiber to the Premises,3450,3450
+430063,North East Fiber LLC,50,Fiber to the Premises,29183,8224
+430065,PCs for People,40,Cable,376584,0
+430071,Orange County Broadband Authority,50,Fiber to the Premises,11956,11956
+430073,Silver Rapid LLC,70,Unlicensed Fixed Wireless,5187,5187
+430074,Skynet Wireless,70,Unlicensed Fixed Wireless,47183,47183
+430076,Space Exploration Technologies Corp.,61,NGSO Satellite,164313676,164313676
+430077,Stanfield Technologies LLC,70,Unlicensed Fixed Wireless,12246,0
+430078,"STS Broadband, LLC",50,Fiber to the Premises,278,30
+430079,"Susquehanna Broadband, LLC",50,Fiber to the Premises,15861,15861
+430080,Tarin Strategies LLC,70,Unlicensed Fixed Wireless,2905,0
+430082,"Texas Rural Internet, LLC",70,Unlicensed Fixed Wireless,5490,3516
+430085,"TNT-WIFI, LLC",70,Unlicensed Fixed Wireless,4409,4409
+430086,Tombigbee Electric Power Association,50,Fiber to the Premises,51939,13928
+430089,"Project A, Inc.",70,Unlicensed Fixed Wireless,39101,39101
+430090,"U.S. Electric & Communications, LLC",70,Unlicensed Fixed Wireless,108,108
+430092,VITALink LLC,50,Fiber to the Premises,9067,9067
+430099,"Z3N, LLC",40,Cable,3388,3388
+430100,"Zavala Communications, LLC",70,Unlicensed Fixed Wireless,354,354
+430109,Centric Infrastructure Group LLC,50,Fiber to the Premises,23424,3057
+430110,"Clay County Connect, Inc.",50,Fiber to the Premises,11757,2761
+430114,"Conexon Connect, LLC",50,Fiber to the Premises,429342,429342
+430121,"Epic Touch Co., Inc.",50,Fiber to the Premises,2348,2775
+430123,Fond du Lac Band of Lake Superior Chippewa,50,Fiber to the Premises,2256,2443
+430130,Hood River Electric Cooperative,50,Fiber to the Premises,7206,7206
+430139,"Live Wire Networks, Inc.",72,LBR Fixed Wireless,418628,418628
+430160,South Georgia Governmental Services Authority,40,Cable,11804,3661
+430166,"United Electric Cooperative Services, Inc.",50,Fiber to the Premises,62562,62562
+430175,White Cloud Networks,50,Fiber to the Premises,309112,309112
+430176,"Wisper ISP, Inc.",50,Fiber to the Premises,1410261,1410261
+430178,"Tier Two Communications, LLC",70,Unlicensed Fixed Wireless,730,730
+430181,"CIBL, Inc.",50,Fiber to the Premises,196,196
+430185,Angeles Enterprises,50,Fiber to the Premises,82911,82911
+430186,ALE-NET Inc.,70,Unlicensed Fixed Wireless,17155,17155
+430193,"D and B Broadband, LLC",50,Fiber to the Premises,169,169
+430199,"InNet Connections, Inc.",70,Unlicensed Fixed Wireless,485060,485060
+430202,"Jackson Broadband, Inc.",40,Cable,978,978
+430203,Kennett Board of Public Works,50,Fiber to the Premises,5571,0
+430204,Lake Bruin Wireless LLC,70,Unlicensed Fixed Wireless,2424,665
+430209,Rimrock Wireless,70,Unlicensed Fixed Wireless,9780,9753
+430213,Speedy Net,70,Unlicensed Fixed Wireless,48835,48835
+430219,TriTech Wireless LLC,50,Fiber to the Premises,320,73
+430222,"Wireless Partners Holdings, LLC",71,Licensed Fixed Wireless,79871,10606
+430224,4NET Inc.,70,Unlicensed Fixed Wireless,101472,101472
+430226,Dualnet Inc.,70,Unlicensed Fixed Wireless,8427,8427
+430230,"Telespan, LLC",70,Unlicensed Fixed Wireless,131178,130999
+430232,South East Wireless LLC,72,LBR Fixed Wireless,5928,5928
+430233,"WiFast, LLC",10,Copper,3650,3650
+430234,World Connections PR,70,Unlicensed Fixed Wireless,73973,73973
+430237,G&B Networks Solutions Inc.,70,Unlicensed Fixed Wireless,23391,23391
+430240,CDE Lightband,50,Fiber to the Premises,94509,94509
+440000,"First American Holdings, Inc.",10,Copper,6789,6789
+440004,"4-County Fiber, LLC",50,Fiber to the Premises,55856,55856
+440017,City of Hillsboro,50,Fiber to the Premises,11323,11287
+440018,City of Sallisaw,50,Fiber to the Premises,3108,585
+440025,Craig-Botetourt Electric Cooperative,50,Fiber to the Premises,1491,1491
+440027,"DE Fastlink, LLC",50,Fiber to the Premises,40873,40873
+440029,ElektraFi LLC,70,Unlicensed Fixed Wireless,308195,307937
+440030,"ERC Broadband, LLC",50,Fiber to the Premises,773,3196
+440039,"Hoyos Consulting, LLC",50,Fiber to the Premises,8984,91183
+440058,"MSEC Communications, LLC",50,Fiber to the Premises,45402,45402
+440062,"NexGen Integrated Communications, LLC",50,Fiber to the Premises,1550,754
+440063,Northcentral Electric Cooperative,50,Fiber to the Premises,24726,24726
+440077,Senawave LLC,10,Copper,369085,515546
+440099,Tishomingo County Electric Power Association,50,Fiber to the Premises,14050,14050
+440102,"Tri-County Electric Cooperative, Inc.",50,Fiber to the Premises,24921,24921
+440114,Airwave Technologies LLC,71,Licensed Fixed Wireless,3544,3544
+440116,Arizona Network LLC,70,Unlicensed Fixed Wireless,23004,23004
+440117,"Bartlett Electric Cooperative, Inc.",50,Fiber to the Premises,7571,6012
+440119,BDA Wireless LLC,70,Unlicensed Fixed Wireless,20,20
+440121,"Board of Trustees, Northern Michigan University",71,Licensed Fixed Wireless,26203,26203
+440122,Canadian Valley Electric Cooperative,50,Fiber to the Premises,30731,30731
+440123,Carolina Airlink LLC,70,Unlicensed Fixed Wireless,663,106
+440124,Central Florida Broadband,50,Fiber to the Premises,5307,0
+440126,Choptank Electric Cooperative,50,Fiber to the Premises,15309,15309
+440127,"City of Waupaca, WI",70,Unlicensed Fixed Wireless,11969,9381
+440128,Connecting Point Computer Center,50,Fiber to the Premises,3396,8830
+440132,Cullman Electric Cooperative,50,Fiber to the Premises,38419,38419
+440133,Duke Broadband Inc.,50,Fiber to the Premises,1800,136
+440134,"Estherville Communications, LLC",50,Fiber to the Premises,3929,3929
+440135,Fusion Networks,50,Fiber to the Premises,1189,1189
+440138,GreatWave Communications,50,Fiber to the Premises,2756,2756
+440140,"Halls Quality Communications, LLC",70,Unlicensed Fixed Wireless,362,111
+440141,Happy Cycling LLC,50,Fiber to the Premises,14770,14770
+440142,Hasser Enterprises LLC,70,Unlicensed Fixed Wireless,0,25732
+440144,Horizon Broadband LLC.,70,Unlicensed Fixed Wireless,11891,11891
+440145,"IP Solutions, Inc.",50,Fiber to the Premises,381059,381060
+440146,"Juvilex Communications, LLC",50,Fiber to the Premises,4,4
+440148,Long Range Network,70,Unlicensed Fixed Wireless,5175,5175
+440149,Lyme Fiber LLC,50,Fiber to the Premises,1039,1039
+440151,Mifflin County Wireless,50,Fiber to the Premises,21485,21287
+440152,"Mobile Communication Service, Inc.",71,Licensed Fixed Wireless,599,599
+440153,Mobile Communications LLC,50,Fiber to the Premises,15539,15404
+440155,Natchez Trace Electric Power Association,50,Fiber to the Premises,16570,16570
+440157,New Hampton Municipal Utilities,50,Fiber to the Premises,1821,1821
+440159,"Nikola Engineering, Inc.",50,Fiber to the Premises,15253,15253
+440162,Om Networks,50,Fiber to the Premises,1308,1308
+440163,Ouachita Electric Cooperative/South Arkansas Telephone Company,50,Fiber to the Premises,8340,8340
+440167,Ridge Tower Network LLC,50,Fiber to the Premises,17465,17465
+440170,Silo Communications,50,Fiber to the Premises,2011,1991
+440171,Sky Fi Inc.,70,Unlicensed Fixed Wireless,1743,1743
+440172,"Sprocket Networks, Inc.",10,Copper,2320,1586
+440174,Streamline LLC,72,LBR Fixed Wireless,9417,9417
+440175,"SysTec Wireless Communications, LLC",70,Unlicensed Fixed Wireless,6365,6365
+440179,Ts Network,70,Unlicensed Fixed Wireless,58026,58026
+440183,"Vicinity Solutions, Inc.",70,Unlicensed Fixed Wireless,334,0
+440186,Direct Management Company,10,Copper,46214,133061
+440187,Boot State Technologies,70,Unlicensed Fixed Wireless,12204,12185
+440190,FIF Utah LLC,50,Fiber to the Premises,410993,409006
+440193,iWi Communications,70,Unlicensed Fixed Wireless,65,0
+440196,Quad State Internet LLC,50,Fiber to the Premises,3307,3307
+440197,"Simple Fiber, LLC",50,Fiber to the Premises,801,760
+440199,East Central Vermont Telecommunications District,50,Fiber to the Premises,30531,30531
+440200,MHG Telco LLC,70,Unlicensed Fixed Wireless,13186,13186
+440203,"Dialog Telecom, LLC",10,Copper,92973,99045
+440204,Tel-Star Communications of Florida Inc.,50,Fiber to the Premises,3047,0
+450001,Federated Telephone Cooperative,50,Fiber to the Premises,11434,11471
+450007,"9Stone, LLC",50,Fiber to the Premises,4731,4408
+450012,"Altitude ISP, LLC",70,Unlicensed Fixed Wireless,15358,15023
+450015,Ayva Limited,50,Fiber to the Premises,60430,60430
+450023,"Camellia City Fiber, LLC",50,Fiber to the Premises,1926,2134
+450026,Central Rural Electric Cooperative,50,Fiber to the Premises,24953,24953
+450027,"City of Buffalo, Minnesota",50,Fiber to the Premises,2312,2312
+450028,"City of Pella, Iowa",50,Fiber to the Premises,4905,4905
+450029,"Clear Creek Broadband, LLC",50,Fiber to the Premises,2456,3
+450032,"CMA Wireless, LLC",70,Unlicensed Fixed Wireless,1444,1252
+450033,CMW Wireless,50,Fiber to the Premises,332,332
+450038,Cookson Hills Electric Cooperative,50,Fiber to the Premises,20166,20166
+450039,"Costnet, Inc.",50,Fiber to the Premises,251647,251647
+450041,Designs For Learning,70,Unlicensed Fixed Wireless,263,66
+450044,"Eminent Technical Solutions, LLC",50,Fiber to the Premises,17770,14634
+450046,"Fast Wireless, LLC",70,Unlicensed Fixed Wireless,3680,3680
+450047,"Fiber Broadband, Inc.",50,Fiber to the Premises,294,294
+450048,"FiberFly, LLC",70,Unlicensed Fixed Wireless,21510,21510
+450050,"Free Range Internet, LLC",70,Unlicensed Fixed Wireless,2354,2893
+450051,Gascosage Electric Cooperative,50,Fiber to the Premises,4569,4569
+450052,"Guadalupe Valley Electric Cooperative, Inc.",50,Fiber to the Premises,320330,320330
+450055,"IFN, LLC",50,Fiber to the Premises,831,831
+450060,Johnson County Rural Electric Membership Cooperative,50,Fiber to the Premises,18508,18508
+450061,JR Network PR LLC,70,Unlicensed Fixed Wireless,8222,8222
+450063,Kosciusko Rural Electric Membership Cooperative,50,Fiber to the Premises,19580,19580
+450064,"LaZerArt, Inc.",50,Fiber to the Premises,236,37
+450069,LitFiber,50,Fiber to the Premises,2696,2696
+450070,Loop Internet Holdco LLC,50,Fiber to the Premises,32989,32989
+450075,Lumbee River Electric Membership Corporation,50,Fiber to the Premises,22679,22679
+450081,Nates Access LLC,70,Unlicensed Fixed Wireless,7383,5326
+450082,Navasota WiFi,50,Fiber to the Premises,4,55
+450083,NEK Community Broadband,50,Fiber to the Premises,7951,7951
+450085,New Alliance LLC,72,LBR Fixed Wireless,3853,3849
+450089,"Sisu Investments, LLC",10,Copper,3257,3228
+450093,"Open Fiber USA, Inc.",50,Fiber to the Premises,169763,11901
+450094,"Open Infra, Inc.",50,Fiber to the Premises,95672,95672
+450099,"Pendleton Overground, LLC",50,Fiber to the Premises,290,0
+450100,Petit Jean Electric Cooperative Corp.,50,Fiber to the Premises,19427,19427
+450101,"PGB Fiber, LLC",50,Fiber to the Premises,4609,4609
+450106,"Rapid Wireless, LLC",70,Unlicensed Fixed Wireless,1343,1343
+450109,"RiverNet, LLC",50,Fiber to the Premises,1490,1472
+450113,SDC Internet,70,Unlicensed Fixed Wireless,226,13
+450116,Singing River Electric Cooperative,50,Fiber to the Premises,52749,52749
+450117,Sky Satellite LLC,70,Unlicensed Fixed Wireless,409,0
+450119,"Southwest Arkansas Electric Cooperative, Inc.",50,Fiber to the Premises,24248,24248
+450121,"Stimulus Technologies of New Mexico, LLC",70,Unlicensed Fixed Wireless,13396,13396
+450128,Ultranet LLC,70,Unlicensed Fixed Wireless,346,0
+450129,"Upward Broadband, LLC",70,Unlicensed Fixed Wireless,111500,111500
+450136,"WiFi Services Caribbean, Inc.",50,Fiber to the Premises,327122,327122
+450151,Southeastern Indiana Rural Electric Membership Corporation,50,Fiber to the Premises,21402,21402
+450153,Cherokee Cablevision Inc.,40,Cable,2473,614
+450155,"Advanced Technology Group, LLC",70,Unlicensed Fixed Wireless,0,24
+450158,Nevada County Fiber Inc.,50,Fiber to the Premises,373,373
+450162,FamilyNet Inc.,70,Unlicensed Fixed Wireless,217804,217804
+450168,Conquest Wireless LLC,70,Unlicensed Fixed Wireless,11178,11066
+450169,First Electric Cooperative Corporation,50,Fiber to the Premises,80717,15724
+450172,Wave Internet Technologies LLC,50,Fiber to the Premises,326508,326508
+450174,Wyyerd Group LLC,10,Copper,162588,779
+450177,"Stroud Media, LLC",50,Fiber to the Premises,4443,4443
+460000,"123.Net, Inc.",50,Fiber to the Premises,25638,99991
+460002,AirLink Internet Services,50,Fiber to the Premises,16280,16280
+460004,"Anthem Broadband of Nevada, LLC",50,Fiber to the Premises,14216,14216
+460005,"Aspire Networks 1, LLC",50,Fiber to the Premises,34310,34310
+460006,"Avative, LLC",50,Fiber to the Premises,8145,4939
+460007,Backcountry Broadband,50,Fiber to the Premises,173,173
+460009,"Black Dragon Networks, LLC",72,LBR Fixed Wireless,1695,605
+460010,"Blast Communications, Inc.",70,Unlicensed Fixed Wireless,25640,25722
+460011,BLB Communications,50,Fiber to the Premises,3199,3199
+460012,BLS Broadband LLC,70,Unlicensed Fixed Wireless,2928,2928
+460013,Blue Wireless Corp.,70,Unlicensed Fixed Wireless,44714,44714
+460014,"Broadband MDU Holdings, LLC",50,Fiber to the Premises,29539,8314
+460015,"Bros Broadband, LLC",70,Unlicensed Fixed Wireless,17403,3836
+460017,Center Cable TV,40,Cable,311,311
+460018,Chicopee Municipal Lighting Plant,50,Fiber to the Premises,20363,22396
+460019,"City of Ponca, Oklahoma",50,Fiber to the Premises,13601,13601
+460020,"City of Sherwood, Oregon",50,Fiber to the Premises,4255,4377
+460021,Coosa Valley Electric Cooperative,50,Fiber to the Premises,22056,22056
+460024,"DCN, LLC",50,Fiber to the Premises,0,2579
+460025,Digital Network Access Communications Inc.,10,Copper,35443,35443
+460027,"Eastern Telephone & Technologies, Inc.",50,Fiber to the Premises,5298,5298
+460028,Elevate Technology Group,50,Fiber to the Premises,167873,167873
+460031,"ezWave, Inc.",70,Unlicensed Fixed Wireless,155105,22513
+460032,"Ezee Fiber Texas, LLC",50,Fiber to the Premises,303848,43475
+460033,Fitchburg Fiber LLC,70,Unlicensed Fixed Wireless,1782,1782
+460035,Fort Code Inc.,50,Fiber to the Premises,6451,6113
+460036,"Grid Southwest, LLC",50,Fiber to the Premises,422,422
+460037,HarvestBeam Inc.,72,LBR Fixed Wireless,6527,6527
+460038,Heartland Fiber,50,Fiber to the Premises,4875,4875
+460039,"Heritage NetWorks, LLC",50,Fiber to the Premises,0,2
+460041,Hope Water & Light Commission,50,Fiber to the Premises,6985,6985
+460046,Jicarilla Apache Nation Power Authority,70,Unlicensed Fixed Wireless,1481,1481
+460047,"Kaniksu, LLC",50,Fiber to the Premises,6097,5610
+460048,"K-Powernet, LLC",50,Fiber to the Premises,0,1519
+460050,LaGrange County Rural Membership Corporation,50,Fiber to the Premises,10755,10755
+460051,Little Wapsie Communications,50,Fiber to the Premises,662,662
+460052,"Mann Holdings, LLC",70,Unlicensed Fixed Wireless,17762,0
+460053,Mendocino Unified School District,70,Unlicensed Fixed Wireless,5104,5104
+460054,"National Telecom, LLC",70,Unlicensed Fixed Wireless,0,584981
+460055,New England Wireless Co. LLC,70,Unlicensed Fixed Wireless,8463,8383
+460056,Nimbus Solutions,70,Unlicensed Fixed Wireless,13404,13354
+460057,Nisqually Indian Tribe,71,Licensed Fixed Wireless,226,41
+460060,Norwood Light Department Broadband Division,40,Cable,11535,903
+460061,Onlinet LLC,70,Unlicensed Fixed Wireless,9275,9275
+460062,"Osage, LLC",50,Fiber to the Premises,18361,18361
+460064,Pearl River Valley Electric Power Association,50,Fiber to the Premises,36938,36938
+460065,Platinum Connect LLC,50,Fiber to the Premises,4689,4689
+460066,Prado Network,70,Unlicensed Fixed Wireless,136521,136521
+460067,"Precision Data Solutions, LLC",50,Fiber to the Premises,11451,5838
+460068,Prentiss County Electric Power Association,50,Fiber to the Premises,13668,13668
+460069,Quintillion Subsea Holdings,50,Fiber to the Premises,0,7
+460070,Real Link Network LLC,70,Unlicensed Fixed Wireless,61642,61642
+460071,Ridge Wireless Inc.,70,Unlicensed Fixed Wireless,472970,472878
+460072,Sebago Fiber & Wifi LLC,50,Fiber to the Premises,2141,2141
+460073,Kempler Internet,70,Unlicensed Fixed Wireless,9622,9523
+460075,South Hadley Electric Light Department,50,Fiber to the Premises,10005,10005
+460076,Speedwavz LLC,50,Fiber to the Premises,16196,0
+460077,"SureFire Internet, LLC",50,Fiber to the Premises,385,385
+460078,Pierce Pepin Cooperative Services,50,Fiber to the Premises,10032,2492
+460079,Tachus LLC,50,Fiber to the Premises,172467,186935
+460080,TEPA Connect LLC,50,Fiber to the Premises,10509,3095
+460081,Thumb Electric Cooperative,50,Fiber to the Premises,17220,17220
+460082,"Town of Estes Park, Colorado",50,Fiber to the Premises,8818,8818
+460083,"Triple Crown Internet, Inc.",50,Fiber to the Premises,4555,4555
+460084,Uber Wireless LLP,70,Unlicensed Fixed Wireless,19226,19213
+460085,"Underline El Paso, LLC",50,Fiber to the Premises,66293,66293
+460086,UNONET Corp.,70,Unlicensed Fixed Wireless,127602,127602
+460087,UnWired Broadband Holding LLC,50,Fiber to the Premises,2075267,2075267
+460088,Uprise LLC,50,Fiber to the Premises,5077,0
+460089,"VFN Holdings, Inc.",50,Fiber to the Premises,52102,52102
+460090,"WAVE.BAND, LLC",70,Unlicensed Fixed Wireless,0,6111
+460091,Webiffi,70,Unlicensed Fixed Wireless,105100,105100
+460092,"WeLink Communications, Inc.",70,Unlicensed Fixed Wireless,253804,8545
+460093,Whitewater Wideband LLC,50,Fiber to the Premises,22563,22563
+460094,WiFicow Wyoming Corporation,70,Unlicensed Fixed Wireless,9,9
+460099,"360 Communications, Inc. (OK, AR & TX)",50,Fiber to the Premises,183895,183895
+460100,Carthage Water and Electric Plant,50,Fiber to the Premises,7737,1883
+460101,"City of Taunton, Massachusetts",50,Fiber to the Premises,1626,1626
+460104,"Kiza, Inc.",70,Unlicensed Fixed Wireless,3834,3637
+460105,North WiFi PR,70,Unlicensed Fixed Wireless,5,5
+460504,Smart Networks LLC,50,Fiber to the Premises,0,169
+460511,BAM Broadband OpCo LLC,50,Fiber to the Premises,210472,210472
+460515,Bitwise Inc.,70,Unlicensed Fixed Wireless,8243,8243
+460522,ClearPath Fiber LLC,50,Fiber to the Premises,836,836
+460531,"DCM Cable, Inc.",40,Cable,2766,0
+460536,"Diverse Power, Inc.",50,Fiber to the Premises,5536,720
+460557,JWEMC Communications LLC,50,Fiber to the Premises,40910,13421
+460568,"Maverix Broadband, Inc.",50,Fiber to the Premises,6875,6875
+460574,"NfinityLink Communications, Inc.",40,Cable,17825,17825
+460576,"NocTel Communications, Inc.",50,Fiber to the Premises,804,0
+460581,OLHCommunityFiber,50,Fiber to the Premises,53,0
+460582,Optic Loop Communications LLC,50,Fiber to the Premises,86708,86708
+460584,Outer Reach Broadband LLC,72,LBR Fixed Wireless,5073,5073
+460593,"ResTech Services, LLC",50,Fiber to the Premises,97852,94800
+460596,Riverside Broadband,70,Unlicensed Fixed Wireless,17602,17602
+460598,Robinson Hardware and Software Solutions,70,Unlicensed Fixed Wireless,120227,17928
+460604,"SBE Networks, Inc.",70,Unlicensed Fixed Wireless,120454,120454
+460615,Ten Four Holdings LLC,70,Unlicensed Fixed Wireless,628,0
+460616,The Foerster Project LLC,70,Unlicensed Fixed Wireless,7697,7697
+460625,Vickery IT LLC,70,Unlicensed Fixed Wireless,8959,8959
+460630,xyTel LLC,50,Fiber to the Premises,116414,116414
+460632,"VTel Wireless, Inc.",71,Licensed Fixed Wireless,420759,95228
+460633,MTC Cable,40,Cable,13714,13714
+460637,"AaroBand, Inc.",70,Unlicensed Fixed Wireless,2675,2675
+460645,Altamaha Electric Corporation,50,Fiber to the Premises,19551,19551
+460646,Coastal Broadband Inc.,70,Unlicensed Fixed Wireless,1115,1115
+460662,Raymond Mazeika,50,Fiber to the Premises,175,175
+460667,Magnolia Road Internet Cooperative Inc.,70,Unlicensed Fixed Wireless,371,0
+460675,Sac and Fox Tribe of the Mississippi in Iowa,50,Fiber to the Premises,361,149
+460679,Invest Newark,50,Fiber to the Premises,430,701
+460684,GLW Broadband Inc.,40,Cable,10631,10668
+470009,Bartnet IP LLC,70,Unlicensed Fixed Wireless,35464,35464
+470015,"City of Griffin, Georgia",50,Fiber to the Premises,3404,3404
+470016,"City of Norway, Michigan",40,Cable,2017,2017
+470018,Coastal Electric Membership Corporation,50,Fiber to the Premises,9947,2154
+470021,"Concho Valley Electric Cooperative, Inc.",50,Fiber to the Premises,662,662
+470022,Connect Holding II LLC,10,Copper,5553803,5553803
+470023,Cowboy Internet Services,50,Fiber to the Premises,5706,5705
+470028,"Everfast Fiber Networks, LLC",40,Cable,652846,652846
+470029,Federated Rural Electric Association,50,Fiber to the Premises,27305,27305
+470030,Boston Omaha Corporation,50,Fiber to the Premises,6078,6078
+470037,Indian Wells Valley Internet Service Provider,70,Unlicensed Fixed Wireless,14455,14454
+470039,"Internet Management Services, Inc.",50,Fiber to the Premises,10141,4456
+470041,"IQ Fiber Intermediate Holdings, LLC",50,Fiber to the Premises,121995,20187
+470044,Jasper County Rural Electric Membership Corporation,50,Fiber to the Premises,4594,4594
+470045,Knoxville Utilities Board,50,Fiber to the Premises,141143,141143
+470047,"LCS Fibercom, LLC",50,Fiber to the Premises,2122,2122
+470048,"Lee Wireless, LLC",70,Unlicensed Fixed Wireless,1216,1216
+470049,Madrone Broadband,50,Fiber to the Premises,125,125
+470052,"MFWireless, LLC",70,Unlicensed Fixed Wireless,10177,2881
+470053,"MTN Infrastructure TopCo, Inc.",50,Fiber to the Premises,0,297
+470055,NCI Datacom,50,Fiber to the Premises,29402,29008
+470060,Presque Isle Electric & Gas Co-op,50,Fiber to the Premises,18034,2996
+470061,"Public Utilities District No. 1 of Jefferson County, Washington",50,Fiber to the Premises,381,201
+470062,Ravalli Broadband LLC,70,Unlicensed Fixed Wireless,9315,9315
+470070,"SOM1101, LLC",71,Licensed Fixed Wireless,66210,66210
+470073,"Stimulus Technologies of California, LLC",40,Cable,1520,1520
+470078,The Greater Eastern Oregon Network,70,Unlicensed Fixed Wireless,7129,7129
+470079,Ubinet Corp,70,Unlicensed Fixed Wireless,13072,13072
+470080,"UltraWISP, LLC",70,Unlicensed Fixed Wireless,73,73
+470091,"Benchmark Communications, LLC",10,Copper,78,0
+470101,Litebridge LLC,50,Fiber to the Premises,4036,4036
+470102,M3 Wireless,50,Fiber to the Premises,74151,74151
+470107,OGC Fiber Networks Lago Mar,50,Fiber to the Premises,490,490
+470108,"Wellcom Technologies Highlands, LP",50,Fiber to the Premises,761,761
+470111,"River City Wireless, Inc.",70,Unlicensed Fixed Wireless,33785,33785
+470112,Fuse Telecom LLC,50,Fiber to the Premises,136,156
+470113,Metro Service Center,70,Unlicensed Fixed Wireless,6806,0
+470117,South Bay Internet,70,Unlicensed Fixed Wireless,6,0
+470118,Innercity Fibernet LLC,50,Fiber to the Premises,102793,102793
+470119,Deerfield Valley Communications Union District,50,Fiber to the Premises,2317,0
+470121,"Xtratyme Technologies, Inc.",10,Copper,2642,487
+470122,Advanced Internet,50,Fiber to the Premises,123475,123475
+470127,"Fastbridge Fiber, LLC",50,Fiber to the Premises,60415,60415
+470128,FiberX Inc.,50,Fiber to the Premises,20283,20896
+470129,Spokane Tribe of Indians,71,Licensed Fixed Wireless,738,3
+470132,Optical Communications Group,50,Fiber to the Premises,0,29188
+470133,Integrated Elements Ultd,70,Unlicensed Fixed Wireless,15788,15788
+480002,Addison County Communications Union District,50,Fiber to the Premises,3750,3750
+480003,"Adirondack Techs, LLC",50,Fiber to the Premises,1890,1890
+480009,"Back 2 Roots, LLC",40,Cable,4194,4194
+480010,"BIF IV Intrepid HoldCo, LLC",50,Fiber to the Premises,90379,0
+480012,"Blue Ridge Internet, LLC",70,Unlicensed Fixed Wireless,16683,16661
+480015,"B-Y Internet, LLC",50,Fiber to the Premises,7851,7830
+480018,Cherokee County Electric Cooperative Association,50,Fiber to the Premises,13463,153
+480019,"City of Fort Dodge, Iowa",50,Fiber to the Premises,10233,1448
+480020,"City of Sylvester, Georgia",50,Fiber to the Premises,2572,2572
+480022,"Claverack Communications, Inc.",50,Fiber to the Premises,13192,13192
+480023,ClearNet,70,Unlicensed Fixed Wireless,28,28
+480033,"EchoNet Wireless Puerto Rico, LLC",70,Unlicensed Fixed Wireless,16082,16082
+480036,"Enlightened by Woodruff Electric, LLC",50,Fiber to the Premises,7530,2339
+480037,Farmer Electric Cooperative Corporation,50,Fiber to the Premises,3328,1059
+480039,Adirondack Internet,70,Unlicensed Fixed Wireless,57,0
+480043,Get Real II LLC,50,Fiber to the Premises,3761,3761
+480048,"IBT Group USA, LLC",50,Fiber to the Premises,727,727
+480055,"LiveOak Fiber, LLC",50,Fiber to the Premises,182768,182768
+480062,"Netwitz Internet Services, Inc.",70,Unlicensed Fixed Wireless,9294,9242
+480067,"Omni Fiber, LLC",50,Fiber to the Premises,221772,25176
+480068,"Orion CableSystems, Inc.",40,Cable,3262,0
+480069,"Ozark Fiber, LLC",50,Fiber to the Premises,18889,18889
+480084,Skyewaves LLC,70,Unlicensed Fixed Wireless,22195,22195
+480086,Smart Fiber Networks Inc.,50,Fiber to the Premises,9380,9380
+480093,"Town of Dryden, New York",50,Fiber to the Premises,2112,297
+480104,"Volt Broadband, LLC",50,Fiber to the Premises,12692,12692
+480112,"Tomales Bay LAN, LLC",70,Unlicensed Fixed Wireless,1592,0
+480113,"Muir Beach LAN, LLC",70,Unlicensed Fixed Wireless,1823,0
+480114,Youngsville Television Corporation,50,Fiber to the Premises,615,130
+480116,Peeples Computers LLC,70,Unlicensed Fixed Wireless,4,0
+480117,The Chickasaw Nation,50,Fiber to the Premises,0,2742
+480118,Element8 Technology Investment Group Inc.,70,Unlicensed Fixed Wireless,233902,38409
+480120,Ardent Wireless LLC,50,Fiber to the Premises,965,965
+490004,"AirUltra, LLC",70,Unlicensed Fixed Wireless,4201,4201
+490005,Allevia Technology,50,Fiber to the Premises,108,108
+490006,"Arbor Mesh, LLC",70,Unlicensed Fixed Wireless,7139,2170
+490008,Arrive Internet,50,Fiber to the Premises,17051,17062
+490011,"Circle B Wireless, LLC",72,LBR Fixed Wireless,13482,13482
+490012,"City of El Reno, Oklahoma",50,Fiber to the Premises,2299,2299
+490014,"Community Networks, LLC",50,Fiber to the Premises,7238,7238
+490018,"Fiber by Central Florida, LLC",50,Fiber to the Premises,38595,38595
+490023,"HDD Broadband, Inc.",50,Fiber to the Premises,3533,3533
+490028,Lenoir City Utility Board,50,Fiber to the Premises,32553,32553
+490030,Los Altos Hills Community Fiber,50,Fiber to the Premises,68,68
+490039,Pea River Electric Cooperative,50,Fiber to the Premises,22583,22583
+490041,"Public Utility District #1 of Kitsap County, Washington",50,Fiber to the Premises,2817,752
+490060,Wecom LLC,50,Fiber to the Premises,6565,6565
+490062,Vision Wifi Inc.,70,Unlicensed Fixed Wireless,8523,8523
+490064,Midwest Fiber Holdings LP,50,Fiber to the Premises,0,45813
+490065,PC-Outlet Inc.,70,Unlicensed Fixed Wireless,24243,24160
+490066,Konvergence Technologies,50,Fiber to the Premises,3027,3027
+490068,Seamless Fiber Innovations LLC,50,Fiber to the Premises,6924,6924
+490069,"Suwannee Valley Electric Cooperative, Inc.",50,Fiber to the Premises,24240,24240
+490071,Electryon Tech,72,LBR Fixed Wireless,21855,21855
+490074,Wire 3 Holdings,50,Fiber to the Premises,122295,122295
+500002,"ACU Global, LLC",50,Fiber to the Premises,1232,1232
+500010,City of Dickson Department of Electricity,50,Fiber to the Premises,17684,17684
+500011,"City of Lexington, Tennessee",50,Fiber to the Premises,17288,3422
+500012,"connectSCP, LLC",50,Fiber to the Premises,12802,12802
+500013,"Connex Broadband, LLC",72,LBR Fixed Wireless,11763,11763
+500019,East Central Energy,50,Fiber to the Premises,21751,21751
+500023,"Fuse Rural Connect, LLC",50,Fiber to the Premises,2054,2054
+500025,"GreyStone Connect, LLC",50,Fiber to the Premises,45193,45193
+500026,Haywire,50,Fiber to the Premises,1801,158
+500027,Hill Country Broadband Inc.,70,Unlicensed Fixed Wireless,2567,2567
+500028,"Internet and Communication Associates of Northern Missouri, LLC",70,Unlicensed Fixed Wireless,11833,11833
+500031,Kwikbit Internet,70,Unlicensed Fixed Wireless,27453,0
+500032,Larkin LLC,70,Unlicensed Fixed Wireless,4539,4539
+500039,"Opiquad, LLC",70,Unlicensed Fixed Wireless,61670,61042
+500040,Pilam HSI LLC,70,Unlicensed Fixed Wireless,81,15
+500042,Remarkable Wifi LLC,50,Fiber to the Premises,116,0
+500047,Southern Ute ISP,50,Fiber to the Premises,1372,1372
+500048,"Stupp Fiber, LLC",50,Fiber to the Premises,8149,8149
+500052,Velofi LLC,50,Fiber to the Premises,1767,1767
+500058,White River Valley Electric Cooperative,50,Fiber to the Premises,18190,18190
+500060,Greeneville Energy Authority,50,Fiber to the Premises,11920,11920
+500064,"Gigafy, LLC",10,Copper,6381,1460
+500071,Lucky Fiber LLC,50,Fiber to the Premises,0,2
+500075,"FiberFi, LLC",70,Unlicensed Fixed Wireless,24200,24170
+500079,Sabino WiFi,70,Unlicensed Fixed Wireless,261,28
+500080,"Smartlink Technology, LLC",70,Unlicensed Fixed Wireless,154,0
+500081,Spectra International Holdings LLC,70,Unlicensed Fixed Wireless,747,747
+500082,Lovelock Highspeed,50,Fiber to the Premises,1948,197
+500083,Rozint LLC,50,Fiber to the Premises,0,256
+500084,"Generate-Ubiquity Holdings, LLC",50,Fiber to the Premises,243418,243418
+510001,Archtop Fiber Holdings LLC,50,Fiber to the Premises,22892,4522
+510002,Baltimore City Office of Information and Technology,50,Fiber to the Premises,135,0
+510004,"City of Bainbridge, Georgia",50,Fiber to the Premises,554,62
+510013,"Electric Plant Board of the City of Paducah, Kentucky",50,Fiber to the Premises,2354,2354
+510020,"Flying Bull Internet, LLC",50,Fiber to the Premises,27859,0
+510021,Foothills Broadband LLC,50,Fiber to the Premises,7142,7142
+510029,"Klick Networks, LLC",50,Fiber to the Premises,368,8
+510030,"Lyte Fiber, LLC",50,Fiber to the Premises,8039,0
+510042,Ripple Broadband LLC,70,Unlicensed Fixed Wireless,3225,135
+510051,"Trans-Video, Inc.",40,Cable,2059,2487
+510052,Trive Capital Management LLC,70,Unlicensed Fixed Wireless,2225,17494
+510055,Waterloo Telecommunications Utility,50,Fiber to the Premises,14520,14520
+510061,Lehigh WiFi LLC,70,Unlicensed Fixed Wireless,44597,44597
+510064,Lake Placid Fiber LLC,50,Fiber to the Premises,3,3
+510065,"Cosmo Network Solutions, LLC",70,Unlicensed Fixed Wireless,593397,593397
+510066,Steuben County Rural Electric Membership Corporation,50,Fiber to the Premises,56145,9642
+510071,Fiber2Go Corporation,50,Fiber to the Premises,0,12
+510072,"City of Lehi, Utah",50,Fiber to the Premises,13402,13402
+510075,Cenos Networks,50,Fiber to the Premises,7272,7272
+510076,Netwave Broadband,50,Fiber to the Premises,27822,27620
+520000,"Okanogan County Electric Cooperative, Inc.",50,Fiber to the Premises,1312,1312
+520001,"City of Salem, Utah",50,Fiber to the Premises,3474,3474
+520003,OpenCape Corporation,50,Fiber to the Premises,186,723
+520028,King Networks LLC,70,Unlicensed Fixed Wireless,35155,35155
+520030,"City of Colquitt, Georgia",70,Unlicensed Fixed Wireless,3577,3577
+520034,Local2u LLC,70,Unlicensed Fixed Wireless,264,264
+520035,"World Mobile Networks, LLC",71,Licensed Fixed Wireless,292819,292819
+520039,Alpine Connective LLC,50,Fiber to the Premises,852,802
+520045,Tillman Global Holdings,50,Fiber to the Premises,29536,1212
+520046,Air Fiber Communications,70,Unlicensed Fixed Wireless,18,0
+520047,"C & L Broadband Connect, LLC",50,Fiber to the Premises,3542,1282
+520052,Tennessee Valley Electric Cooperative,50,Fiber to the Premises,9864,9864
+520054,"Montgomery County, Maryland",50,Fiber to the Premises,453,0
+520061,"Centric Integrated Systems, Corp.",70,Unlicensed Fixed Wireless,68530,68530
+520066,"Logan County Gig, LLC",50,Fiber to the Premises,3448,0
+520068,"Tammany Wireless Holdings, LLC",72,LBR Fixed Wireless,41774,41774
+520069,"Wave 7 Communications, LLC",70,Unlicensed Fixed Wireless,1383,1383
+520070,Phoenix Communications II LLC,70,Unlicensed Fixed Wireless,4013,4013
+520075,Evergreen Technologies Solutions LLC,72,LBR Fixed Wireless,3240,3240

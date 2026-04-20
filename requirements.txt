@@ -1,0 +1,33 @@
+# DocuStay Demo – Python Dependencies
+# Use >= so pip can pick versions with pre-built wheels (avoids Rust/C/build on Python 3.13)
+fastapi>=0.109.2
+uvicorn[standard]>=0.27.1
+python-multipart>=0.0.9
+
+# Database
+sqlalchemy>=2.0.25
+psycopg2-binary>=2.9.9
+
+# Auth
+PyJWT>=2.8.0
+bcrypt>=4.0.0
+pydantic[email]>=2.6.1
+pydantic-settings>=2.1.0
+
+# Notifications
+sendgrid>=6.11.0
+twilio>=8.11.1
+
+# Utils
+python-dotenv>=1.0.1
+httpx>=0.25.0
+playwright>=1.49.0
+reportlab>=4.0.0
+apscheduler>=3.10.0
+
+# Stripe (Identity verification)
+stripe>=8.0.0
+
+# Doc / PDF generation (e.g. scripts/md_to_pdf.py)
+markdown>=3.5.0
+xhtml2pdf>=0.2.13

@@ -1,0 +1,7 @@
+{
+  "name": "DocuStay AI - Secure Property Protection",
+  "description": "A neutral documentation platform for property owners and guests: authorization records, identity verification, and immutable audit history for temporary stays.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
