@@ -10,6 +10,7 @@ import { DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlerts
 import { InactivePropertyBanner } from '../../components/InactivePropertyBanner';
 import { copyToClipboard } from '../../utils/clipboard';
 import { addCalendarYears, getTodayLocal, formatStayDuration, formatCalendarDate, formatDateTimeLocal, formatLedgerTimestamp, parseForDisplay } from '../../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import { toUserFriendlyInvitationError } from '../../utils/invitationErrors';
 import { tenantsPoolForUnitCard, groupOwnerTenantsByLeaseCohort, formatOwnerTenantGroupNames } from '../../utils/leaseCohortGroups';
 import { validateCoTenantRows, type CoTenantInviteRow } from '../../utils/inviteTenantBatch';
@@ -70,10 +71,23 @@ function onsiteSelectionCoversWholeProperty(
   return units[0].id === sel;
 }
 
-function tenantStatusRank(s: OwnerTenantView['status']): number {
+function ownerLeaseState(t: OwnerTenantView): 'pending' | 'accepted' | 'active' | 'expired' {
+  const assignment = (t.assignment_status || '').toLowerCase();
+  if (assignment === 'active') return 'active';
+  if (assignment === 'accepted') return 'accepted';
+  if (assignment === 'pending') return 'pending';
+  if (assignment === 'expired') return 'expired';
+  const s = (t.status || '').toLowerCase();
+  if (s === 'active') return 'active';
+  if (s === 'accepted' || s === 'future') return 'accepted';
+  if (s === 'pending' || s === 'pending_signup') return 'pending';
+  return 'expired';
+}
+
+function leaseStateRank(s: ReturnType<typeof ownerLeaseState>): number {
   if (s === 'active') return 0;
-  if (s === 'pending_signup') return 1;
-  if (s === 'future') return 2;
+  if (s === 'pending') return 1;
+  if (s === 'accepted') return 2;
   return 3;
 }
 
@@ -84,17 +98,15 @@ function tenantStatusRank(s: OwnerTenantView['status']): number {
 function filterTenantRowsForLiveUnitDisplay(pool: OwnerTenantView[]): OwnerTenantView[] {
   return pool.filter(
     (t) =>
-      t.status === 'active' ||
-      t.status === 'future' ||
-      t.status === 'pending_signup' ||
-      t.assignment_status === 'future' ||
-      (t.assignment_status === 'active' && t.active),
+      ownerLeaseState(t) === 'active' ||
+      ownerLeaseState(t) === 'accepted' ||
+      ownerLeaseState(t) === 'pending',
   );
 }
 
 function pickTenantFromFilteredPool(pool: OwnerTenantView[]): OwnerTenantView | null {
   if (!pool.length) return null;
-  return [...pool].sort((a, b) => tenantStatusRank(a.status) - tenantStatusRank(b.status))[0];
+  return [...pool].sort((a, b) => leaseStateRank(ownerLeaseState(a)) - leaseStateRank(ownerLeaseState(b)))[0];
 }
 
 function occupantNamesFromTenantPool(pool: OwnerTenantView[]): string | null {
@@ -110,7 +122,7 @@ function tenantEmailsFromPool(pool: OwnerTenantView[]): string | null {
 /** At least one lease row on the unit is live (co-tenant may still be pending). */
 function unitPoolHasActiveLease(pool: OwnerTenantView[]): boolean {
   return pool.some(
-    (t) => t.status === 'active' || (t.assignment_status === 'active' && t.active),
+    (t) => ownerLeaseState(t) === 'active',
   );
 }
 
@@ -208,14 +220,22 @@ function leaseDatesForUnitInviteFromDetail(derived: {
   return null;
 }
 
-function unitStayDurationSummary(stays: OwnerStayView[], tenant: OwnerTenantView | null): string {
+function unitStayDurationSummary(
+  stays: OwnerStayView[],
+  tenant: OwnerTenantView | null,
+  businessMode: boolean,
+): string {
   const active = stays.find((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
   if (active?.stay_start_date && active?.stay_end_date) {
-    return `Guest stay (checked in): ${formatStayDuration(active.stay_start_date, active.stay_end_date)}`;
+    return businessMode
+      ? `Authorization active (checked in): ${formatStayDuration(active.stay_start_date, active.stay_end_date)}`
+      : `Guest stay (checked in): ${formatStayDuration(active.stay_start_date, active.stay_end_date)}`;
   }
   const upcoming = stays.find((s) => !s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
   if (upcoming?.stay_start_date && upcoming?.stay_end_date) {
-    return `Scheduled guest stay: ${formatStayDuration(upcoming.stay_start_date, upcoming.stay_end_date)}`;
+    return businessMode
+      ? `Scheduled authorization: ${formatStayDuration(upcoming.stay_start_date, upcoming.stay_end_date)}`
+      : `Scheduled guest stay: ${formatStayDuration(upcoming.stay_start_date, upcoming.stay_end_date)}`;
   }
   if (tenant?.start_date && tenant?.end_date) {
     return `Lease: ${formatStayDuration(tenant.start_date, tenant.end_date)}`;
@@ -386,7 +406,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   const hasActiveLeaseForProperty = useMemo(
     () =>
       tenantsForThisProperty.some(
-        (t) => t.status === 'active' || (t.assignment_status === 'active' && t.active),
+        (t) => ownerLeaseState(t) === 'active',
       ),
     [tenantsForThisProperty],
   );
@@ -432,12 +452,12 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
       inviteCode,
       inviteUrl,
       statusLabel,
-      durationLine: unitStayDurationSummary(unitStays, tenant),
+      durationLine: unitStayDurationSummary(unitStays, tenant, contextMode === 'business'),
       inviteStatusLine: inviteStatusForUnitModal(tenant, displayStay),
       occupantName: fromPool || tenant?.tenant_name || displayStay?.guest_name || null,
       tenantEmailsDisplay: tenantEmailsFromPool(pool) || tenant?.tenant_email || null,
     };
-  }, [unitDetailModal, property, tenantsForThisProperty, propertyStays, user.is_demo]);
+  }, [unitDetailModal, property, tenantsForThisProperty, propertyStays, user.is_demo, contextMode]);
 
   const loadData = useCallback(() => {
     if (!id || isNaN(id)) {
@@ -1169,7 +1189,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                                     {tenantRow.end_date ? formatCalendarDate(tenantRow.end_date) : 'Open-ended'}
                                   </p>
                                 )}
-                                {pool.some((t) => t.status === 'pending_signup') &&
+                                {pool.some((t) => ownerLeaseState(t) === 'pending') &&
                                   (unitPoolHasActiveLease(poolRaw) ? (
                                     <p className="text-amber-700">Co-tenant pending signup</p>
                                   ) : (
@@ -1899,7 +1919,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                           <td className="px-6 py-3 font-medium text-slate-800">{entry.title}</td>
                           <td className="px-6 py-3 text-slate-600 text-sm">{entry.actor_email ?? '—'}</td>
                           <td className="px-6 py-3 text-slate-600 text-sm max-w-xs">
-                            <span className="truncate block">{entry.message}</span>
+                            <span className="truncate block">{scrubAuditLogStateChangeParagraph(entry.message)}</span>
                             <button
                               type="button"
                               onClick={() => setLogMessageModalEntry(entry)}
@@ -1928,7 +1948,9 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
       >
         {logMessageModalEntry && (
           <div className="p-6">
-            <p className="text-slate-700 whitespace-pre-wrap text-sm">{logMessageModalEntry.message}</p>
+            <p className="text-slate-700 whitespace-pre-wrap text-sm">
+              {scrubAuditLogStateChangeParagraph(logMessageModalEntry.message)}
+            </p>
             <p className="text-slate-500 text-xs mt-4">
               {logMessageModalEntry.created_at ? formatDateTimeLocal(logMessageModalEntry.created_at) : ''}
               {logMessageModalEntry.actor_email && ` · ${logMessageModalEntry.actor_email}`}

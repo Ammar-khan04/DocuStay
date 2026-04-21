@@ -10,6 +10,7 @@ import {
   type AdminInvitationView,
 } from '../../services/api';
 import { formatDateTimeLocal, localDateInputToUtcStartIso, localDateInputToUtcEndIso } from '../../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 
 type AdminTab = 'users' | 'logs' | 'properties' | 'stays' | 'invitations';
 
@@ -348,7 +349,7 @@ export const AdminDashboard: React.FC<{
                       <td className="py-3 px-4 text-slate-700">{r.category}</td>
                       <td className="py-3 px-4 text-slate-700">{r.title}</td>
                       <td className="py-3 px-4 text-slate-700 max-w-xs">
-                        <span className="truncate block">{r.message}</span>
+                        <span className="truncate block">{scrubAuditLogStateChangeParagraph(r.message)}</span>
                         <button
                           type="button"
                           onClick={() => setLogMessageModalEntry(r)}
@@ -515,7 +516,9 @@ export const AdminDashboard: React.FC<{
                 </button>
               </div>
               <div className="p-4 overflow-y-auto flex-1">
-                <p className="text-slate-700 text-sm whitespace-pre-wrap break-words">{logMessageModalEntry.message}</p>
+                <p className="text-slate-700 text-sm whitespace-pre-wrap break-words">
+                  {scrubAuditLogStateChangeParagraph(logMessageModalEntry.message)}
+                </p>
               </div>
               <div className="p-4 border-t border-slate-200">
                 <Button variant="outline" onClick={() => setLogMessageModalEntry(null)}>Close</Button>

@@ -28,6 +28,7 @@ from app.services.audit_log import create_log, CATEGORY_VERIFY_ATTEMPT, CATEGORY
 from app.services.event_ledger import (
     create_ledger_event,
     ledger_event_to_display,
+    ledger_record_disclosure_lines,
     _scrub_emails_for_timeline_display,
     ACTION_VERIFY_ATTEMPT_VALID,
     ACTION_VERIFY_ATTEMPT_FAILED,
@@ -42,6 +43,7 @@ from app.services.display_names import (
     label_for_tenant_assignee,
     label_from_user_id,
 )
+from app.services.state_resolver import resolve_invitation_display_status
 from app.schemas.public import (
     LivePropertyPagePayload,
     LivePropertyInfo,
@@ -571,6 +573,7 @@ def get_live_property_page(
     for r in log_rows:
         cat, title, msg = ledger_event_to_display(r, db)
         attr = audit_actor_attribution(db, actor_user_id=r.actor_user_id, property_id=prop.id)
+        disc = ledger_record_disclosure_lines(r, display_title=title)
         logs.append(
             LiveLogEntry(
                 category=cat,
@@ -582,6 +585,10 @@ def get_live_property_page(
                 actor_role_label=attr["role_label"],
                 actor_name=attr["name"],
                 actor_email=attr["email"],
+                event_source=disc.get("event_source"),
+                business_meaning_on_record=disc.get("business_meaning_on_record"),
+                trigger_on_record=disc.get("trigger_on_record"),
+                state_change_on_record=disc.get("state_change_on_record"),
             )
         )
 
@@ -777,16 +784,20 @@ def _build_verify_record(
     revoked_at = getattr(stay, "revoked_at", None) if stay else None
     cancelled_at = getattr(stay, "cancelled_at", None) if stay else None
 
-    # Status
+    # Status (single resolver for invitation-backed lifecycle; ACTIVE remains runtime-derived).
     if not stay:
-        if token_state in ("CANCELLED", "REVOKED"):
-            status = "CANCELLED"
-        elif token_state == "EXPIRED":
-            status = "EXPIRED"
-        elif valid:
-            status = "ACTIVE"
-        else:
-            status = "PENDING"
+        display_status = resolve_invitation_display_status(
+            inv,
+            has_live_stay=False,
+            db=db,
+        )
+        status = {
+            "cancelled": "CANCELLED",
+            "expired": "EXPIRED",
+            "active": "ACTIVE",
+            "accepted": "ACCEPTED",
+            "pending": "PENDING",
+        }.get(display_status, "PENDING")
     elif revoked_at:
         status = "REVOKED"
     elif cancelled_at:

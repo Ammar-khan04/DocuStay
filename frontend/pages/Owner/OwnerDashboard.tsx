@@ -9,6 +9,7 @@ import { UserSession } from '../../types';
 import { dashboardApi, propertiesApi, getContextMode, setContextMode, onPropertiesChanged, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, DOCUSTAY_OWNER_TRANSFER_TOKEN_KEY, type OwnerStayView, type OwnerInvitationView, type OwnerAuditLogEntry, type Property, type BulkUploadResult, type BillingResponse, type BillingInvoiceView, type BillingPaymentView, type OwnerTenantView } from '../../services/api';
 import { copyToClipboard } from '../../utils/clipboard';
 import { getTodayLocal, formatStayDuration, formatLedgerTimestamp, formatDateTimeLocal, parseForDisplay, formatCalendarDate } from '../../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import { toUserFriendlyInvitationError } from '../../utils/invitationErrors';
 import Settings from '../Settings/Settings';
 import HelpCenter from '../Support/HelpCenter';
@@ -36,7 +37,7 @@ function isOverstayed(endDateStr: string): boolean {
 }
 
 function canOfferLeaseExtension(t: OwnerTenantView): boolean {
-  return t.id > 0 && (t.status === 'active' || t.status === 'accepted');
+  return t.id > 0 && (ownerLeaseState(t) === 'active' || ownerLeaseState(t) === 'accepted');
 }
 
 function isTenantInvitationKind(kind?: string | null): boolean {
@@ -44,27 +45,17 @@ function isTenantInvitationKind(kind?: string | null): boolean {
   return normalized === 'tenant' || normalized === 'tenant_cotenant' || normalized === 'tenant_extension';
 }
 
-/** Invite ID token state badge: displays Pending | Active | Expired | Revoked (maps from STAGED | BURNED | EXPIRED | REVOKED) */
-function TokenStateBadge({ tokenState }: { tokenState?: string | null }) {
-  const state = (tokenState || 'STAGED').toUpperCase();
-  const classes =
-    state === 'BURNED'
-      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-      : state === 'STAGED'
-        ? 'bg-sky-100 text-sky-700 border-sky-200'
-        : state === 'EXPIRED'
-          ? 'bg-slate-100 text-slate-600 border-slate-200'
-          : state === 'REVOKED'
-            ? 'bg-amber-100 text-amber-700 border-amber-200'
-            : state === 'CANCELLED'
-              ? 'bg-slate-100 text-slate-600 border-slate-200'
-              : 'bg-slate-100 text-slate-600 border-slate-200';
-  const displayLabel = state === 'BURNED' ? 'Active' : state === 'STAGED' ? 'Pending' : state === 'REVOKED' ? 'Revoked' : state === 'CANCELLED' ? 'Cancelled' : state === 'EXPIRED' ? 'Expired' : state;
-  return (
-    <span className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${classes}`}>
-      {displayLabel}
-    </span>
-  );
+function ownerLeaseState(t: OwnerTenantView): 'pending' | 'accepted' | 'active' | 'expired' {
+  const assignment = (t.assignment_status || '').toLowerCase();
+  if (assignment === 'active') return 'active';
+  if (assignment === 'accepted') return 'accepted';
+  if (assignment === 'pending') return 'pending';
+  if (assignment === 'expired') return 'expired';
+  const s = (t.status || '').toLowerCase();
+  if (s === 'active') return 'active';
+  if (s === 'accepted' || s === 'future') return 'accepted';
+  if (s === 'pending' || s === 'pending_signup') return 'pending';
+  return 'expired';
 }
 
 /** Aggregate unit counts for dashboard cards (API sets per-property counts from effective occupancy). */
@@ -506,30 +497,33 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
   );
 
   const pendingTenantCount = useMemo(
-    () => tenants.filter((t) => t.status === 'pending' || t.status === 'pending_signup').length,
+    () => tenants.filter((t) => ownerLeaseState(t) === 'pending').length,
     [tenants],
   );
   const tenantGroups = useMemo(() => groupOwnerTenantsByLeaseCohort(tenants), [tenants]);
   const pendingTenantGroups = useMemo(
-    () => groupOwnerTenantsByLeaseCohort(tenants.filter((t) => t.status === 'pending' || t.status === 'pending_signup')),
+    () => groupOwnerTenantsByLeaseCohort(tenants.filter((t) => ownerLeaseState(t) === 'pending')),
     [tenants],
   );
 
-  const tenantStatusBadge = (t: OwnerTenantView) => (
+  const tenantStatusBadge = (t: OwnerTenantView) => {
+    const state = ownerLeaseState(t);
+    return (
     <span
       className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-        t.status === 'active'
+        state === 'active'
           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-          : t.status === 'accepted'
+          : state === 'accepted'
             ? 'bg-sky-50 text-sky-700 border border-sky-200'
-            : t.status === 'pending' || t.status === 'pending_signup'
+            : state === 'pending'
               ? 'bg-amber-50 text-amber-700 border border-amber-200'
               : 'bg-slate-100 text-slate-500 border border-slate-200'
       }`}
     >
-      {t.status === 'active' ? 'Active' : t.status === 'accepted' ? 'Accepted' : t.status === 'pending' || t.status === 'pending_signup' ? 'Pending' : 'Expired'}
+      {state === 'active' ? 'Active' : state === 'accepted' ? 'Accepted' : state === 'pending' ? 'Pending' : 'Expired'}
     </span>
   );
+  };
 
   const openInviteModalOrNotify = () => {
     if (!canInvite) {
@@ -1060,7 +1054,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                                       <div key={t.id} className="flex items-center gap-3">
                                         <div
                                           className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-                                            t.status === 'pending' || t.status === 'pending_signup' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'
+                                            ownerLeaseState(t) === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'
                                           }`}
                                         >
                                           {(t.tenant_name || '?').charAt(0).toUpperCase()}
@@ -1077,7 +1071,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                                 <div className="flex items-center gap-3">
                                   <div
                                     className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-                                      primary.status === 'pending' || primary.status === 'pending_signup' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'
+                                      ownerLeaseState(primary) === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'
                                     }`}
                                   >
                                     {(primary.tenant_name || '?').charAt(0).toUpperCase()}
@@ -1099,8 +1093,8 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                                 : primary.start_date
                                   ? `From ${formatCalendarDate(primary.start_date)}`
                                   : '—'}
-                              {primary.status === 'active' && !primary.end_date && <span className="ml-1 text-xs text-slate-400">(open-ended)</span>}
-                              {primary.status === 'accepted' && primary.start_date && <span className="ml-1 text-xs text-slate-400">(not yet started)</span>}
+                              {ownerLeaseState(primary) === 'active' && !primary.end_date && <span className="ml-1 text-xs text-slate-400">(open-ended)</span>}
+                              {ownerLeaseState(primary) === 'accepted' && primary.start_date && <span className="ml-1 text-xs text-slate-400">(not yet started)</span>}
                             </td>
                             <td className="px-6 py-5">
                               {shared ? (
@@ -1908,7 +1902,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                           <td className="px-6 py-3 text-slate-600 text-sm">{entry.property_name ?? '—'}</td>
                           <td className="px-6 py-3 text-slate-600 text-sm">{entry.actor_email ?? '—'}</td>
                           <td className="px-6 py-3 text-slate-600 text-sm max-w-xs">
-                            <span className="truncate block">{entry.message}</span>
+                            <span className="truncate block">{scrubAuditLogStateChangeParagraph(entry.message)}</span>
                             <button
                               type="button"
                               onClick={() => setLogMessageModalEntry(entry)}
@@ -2612,7 +2606,9 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                 </button>
               </div>
               <div className="p-4 overflow-y-auto flex-1">
-                <p className="text-slate-700 text-sm whitespace-pre-wrap break-words">{logMessageModalEntry.message}</p>
+                <p className="text-slate-700 text-sm whitespace-pre-wrap break-words">
+                  {scrubAuditLogStateChangeParagraph(logMessageModalEntry.message)}
+                </p>
               </div>
               <div className="p-4 border-t border-slate-200">
                 <Button variant="outline" onClick={() => setLogMessageModalEntry(null)}>Close</Button>

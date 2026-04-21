@@ -83,7 +83,13 @@ def admin_list_audit_logs(
     offset: int = Query(0, ge=0),
 ):
     """Global event ledger viewer with filters. No scoping to a single owner."""
-    from app.services.event_ledger import ledger_event_to_display, get_actor_email, _CATEGORY_TO_ACTION_TYPES, ACTION_PROPERTY_DELETED
+    from app.services.event_ledger import (
+        ledger_event_to_display,
+        ledger_record_disclosure_lines,
+        get_actor_email,
+        _CATEGORY_TO_ACTION_TYPES,
+        ACTION_PROPERTY_DELETED,
+    )
 
     q = db.query(EventLedger)
     from_dt = _parse_optional_utc(from_ts)
@@ -121,6 +127,7 @@ def admin_list_audit_logs(
     for r in rows:
         cat, title, msg = ledger_event_to_display(r, db)
         actor_email = get_actor_email(db, r.actor_user_id)
+        disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             AdminAuditLogEntry(
                 id=r.id,
@@ -135,6 +142,10 @@ def admin_list_audit_logs(
                 ip_address=r.ip_address,
                 created_at=r.created_at or datetime.now(timezone.utc),
                 property_name=_property_name(r),
+                event_source=disc.get("event_source"),
+                business_meaning_on_record=disc.get("business_meaning_on_record"),
+                trigger_on_record=disc.get("trigger_on_record"),
+                state_change_on_record=disc.get("state_change_on_record"),
             )
         )
     return out

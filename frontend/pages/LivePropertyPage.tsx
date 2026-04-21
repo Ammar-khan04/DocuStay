@@ -19,6 +19,7 @@ import {
 } from '../services/api';
 import { groupLiveTenantRowsByCohort } from '../utils/leaseCohortGroups';
 import { formatCalendarDate, formatDateTimeLocal, getTodayLocal, parseForDisplay } from '../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../utils/auditLogMessage';
 
 function stayIsTenant(stay: Pick<LiveCurrentGuestInfo, 'stay_kind'>): boolean {
   return (stay.stay_kind ?? 'guest').toLowerCase() === 'tenant';
@@ -139,18 +140,27 @@ function LiveAuditActorAttribution({ entry }: { entry: LiveLogEntry }) {
   const label = scrubLiveEvidenceText((entry.actor_role_label || '').trim());
   const name = scrubLiveEvidenceText((entry.actor_name || '').trim());
   const email = scrubLiveEvidenceText((entry.actor_email || '').trim());
+  const eventSrc = scrubLiveEvidenceText((entry.event_source || '').trim());
   if (role === 'system') {
-    return <p className="text-xs text-slate-600 mt-1">Actor: System</p>;
+    return (
+      <div className="text-xs text-slate-600 mt-1 space-y-0.5">
+        <p>Actor: System</p>
+        {eventSrc ? <p>Event source: {eventSrc}</p> : null}
+      </div>
+    );
   }
-  if (!label && !name && !email) {
+  if (!label && !name && !email && !eventSrc) {
     return null;
   }
   return (
-    <p className="text-xs text-slate-600 mt-1">
-      <span className="font-semibold text-slate-800">{label || 'Actor'}</span>
-      {name ? <span>: {name}</span> : null}
-      {email ? <span className="text-slate-500 break-all"> · {email}</span> : null}
-    </p>
+    <div className="text-xs text-slate-600 mt-1 space-y-0.5">
+      <p>
+        <span className="font-semibold text-slate-800">{label || 'Actor'}</span>
+        {name ? <span>: {name}</span> : null}
+        {email ? <span className="text-slate-500 break-all"> · {email}</span> : null}
+      </p>
+      {eventSrc ? <p>Event source: {eventSrc}</p> : null}
+    </div>
   );
 }
 
@@ -261,36 +271,19 @@ function leaseCalendarYmd(isoOrYmd: string | null | undefined): string | null {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Resolve the effective display status for an invitation using the 4-state model.
- *  Pending  = not yet accepted.
- *  Accepted = accepted, but lease start is in the future.
- *  Active   = accepted AND today is within [start, end].
- *  Expired  = lease window ended or invite cancelled/revoked.
- */
-function resolveInvitationDisplayStatus(inv: LiveInvitationSummary): string {
-  const ts = (inv.token_state || 'STAGED').toUpperCase();
+/** Use backend-resolved invitation lifecycle status directly. */
+function resolveInvitationDisplayStatus(inv: LiveInvitationSummary): 'pending' | 'accepted' | 'active' | 'expired' | 'cancelled' {
   const st = (inv.status || 'pending').toLowerCase();
-  if (ts === 'REVOKED' || ts === 'CANCELLED' || st === 'cancelled') return 'expired';
-  if (ts === 'EXPIRED' || st === 'expired') return 'expired';
-  const todayYmd = new Date().toISOString().split('T')[0];
-  const sd = inv.stay_start_date;
-  const ed = inv.stay_end_date;
-  const endPassed = ed && leaseCalendarYmd(ed) && leaseCalendarYmd(ed)! < todayYmd;
-  if (endPassed) return 'expired';
-  const isAccepted = ts === 'BURNED' || st === 'accepted' || st === 'ongoing' || st === 'active';
-  const inWindow = calendarDateInLeaseWindow(todayYmd, sd, ed);
-  if (inWindow && isAccepted) return 'active';
-  if (inWindow && !isAccepted) return 'pending';
-  const startYmd = leaseCalendarYmd(sd);
-  if (startYmd && startYmd > todayYmd) return isAccepted ? 'accepted' : 'pending';
-  return st === 'pending' || ts === 'STAGED' ? 'pending' : 'expired';
+  if (st === 'active') return 'active';
+  if (st === 'accepted') return 'accepted';
+  if (st === 'expired') return 'expired';
+  if (st === 'cancelled' || st === 'revoked') return 'cancelled';
+  return 'pending';
 }
 
 function mapInvitationToAuthorizationLabel(inv: LiveInvitationSummary): string {
   const resolved = resolveInvitationDisplayStatus(inv);
-  const ts = (inv.token_state || 'STAGED').toUpperCase();
-  if (ts === 'REVOKED') return 'REVOKED';
-  if (ts === 'CANCELLED' || (inv.status || '').toLowerCase() === 'cancelled') return 'CANCELLED';
+  if (resolved === 'cancelled') return 'CANCELLED';
   if (resolved === 'active') return 'ACTIVE';
   if (resolved === 'accepted') return 'ACCEPTED';
   if (resolved === 'expired') return 'EXPIRED';
@@ -305,6 +298,7 @@ function liveInviteStatusDisplayClass(inv: LiveInvitationSummary): string {
   const s = resolveInvitationDisplayStatus(inv);
   if (s === 'active') return 'bg-emerald-100 text-emerald-800';
   if (s === 'accepted') return 'bg-sky-100 text-sky-800';
+  if (s === 'cancelled') return 'bg-orange-100 text-orange-900';
   if (s === 'expired') return 'bg-red-100 text-red-800';
   if (s === 'pending') return 'bg-amber-100 text-amber-800';
   return 'bg-slate-100 text-slate-700';
@@ -809,6 +803,10 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     tenantAssignmentRows: displayTenantAssignments,
     ownerViewingOwnLivePage,
   });
+  const occupancyRecordAssertion = `Record indicates the stored occupancy field for this property is reported as "${statusLabel}" at the time this page was generated (see context below).`;
+  const authorizationRecordAssertion = !viewerSession
+    ? 'Record indicates no signed-in session was used to personalize the authorization readout on this snapshot.'
+    : `Record indicates this snapshot's authorization readout for your signed-in role is "${authLabel}" within the dates evaluated on this page; it is not a legal determination.`;
   const authorityTenantAssignmentsUnique = dedupeLiveTenantAssignments(displayTenantAssignments);
   const authorityTenantAssignmentGroups = groupLiveTenantRowsByCohort(authorityTenantAssignmentsUnique);
   const tenantClientGroups = groupLiveTenantRowsByCohort(dedupeLiveTenantAssignments(displayTenantAssignments));
@@ -916,6 +914,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             <div className="flex flex-wrap gap-4 sm:gap-6 mb-4">
               <div>
                 <p className="text-xs font-medium text-slate-500 mb-0.5">Current property status</p>
+                <p className="text-sm text-slate-700 mb-2 max-w-2xl leading-relaxed">{occupancyRecordAssertion}</p>
                 <span
                   className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold uppercase ${
                     statusLabel === 'OCCUPIED'
@@ -933,6 +932,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500 mb-0.5">Authorization state</p>
+                <p className="text-sm text-slate-700 mb-2 max-w-2xl leading-relaxed">{authorizationRecordAssertion}</p>
                 <span
                   className={`inline-flex items-center px-3 py-1.5 rounded-lg ${liveAuthBadgeClasses(authLabel)}`}
                 >
@@ -1105,7 +1105,8 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             <div className="grid gap-x-6 gap-y-2 text-sm">
               <p><span className="font-semibold text-slate-700">Property:</span> {propertySummaryLine}</p>
               <p>
-                <span className="font-semibold text-slate-700">Status:</span> {statusLabel}
+                <span className="font-semibold text-slate-700">Status (stored field):</span> {statusLabel}
+                <span className="block text-slate-600 mt-1 text-sm font-normal">{occupancyRecordAssertion}</span>
               </p>
               {occupancyContextDetail ? (
                 <p className="text-slate-600">
@@ -1529,12 +1530,12 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                 <span className="group-open:rotate-90 transition-transform text-teal-600">▶</span> Assignment states legend
               </summary>
               <ul className="mt-2 pl-4 space-y-0.5 text-xs text-slate-600 border-l-2 border-teal-200">
-                <li><strong>PENDING</strong> — Invite sent, not yet accepted (no authorization).</li>
-                <li><strong>ACCEPTED</strong> — Tenant accepted, but lease start date has not arrived yet (no authorization).</li>
-                <li><strong>ACTIVE</strong> — Accepted AND today is within the lease window. This is the only authorized state.</li>
-                <li><strong>EXPIRED</strong> — Lease window has ended or invite was cancelled/revoked; no current authorization.</li>
-                <li><strong>REVOKED</strong> — Guest authorization revoked by owner.</li>
-                <li><strong>CANCELLED</strong> — Tenant assignment cancelled by tenant. (DocuStay does not revoke tenants.)</li>
+                <li><strong>PENDING</strong> — Record indicates the invite is pending acceptance (no in-window authorization readout yet).</li>
+                <li><strong>ACCEPTED</strong> — Record indicates acceptance before the lease start date (no in-window authorization readout yet).</li>
+                <li><strong>ACTIVE</strong> — Record indicates acceptance and today falls within the stored lease window on this snapshot.</li>
+                <li><strong>EXPIRED</strong> — Record indicates the stored window ended or the invite was closed; no current in-window readout.</li>
+                <li><strong>REVOKED</strong> — Record indicates the host revoked guest authorization on file.</li>
+                <li><strong>CANCELLED</strong> — Record indicates the tenant cancelled the assignment (DocuStay does not revoke tenants).</li>
               </ul>
             </details>
             {(!invitationsForDisplay || invitationsForDisplay.length === 0) ? (
@@ -1633,7 +1634,9 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                     <span className="absolute left-0 top-0.5 w-2.5 h-2.5 rounded-full bg-violet-500 border-2 border-white shadow-sm" />
                     <div className="pt-0.5">
                       <p className="font-medium text-slate-800">{scrubLiveEvidenceText(entry.title)}</p>
-                      <p className="text-slate-600 text-sm mt-0.5">{scrubLiveEvidenceText(entry.message)}</p>
+                      <p className="text-slate-600 text-sm mt-0.5">
+                        {scrubLiveEvidenceText(scrubAuditLogStateChangeParagraph(entry.message))}
+                      </p>
                       <LiveAuditActorAttribution entry={entry} />
                       <p className="text-xs text-slate-400 mt-2 flex items-center gap-2 flex-wrap">
                         <span className="inline-flex px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 font-medium">
@@ -1679,8 +1682,8 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
         )}
 
         <footer className="pt-6 pb-10 text-center border-t border-indigo-100 print:pt-2 print:pb-4 print:border-0">
-          <p className="text-xs text-slate-400 leading-relaxed max-w-5xl mx-auto">
-            This record was generated by DOCUSTAY LLC, acting as Designated Agent and Custodian of Records under a signed Limited Power of Attorney executed by the property owner on record. All entries are time-stamped, append-only, and cannot be altered, deleted, or backdated. If no active authorization appears on record, this system contains no documentation of any lease, license, or permission for the current occupant. This record is maintainable under the Business Records Exception and is presentable in any legal or administrative proceeding. DocuStay does not initiate legal proceedings or provide legal advice.
+          <p className="text-xs text-slate-500 leading-relaxed max-w-5xl mx-auto">
+            Record indicates this page is a read-only snapshot of DocuStay data as of the timestamp above. It does not certify legal rights, occupancy, or authority. Where agreements or POAs are referenced, the underlying signed files are separate artifacts; this view summarizes what DocuStay stored at generation time. Audit entries below are append-only rows (they are not edited or removed through this interface after creation).
           </p>
           <p className="text-xs text-slate-600 font-medium">DocuStay · Live evidence page · Read-only</p>
           <p className="text-xs text-slate-400 mt-1">Record {record_id} · {formatDateTimeLocal(generated_at)}</p>

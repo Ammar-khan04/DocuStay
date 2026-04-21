@@ -17,6 +17,7 @@ Logs create an auditable record of property activity."""
 from __future__ import annotations
 
 import enum
+import json
 import re
 from datetime import date, datetime, timezone
 from typing import Any
@@ -112,6 +113,172 @@ ACTION_TENANT_ACCESS_ACTIVATED = "TenantAccessActivated"
 ACTION_GUEST_EXTENSION_REQUESTED = "GuestExtensionRequested"
 ACTION_GUEST_EXTENSION_APPROVED = "GuestExtensionApproved"
 ACTION_GUEST_EXTENSION_DECLINED = "GuestExtensionDeclined"
+
+
+def invitation_has_csv_bulk_creation_record(db: Session, invitation_id: int | None) -> bool:
+    """True when this invitation row was created by CSV bulk upload (ledger: InvitationCreatedCSV)."""
+    if invitation_id is None or invitation_id <= 0:
+        return False
+    return (
+        db.query(EventLedger.id)
+        .filter(
+            EventLedger.invitation_id == invitation_id,
+            EventLedger.action_type == ACTION_INVITATION_CREATED_CSV,
+        )
+        .limit(1)
+        .first()
+        is not None
+    )
+
+
+# --- Event source classification (Live Link + dashboard audit; stored in meta["event_source"] when set at write time) ---
+EVENT_SOURCE_USER_ACTION = "User Action"
+EVENT_SOURCE_SYSTEM_ACTION = "System Action"
+EVENT_SOURCE_IMPORT_CSV = "Import (CSV)"
+EVENT_SOURCE_MODE_SWITCH = "Mode Switch"
+EVENT_SOURCE_BACKGROUND_JOB = "Background Job"
+
+PERMITTED_EVENT_SOURCES: frozenset[str] = frozenset(
+    {
+        EVENT_SOURCE_USER_ACTION,
+        EVENT_SOURCE_SYSTEM_ACTION,
+        EVENT_SOURCE_IMPORT_CSV,
+        EVENT_SOURCE_MODE_SWITCH,
+        EVENT_SOURCE_BACKGROUND_JOB,
+    }
+)
+
+_CSV_IMPORT_ACTIONS: frozenset[str] = frozenset(
+    {
+        ACTION_INVITATION_CREATED_CSV,
+        ACTION_BULK_UPLOAD_PROPERTY_CREATED,
+        ACTION_BULK_UPLOAD_PROPERTY_UPDATED,
+    }
+)
+
+# Scheduled / automated platform paths (no interactive user actor at write time).
+_BACKGROUND_JOB_ACTIONS: frozenset[str] = frozenset(
+    {
+        ACTION_DMS_48H_ALERT,
+        ACTION_DMS_URGENT_TODAY,
+        ACTION_DMS_AUTO_EXECUTED,
+        ACTION_DMS_48H_TENANT_LEASE,
+        ACTION_DMS_URGENT_TODAY_TENANT_LEASE,
+        ACTION_GUEST_STAY_APPROACHING_END,
+        ACTION_GUEST_AUTHORIZATION_EXPIRED,
+        ACTION_OVERSTAY_OCCURRED,
+        ACTION_BILLING_INVOICE_PAID,
+        ACTION_BILLING_INVOICE_CREATED,
+        ACTION_BILLING_SUBSCRIPTION_STARTED,
+        ACTION_BILLING_INVOICE_PAYMENT_FAILED,
+        ACTION_INVITATION_EXPIRED,
+        ACTION_MANAGER_INVITATION_EXPIRED,
+        ACTION_TENANT_GUEST_JURISDICTION_THRESHOLD_APPROACHING,
+        ACTION_VACANT_MONITORING_NO_RESPONSE,
+        ACTION_CONFIRMED_STILL_VACANT,
+    }
+)
+
+# Guest agreement signing often has no actor_user_id until after account linkage; treat as user-driven.
+_USER_ACTION_WITHOUT_ACTOR_ACTIONS: frozenset[str] = frozenset(
+    {
+        ACTION_AGREEMENT_SIGNED,
+        ACTION_VERIFY_ATTEMPT_VALID,
+        ACTION_VERIFY_ATTEMPT_FAILED,
+    }
+)
+
+
+def resolve_event_source_for_entry(entry: EventLedger) -> str:
+    """Return one of PERMITTED_EVENT_SOURCES for API and disclosure copy."""
+    meta = entry.meta if isinstance(entry.meta, dict) else {}
+    raw = meta.get("event_source")
+    if isinstance(raw, str) and raw.strip() in PERMITTED_EVENT_SOURCES:
+        return raw.strip()
+    if meta.get("mode_switch") is True or meta.get("context_mode_switch"):
+        return EVENT_SOURCE_MODE_SWITCH
+    action = (entry.action_type or "").strip()
+    if action in _CSV_IMPORT_ACTIONS:
+        return EVENT_SOURCE_IMPORT_CSV
+    if action in _BACKGROUND_JOB_ACTIONS:
+        return EVENT_SOURCE_BACKGROUND_JOB
+    if entry.actor_user_id:
+        return EVENT_SOURCE_USER_ACTION
+    if action in _USER_ACTION_WITHOUT_ACTOR_ACTIONS:
+        return EVENT_SOURCE_USER_ACTION
+    return EVENT_SOURCE_SYSTEM_ACTION
+
+
+def _compact_json_for_audit_blob(v: Any, max_len: int = 320) -> str:
+    if v is None:
+        return ""
+    try:
+        s = json.dumps(v, default=str, ensure_ascii=True)
+    except Exception:
+        s = str(v)
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
+def summarize_state_change_for_ledger(
+    previous_value: dict[str, Any] | None,
+    new_value: dict[str, Any] | None,
+) -> str | None:
+    """One-line description of prior/new JSON on the ledger row, if any."""
+    ps = _compact_json_for_audit_blob(previous_value)
+    ns = _compact_json_for_audit_blob(new_value)
+    if not ps and not ns:
+        return None
+    if ps and ns:
+        return f"Prior stored values: {ps} → New stored values: {ns}"
+    if ns:
+        return f"New stored values: {ns}"
+    return f"Prior stored values: {ps} (cleared or superseded)"
+
+
+def ledger_record_disclosure_lines(entry: EventLedger, *, display_title: str) -> dict[str, str | None]:
+    """Structured disclosure fields for audit APIs and Live Link timeline."""
+    meta = entry.meta if isinstance(entry.meta, dict) else {}
+    event_source = resolve_event_source_for_entry(entry)
+    bm = meta.get("business_meaning")
+    if isinstance(bm, str) and bm.strip():
+        business_meaning = bm.strip()
+    else:
+        business_meaning = (
+            f"The append-only log records this event: {display_title}."
+            if display_title
+            else "The append-only log records this event."
+        )
+    trig = meta.get("trigger_description")
+    trigger = trig.strip() if isinstance(trig, str) and trig.strip() else None
+    state_line = summarize_state_change_for_ledger(
+        entry.previous_value if isinstance(entry.previous_value, dict) else None,
+        entry.new_value if isinstance(entry.new_value, dict) else None,
+    )
+    return {
+        "event_source": event_source,
+        "business_meaning_on_record": business_meaning,
+        "trigger_on_record": trigger,
+        "state_change_on_record": state_line,
+    }
+
+
+def append_ledger_disclosure_to_message(message: str, entry: EventLedger, *, display_title: str) -> str:
+    """Append state snapshot, explicit writer-supplied meaning/trigger, and event source (keeps body readable)."""
+    d = ledger_record_disclosure_lines(entry, display_title=display_title)
+    meta = entry.meta if isinstance(entry.meta, dict) else {}
+    parts: list[str] = [message.rstrip()]
+    if d.get("state_change_on_record"):
+        parts.append(f"State change on record: {d['state_change_on_record']}")
+    bm = meta.get("business_meaning")
+    if isinstance(bm, str) and bm.strip():
+        parts.append(f"Business meaning on record: {bm.strip()}")
+    trig = meta.get("trigger_description")
+    if isinstance(trig, str) and trig.strip():
+        parts.append(f"Trigger on record: {trig.strip()}")
+    parts.append(f"Event source: {d['event_source']}.")
+    return "\n\n".join(p for p in parts if p)
 
 
 def _sanitize_json_value(v: Any) -> Any:
@@ -521,6 +688,8 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
     title = _humanize_iso_timestamps(title)
     msg = _humanize_iso_timestamps(msg)
 
+    msg = append_ledger_disclosure_to_message(msg, entry, display_title=title)
+
     return (cat, title, msg)
 
 
@@ -540,6 +709,9 @@ def create_ledger_event(
     meta: dict[str, Any] | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
+    event_source: str | None = None,
+    business_meaning: str | None = None,
+    trigger_description: str | None = None,
 ) -> EventLedger | None:
     """Append one immutable ledger event. All timestamps are UTC (server_default).
     Returns None when the property is inactive (soft-deleted)."""
@@ -553,7 +725,14 @@ def create_ledger_event(
     target_type = (target_object_type or "")[:_TARGET_OBJECT_TYPE_LEN].strip() or None
     ip = (ip_address[: _IP_LEN] if ip_address else None) or None
     ua = (str(user_agent)[: _USER_AGENT_LEN] if user_agent else None) or None
-    safe_meta = _sanitize_meta(meta)
+    safe_meta = _sanitize_meta(meta) or {}
+    if event_source and str(event_source).strip() in PERMITTED_EVENT_SOURCES:
+        safe_meta["event_source"] = str(event_source).strip()
+    if business_meaning and str(business_meaning).strip():
+        safe_meta["business_meaning"] = str(business_meaning).strip()
+    if trigger_description and str(trigger_description).strip():
+        safe_meta["trigger_description"] = str(trigger_description).strip()
+    safe_meta = safe_meta or None
     safe_prev = _sanitize_meta(previous_value)
     safe_new = _sanitize_meta(new_value)
 

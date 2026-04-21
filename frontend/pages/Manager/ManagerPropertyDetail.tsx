@@ -14,6 +14,7 @@ import Settings from '../Settings/Settings';
 import HelpCenter from '../Support/HelpCenter';
 import { JURISDICTION_RULES } from '../../services/jleService';
 import { formatStayDuration, formatCalendarDate, formatDateTimeLocal } from '../../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import type { OwnerStayView, OwnerAuditLogEntry, BillingResponse } from '../../services/api';
 
 type ManagerPropertySummary = {
@@ -790,7 +791,7 @@ const ManagerPropertyDetail: React.FC<{
                       <td className="py-2 pr-4">{r.category || '—'}</td>
                       <td className="py-2 pr-4 font-medium">{r.title}</td>
                       <td className="py-2 pr-4">{r.actor_email || (r.actor_user_id != null ? `User #${r.actor_user_id}` : '—')}</td>
-                      <td className="py-2">{r.message || '—'}</td>
+                      <td className="py-2">{scrubAuditLogStateChangeParagraph(r.message) || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -202,7 +202,6 @@ def demo_login(request: Request, data: DemoLoginRequest, db: Session = Depends(g
         from app.models.owner import OwnerProfile, Property, OccupancyStatus
         from app.models.unit import Unit
         from app.models.property_manager_assignment import PropertyManagerAssignment
-        from app.models.tenant_assignment import TenantAssignment
 
         owner_email = "demo+owner@docustay.demo"
         demo_owner = db.query(User).filter(func.lower(func.trim(User.email)) == owner_email, User.role == UserRole.owner).first()
@@ -264,13 +263,8 @@ def demo_login(request: Request, data: DemoLoginRequest, db: Session = Depends(g
             ).first():
                 db.add(PropertyManagerAssignment(user_id=user.id, property_id=prop.id, assigned_by_user_id=demo_owner.id))
                 db.commit()
-        if role == UserRole.tenant:
-            if not db.query(TenantAssignment).filter(
-                TenantAssignment.user_id == user.id,
-                TenantAssignment.unit_id == unit.id,
-            ).first():
-                db.add(TenantAssignment(user_id=user.id, unit_id=unit.id, invited_by_user_id=demo_owner.id, start_date=date.today(), end_date=None))
-                db.commit()
+        # Tenant assignments are not created on demo login. Tenants accept via #demo/invite/CODE → /auth/accept-invite
+        # (same as production), so invite token and lease dates stay authoritative until accept.
 
         # Demo convenience: if a demo property manager logs in with an email that has pending manager invitations,
         # auto-accept them all so the manager can immediately see assigned properties.

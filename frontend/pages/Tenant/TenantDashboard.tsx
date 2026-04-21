@@ -17,6 +17,7 @@ import type {
   TenantGuestExtensionRequestView,
 } from '../../services/api';
 import { copyToClipboard } from '../../utils/clipboard';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import { PENDING_INVITE_STORAGE_KEY } from '../Guest/GuestLogin';
 import { SUPPORT_EMAIL, supportMailtoHref } from '../../constants/supportContact';
 import {
@@ -33,7 +34,12 @@ type TenantTab = 'stays' | 'property' | 'invitations' | 'logs' | 'documents' | '
 
 /** One "stay" for tenant = their assigned unit (here/away is per property/unit). */
 type TenantUnitCard = {
+  lease_key: string;
   unit_id: number;
+  invite_id?: string | null;
+  lifecycle_state?: TenantLeaseLifecycleState | null;
+  invite_status?: 'pending' | 'accepted' | 'cancelled' | 'revoked' | 'expired' | 'unknown';
+  assignment_status?: 'none' | 'pending' | 'accepted' | 'active' | 'expired';
   unit_label: string;
   property_name: string;
   property_address: string;
@@ -90,6 +96,75 @@ function tenantLeaseInCalendarWindow(todayYmd: string, start: string | null, end
 
 function tenantLeaseAcceptedOnCard(card: TenantUnitCard): boolean {
   return !card.pending_acceptance;
+}
+
+type TenantLeaseLifecycleState =
+  | 'PENDING_STAGED'
+  | 'PENDING_INVITED'
+  | 'ACCEPTED'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'OWNER_RESIDENT'
+  | 'CANCELLED';
+
+function resolveTenantLeaseLifecycle(todayYmd: string, card: TenantUnitCard): TenantLeaseLifecycleState {
+  const assignment = (card.assignment_status || '').trim().toLowerCase();
+  // Match backend: resolve_tenant_lease_assignment_status wins over lifecycle_state when both are present.
+  if (assignment === 'active') return 'ACTIVE';
+  if (assignment === 'expired') return 'EXPIRED';
+  if (assignment === 'accepted') return 'ACCEPTED';
+  if (assignment === 'pending') return 'PENDING_INVITED';
+
+  const backendState = (card.lifecycle_state || '').trim().toUpperCase();
+  if (
+    backendState === 'PENDING_STAGED' ||
+    backendState === 'PENDING_INVITED' ||
+    backendState === 'ACCEPTED' ||
+    backendState === 'ACTIVE' ||
+    backendState === 'EXPIRED' ||
+    backendState === 'OWNER_RESIDENT' ||
+    backendState === 'CANCELLED'
+  ) {
+    return backendState as TenantLeaseLifecycleState;
+  }
+
+  const invite = (card.invite_status || '').trim().toLowerCase();
+  if (invite === 'cancelled' || invite === 'revoked') return 'CANCELLED';
+  if (invite === 'expired') return 'EXPIRED';
+  if (invite === 'accepted' && tenantLeaseAcceptedOnCard(card)) {
+    if (tenantLeaseInCalendarWindow(todayYmd, card.stay_start_date, card.stay_end_date, false)) return 'ACTIVE';
+    const sd = leaseCalendarYmd(card.stay_start_date);
+    const td = leaseCalendarYmd(todayYmd) || todayYmd;
+    if (sd && td < sd) return 'ACCEPTED';
+    return 'EXPIRED';
+  }
+  if (invite === 'accepted') return 'ACCEPTED';
+  if (invite === 'pending') return 'PENDING_INVITED';
+  return 'PENDING_STAGED';
+}
+
+function leaseLifecycleBadge(state: TenantLeaseLifecycleState): { label: TenantLeaseLifecycleState; cls: string } {
+  if (state === 'ACTIVE') return { label: state, cls: 'bg-emerald-50 text-emerald-700 border border-emerald-100' };
+  if (state === 'ACCEPTED') return { label: state, cls: 'bg-sky-100 text-sky-800 border border-sky-200' };
+  if (state === 'PENDING_INVITED') return { label: state, cls: 'bg-amber-50 text-amber-800 border border-amber-200' };
+  if (state === 'PENDING_STAGED') return { label: state, cls: 'bg-slate-100 text-slate-600 border border-slate-200' };
+  if (state === 'OWNER_RESIDENT') return { label: state, cls: 'bg-indigo-100 text-indigo-800 border border-indigo-200' };
+  return { label: state, cls: 'bg-slate-100 text-slate-600 border border-slate-200' };
+}
+
+function buildTenantLeaseKey(unit: {
+  unit: { id: number; unit_label: string; occupancy_status: string } | null;
+  invite_id: string | null;
+  stay_start_date: string | null;
+  stay_end_date: string | null;
+  token_state: string | null;
+}): string {
+  const unitId = unit.unit?.id ?? 'no-unit';
+  const inviteId = (unit.invite_id || '').trim().toUpperCase() || 'no-invite';
+  const start = leaseCalendarYmd(unit.stay_start_date) || 'no-start';
+  const end = leaseCalendarYmd(unit.stay_end_date) || 'open-end';
+  const tokenState = (unit.token_state || '').trim().toUpperCase() || 'no-token';
+  return `${unitId}|${inviteId}|${start}|${end}|${tokenState}`;
 }
 
 /** True if this tenant-invited guest row is a real Stay that can be revoked (kill switch). */
@@ -244,6 +319,9 @@ const TenantDashboard: React.FC<{
     co_tenants?: Array<{ name?: string | null; email?: string | null }>;
     property_deleted_at?: string | null;
     property_owner_transfer_notice?: string | null;
+    invite_status?: 'pending' | 'accepted' | 'cancelled' | 'revoked' | 'expired' | 'unknown';
+    assignment_status?: 'none' | 'pending' | 'accepted' | 'active' | 'expired';
+    lifecycle_state?: TenantLeaseLifecycleState | null;
   }>>([]);
   const [loading, setLoadingState] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -403,13 +481,19 @@ const TenantDashboard: React.FC<{
       const ud = unitsData.find((u) => u.unit?.id != null && req.unit_id != null && u.unit.id === req.unit_id);
       if (ud?.unit && ud.property) {
         setSelectedUnit({
+          lease_key: buildTenantLeaseKey(ud),
           unit_id: ud.unit.id,
+          invite_id: ud.invite_id,
+          lifecycle_state: (ud.lifecycle_state as TenantLeaseLifecycleState | undefined) ?? null,
+          invite_status: ud.invite_status,
+          assignment_status: ud.assignment_status,
           unit_label: ud.unit.unit_label,
           property_name: ud.property.name || 'Property',
           property_address: ud.property.address || '',
           stay_start_date: ud.stay_start_date,
           stay_end_date: ud.stay_end_date,
           token_state: ud.token_state,
+          pending_acceptance: ud.pending_acceptance === true,
         });
       }
       setInviteModalPrefill({ email: req.guest_email, name: req.guest_name });
@@ -579,13 +663,19 @@ const TenantDashboard: React.FC<{
     const first = unitsData.find((u) => u.unit && u.property);
     if (first?.unit && first?.property && !selectedUnit) {
       setSelectedUnit({
+        lease_key: buildTenantLeaseKey(first),
         unit_id: first.unit.id,
+        invite_id: first.invite_id,
+        lifecycle_state: (first.lifecycle_state as TenantLeaseLifecycleState | undefined) ?? null,
+        invite_status: first.invite_status,
+        assignment_status: first.assignment_status,
         unit_label: first.unit.unit_label,
         property_name: first.property.name || 'Property',
         property_address: first.property.address || '',
         stay_start_date: first.stay_start_date,
         stay_end_date: first.stay_end_date,
         token_state: first.token_state,
+        pending_acceptance: first.pending_acceptance === true,
       });
     }
   }, [unitsData, selectedUnit]);
@@ -788,7 +878,12 @@ const TenantDashboard: React.FC<{
   const unitCards: TenantUnitCard[] = unitsData
     .filter((u) => u.unit && u.property)
     .map((u) => ({
+      lease_key: buildTenantLeaseKey(u),
       unit_id: u.unit!.id,
+      invite_id: u.invite_id,
+      lifecycle_state: (u.lifecycle_state as TenantLeaseLifecycleState | undefined) ?? null,
+      invite_status: u.invite_status,
+      assignment_status: u.assignment_status,
       unit_label: u.unit!.unit_label,
       property_name: u.property!.name || 'Property',
       property_address: u.property!.address || '',
@@ -802,7 +897,7 @@ const TenantDashboard: React.FC<{
       property_deleted_at: u.property_deleted_at ?? null,
     }));
   const today = getTodayStr();
-  const selectedUnitData = selectedUnit ? unitsData.find((u) => u.unit?.id === selectedUnit.unit_id) : null;
+  const selectedUnitData = selectedUnit ? unitsData.find((u) => buildTenantLeaseKey(u) === selectedUnit.lease_key) : null;
   const unitDetailGuestAuthBundle =
     selectedUnitData?.property?.id != null
       ? buildTenantGuestAuthRows(invitations, guestHistory, selectedUnitData.property.id)
@@ -837,24 +932,15 @@ const TenantDashboard: React.FC<{
       (s.approved_stay_end_date < today && !s.checked_out_at && !s.cancelled_at)
   );
 
-  const isLeaseCancelled = (c: TenantUnitCard) => c.token_state === 'REVOKED' || c.token_state === 'CANCELLED';
-  /** Accepted lease and today inside [start, end] (inclusive; open end if no end date). */
-  const isCardActive = (c: TenantUnitCard) => {
-    if (isLeaseCancelled(c)) return false;
-    if (!tenantLeaseAcceptedOnCard(c)) return false;
-    return tenantLeaseInCalendarWindow(today, c.stay_start_date, c.stay_end_date, false);
-  };
+  const isCardActive = (c: TenantUnitCard) => resolveTenantLeaseLifecycle(today, c) === 'ACTIVE';
   const isCardCompleted = (c: TenantUnitCard) => {
-    if (isLeaseCancelled(c)) return true;
-    const endY = leaseCalendarYmd(c.stay_end_date);
-    return !!(endY && today > endY);
+    const state = resolveTenantLeaseLifecycle(today, c);
+    return state === 'EXPIRED' || state === 'CANCELLED';
   };
-  /** Not current/completed: upcoming dates or invite not yet accepted. */
   const isCardFuture = (c: TenantUnitCard) => {
     if (isCardActive(c) || isCardCompleted(c)) return false;
-    const sdY = leaseCalendarYmd(c.stay_start_date);
-    if (c.pending_acceptance) return true;
-    return !!(sdY && today < sdY);
+    const state = resolveTenantLeaseLifecycle(today, c);
+    return state === 'PENDING_STAGED' || state === 'PENDING_INVITED' || state === 'ACCEPTED';
   };
   const activeCount = unitCards.filter(isCardActive).length + activeStays.length;
   const futureCount = unitCards.filter(isCardFuture).length + futureStays.length;
@@ -1499,7 +1585,7 @@ const TenantDashboard: React.FC<{
                         <td className="px-4 py-2 font-medium text-slate-800 text-sm">{entry.title}</td>
                         <td className="px-4 py-2 text-slate-600 text-sm">{entry.actor_email ?? '—'}</td>
                         <td className="px-4 py-2 text-slate-600 text-sm max-w-xs">
-                          <span className="truncate block">{entry.message}</span>
+                          <span className="truncate block">{scrubAuditLogStateChangeParagraph(entry.message)}</span>
                           <button type="button" onClick={() => setLogMessageModalEntry(entry)} className="text-sky-600 hover:text-sky-800 text-xs mt-0.5 focus:outline-none focus:underline">View full message</button>
                         </td>
                       </tr>
@@ -1586,42 +1672,16 @@ const TenantDashboard: React.FC<{
                 <>
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-1 pt-1">Your lease</h4>
                   {filteredUnitCards.map((card) => {
-                    const td = getTodayStr();
                     const sd = card.stay_start_date ?? null;
                     const ed = card.stay_end_date ?? null;
-                    const isCancelled = card.token_state === 'REVOKED' || card.token_state === 'CANCELLED';
-                    const accepted = tenantLeaseAcceptedOnCard(card);
-                    const inWindow = tenantLeaseInCalendarWindow(td, sd, ed, isCancelled);
-                    const sdY = leaseCalendarYmd(sd);
-                    const edY = leaseCalendarYmd(ed);
-                    const isFuture = !isCancelled && !!sdY && td < sdY;
-                    const isPast = !isCancelled && !!edY && td > edY;
-                    const isActive = accepted && inWindow;
-                    const pendingInWindow = !!card.pending_acceptance && !isCancelled && inWindow;
-                    const statusLabel = isCancelled
-                      ? 'CANCELLED'
-                      : isFuture
-                        ? 'FUTURE'
-                        : isActive
-                          ? 'ACTIVE'
-                          : pendingInWindow
-                            ? 'PENDING'
-                            : 'ENDED';
-                    const statusClass = isCancelled
-                      ? 'bg-slate-100 text-slate-600 border border-slate-200'
-                      : isFuture
-                        ? 'bg-sky-200 text-white border-0'
-                        : isActive
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                          : pendingInWindow
-                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                            : 'bg-slate-100 text-slate-600 border border-slate-200';
-                    const isSelected = !selectedStay && selected?.unit_id === card.unit_id;
-                    const cardUnitData = unitsData.find((u) => u.unit?.id === card.unit_id);
+                    const lifecycle = resolveTenantLeaseLifecycle(getTodayStr(), card);
+                    const lifecycleBadge = leaseLifecycleBadge(lifecycle);
+                    const isSelected = !selectedStay && selected?.lease_key === card.lease_key;
+                    const cardUnitData = unitsData.find((u) => buildTenantLeaseKey(u) === card.lease_key);
                     const addressDisplay = card.property_address || `${card.property_name}${card.unit_label ? ` — Unit ${card.unit_label}` : ''}`;
                     return (
                       <div
-                        key={`unit-${card.unit_id}-${card.stay_start_date ?? ''}-${card.stay_end_date ?? ''}`}
+                        key={`unit-${card.lease_key}`}
                         className={`rounded-xl border bg-white text-left transition-all ${
                           isSelected
                             ? 'border-slate-300 border-l-4 border-l-[#6B90F2] bg-[#6B90F2]/10 shadow-sm'
@@ -1637,8 +1697,8 @@ const TenantDashboard: React.FC<{
                             <InactivePropertyBanner role="tenant" compact className="text-left mb-3" />
                           ) : null}
                           <div className="flex items-center gap-2 mb-2 flex-wrap">
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide ${statusClass}`}>
-                              {statusLabel}
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide ${lifecycleBadge.cls}`}>
+                              {lifecycleBadge.label}
                             </span>
                             {cardUnitData?.region_code && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-slate-600 bg-slate-100 border border-slate-200">
@@ -2000,15 +2060,28 @@ const TenantDashboard: React.FC<{
               const today = getTodayStr();
               const startDate = selectedUnitData.stay_start_date ?? null;
               const endDate = selectedUnitData.stay_end_date ?? null;
-              const isCancelled = selectedUnitData.token_state === 'REVOKED' || selectedUnitData.token_state === 'CANCELLED';
-              const leaseAccepted = selectedUnitData.pending_acceptance !== true;
+              const selectedLeaseState = resolveTenantLeaseLifecycle(today, {
+                lease_key: selected.lease_key,
+                unit_id: selected.unit_id,
+                invite_id: selectedUnitData.invite_id ?? null,
+                lifecycle_state: (selectedUnitData.lifecycle_state as TenantLeaseLifecycleState | undefined) ?? null,
+                invite_status: selectedUnitData.invite_status,
+                assignment_status: selectedUnitData.assignment_status,
+                unit_label: selected.unit_label,
+                property_name: selected.property_name,
+                property_address: selected.property_address,
+                stay_start_date: selectedUnitData.stay_start_date,
+                stay_end_date: selectedUnitData.stay_end_date,
+                token_state: selectedUnitData.token_state,
+                pending_acceptance: selectedUnitData.pending_acceptance === true,
+                lease_cohort_id: selectedUnitData.lease_cohort_id,
+                cohort_member_count: selectedUnitData.cohort_member_count,
+                co_tenants: selectedUnitData.co_tenants,
+                property_deleted_at: selectedUnitData.property_deleted_at ?? null,
+              });
+              const isCancelled = selectedLeaseState === 'CANCELLED';
               const startY = leaseCalendarYmd(startDate);
-              const endY = leaseCalendarYmd(endDate);
-              const inLeaseWindow = tenantLeaseInCalendarWindow(today, startDate, endDate, isCancelled);
-              const isUpcoming = !isCancelled && !!startY && today < startY;
-              const isPast = !isCancelled && !!endY && today > endY;
-              const isActiveLease = leaseAccepted && inLeaseWindow && !isCancelled && !isUpcoming;
-              const pendingInWindow = selectedUnitData.pending_acceptance === true && !isCancelled && inLeaseWindow;
+              const isActiveLease = selectedLeaseState === 'ACTIVE';
               const progressPercent = startDate && endDate
                 ? (() => {
                     const start = new Date(startDate).getTime();
@@ -2019,51 +2092,17 @@ const TenantDashboard: React.FC<{
                     return Math.round(((now - start) / (end - start)) * 100);
                   })()
                 : 100;
-              const leaseHeadlineBadge =
-                isCancelled
-                  ? { label: 'CANCELLED' as const, cls: 'bg-slate-100 text-slate-600 border border-slate-200' }
-                  : isUpcoming
-                    ? { label: 'UPCOMING' as const, cls: 'bg-amber-200 text-amber-900' }
-                    : isActiveLease
-                      ? { label: 'ACTIVE' as const, cls: 'bg-emerald-50 text-emerald-700 border border-emerald-100' }
-                      : pendingInWindow
-                        ? { label: 'PENDING' as const, cls: 'bg-amber-50 text-amber-800 border border-amber-200' }
-                        : isPast
-                          ? { label: 'ENDED' as const, cls: 'bg-slate-100 text-slate-600 border border-slate-200' }
-                          : { label: 'ENDED' as const, cls: 'bg-slate-100 text-slate-600 border border-slate-200' };
+              const leaseHeadlineBadge = leaseLifecycleBadge(selectedLeaseState);
               /** BURNED = invite accepted/signed, not necessarily “occupancy active”; only show Active inside the lease window. */
               const invTs = (selectedUnitData.token_state || '').toUpperCase();
               let inviteTokenLabel: string;
               let inviteTokenCls: string;
-              if (selectedUnitData.pending_acceptance) {
-                inviteTokenLabel = 'Pending';
-                inviteTokenCls = 'bg-slate-100 text-slate-600';
-              } else if (invTs === 'REVOKED' || invTs === 'CANCELLED') {
-                inviteTokenLabel = 'Cancelled';
-                inviteTokenCls = 'bg-slate-100 text-slate-600';
-              } else if (invTs === 'EXPIRED') {
-                inviteTokenLabel = 'Expired';
-                inviteTokenCls = 'bg-slate-100 text-slate-600';
-              } else if (invTs === 'STAGED') {
-                inviteTokenLabel = 'Pending';
-                inviteTokenCls = 'bg-slate-100 text-slate-600';
-              } else if (invTs === 'BURNED') {
-                if (isActiveLease) {
-                  inviteTokenLabel = 'Active';
-                  inviteTokenCls = 'bg-emerald-100 text-emerald-800';
-                } else if (isUpcoming) {
-                  inviteTokenLabel = 'Accepted';
-                  inviteTokenCls = 'bg-sky-100 text-sky-900 border border-sky-200';
-                } else if (isPast) {
-                  inviteTokenLabel = 'Ended';
-                  inviteTokenCls = 'bg-slate-100 text-slate-600 border border-slate-200';
-                } else {
-                  inviteTokenLabel = 'Accepted';
-                  inviteTokenCls = 'bg-slate-100 text-slate-600';
-                }
-              } else {
-                inviteTokenLabel = selectedUnitData.token_state || '—';
-                inviteTokenCls = 'bg-slate-100 text-slate-600';
+              const inviteLifecycleBadge = leaseLifecycleBadge(selectedLeaseState);
+              inviteTokenLabel = inviteLifecycleBadge.label;
+              inviteTokenCls = inviteLifecycleBadge.cls;
+              if (!selectedUnitData.invite_id && invTs) {
+                inviteTokenLabel = selectedLeaseState;
+                inviteTokenCls = inviteLifecycleBadge.cls;
               }
               return (
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
@@ -2164,8 +2203,8 @@ const TenantDashboard: React.FC<{
                         Verify with QR code
                       </Button>
                     )}
-                    {isPast && !isCancelled && (
-                      <p className="text-sm text-slate-500 font-medium">Residency ended</p>
+                    {selectedLeaseState === 'EXPIRED' && (
+                      <p className="text-sm text-slate-500 font-medium">Residency expired</p>
                     )}
                     {isCancelled && (
                       <p className="text-sm text-slate-600 font-medium">This assignment was cancelled.</p>
@@ -2586,7 +2625,9 @@ const TenantDashboard: React.FC<{
       >
         {logMessageModalEntry && (
           <div className="p-6">
-            <p className="text-slate-700 whitespace-pre-wrap text-sm">{logMessageModalEntry.message}</p>
+            <p className="text-slate-700 whitespace-pre-wrap text-sm">
+              {scrubAuditLogStateChangeParagraph(logMessageModalEntry.message)}
+            </p>
             <p className="text-slate-500 text-xs mt-4">
               {logMessageModalEntry.created_at ? formatDateTimeLocal(logMessageModalEntry.created_at) : ''}
               {logMessageModalEntry.actor_email && ` · ${logMessageModalEntry.actor_email}`}

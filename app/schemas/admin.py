@@ -27,6 +27,10 @@ class AdminAuditLogEntry(BaseModel):
     ip_address: str | None
     created_at: datetime
     property_name: str | None = None
+    event_source: str | None = None
+    business_meaning_on_record: str | None = None
+    trigger_on_record: str | None = None
+    state_change_on_record: str | None = None
 
     class Config:
         from_attributes = True

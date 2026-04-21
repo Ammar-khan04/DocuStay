@@ -131,6 +131,10 @@ class LiveLogEntry(BaseModel):
     actor_role_label: str | None = None
     actor_name: str | None = None
     actor_email: str | None = None
+    event_source: str | None = None
+    business_meaning_on_record: str | None = None
+    trigger_on_record: str | None = None
+    state_change_on_record: str | None = None
 
 
 class JurisdictionStatuteView(BaseModel):

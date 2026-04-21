@@ -1,101 +1,25 @@
 import React from 'react';
 import { Card, Button } from './UI';
 import { copyToClipboard } from '../utils/clipboard';
-import { formatStayDuration, getTodayLocal, parseForDisplay } from '../utils/dateUtils';
+import { formatStayDuration } from '../utils/dateUtils';
 import { buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, type OwnerInvitationView, type OwnerStayView } from '../services/api';
 
-function TokenStateBadge({ tokenState }: { tokenState?: string | null }) {
-  const state = (tokenState || 'STAGED').toUpperCase();
-  const classes =
-    state === 'BURNED'
-      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-      : state === 'STAGED'
-        ? 'bg-sky-100 text-sky-700 border-sky-200'
-        : state === 'EXPIRED'
-          ? 'bg-slate-100 text-slate-600 border-slate-200'
-          : state === 'REVOKED'
-            ? 'bg-amber-100 text-amber-700 border-amber-200'
-            : state === 'CANCELLED'
-              ? 'bg-slate-100 text-slate-600 border-slate-200'
-              : 'bg-slate-100 text-slate-600 border-slate-200';
-  const displayLabel = state === 'BURNED' ? 'Active' : state === 'STAGED' ? 'Pending' : state === 'REVOKED' ? 'Revoked' : state === 'CANCELLED' ? 'Cancelled' : state === 'EXPIRED' ? 'Expired' : state;
-  return (
-    <span className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${classes}`}>
-      {displayLabel}
-    </span>
-  );
-}
+type InvitationDisplayStatus = 'pending' | 'accepted' | 'active' | 'expired' | 'cancelled';
 
-function leaseCalendarYmd(isoOrYmd: string | null | undefined): string | null {
-  if (isoOrYmd == null || String(isoOrYmd).trim() === '') return null;
-  const t = String(isoOrYmd).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
-  const d = parseForDisplay(t);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function calendarDateInLeaseWindow(todayYmd: string, startYmd: string, endYmd: string | null | undefined): boolean {
-  const td = leaseCalendarYmd(todayYmd) || todayYmd.trim();
-  const sd = leaseCalendarYmd(startYmd);
-  if (!td || !sd) return false;
-  if (td < sd) return false;
-  const ed = leaseCalendarYmd(endYmd);
-  if (ed && td > ed) return false;
-  return true;
-}
-
-/** Same 4-state model as live page: accepted = before lease start; active = today in [start, end]. */
-function resolveOwnerInvitationEffectiveStatus(inv: OwnerInvitationView): 'pending' | 'accepted' | 'active' | 'expired' {
-  const ts = (inv.token_state || 'STAGED').toUpperCase();
+function invitationDisplayStatus(inv: OwnerInvitationView): InvitationDisplayStatus {
   const st = (inv.status || 'pending').toLowerCase();
-  if (ts === 'REVOKED' || ts === 'CANCELLED' || st === 'cancelled') return 'expired';
-  if (ts === 'EXPIRED' || st === 'expired') return 'expired';
-  const todayYmd = getTodayLocal();
-  const sd = inv.stay_start_date;
-  const ed = inv.stay_end_date;
-  const endPassed = ed && leaseCalendarYmd(ed) && leaseCalendarYmd(ed)! < todayYmd;
-  if (endPassed) return 'expired';
-  const isAccepted = ts === 'BURNED' || st === 'accepted' || st === 'ongoing' || st === 'active';
-  const inWindow = calendarDateInLeaseWindow(todayYmd, sd, ed);
-  if (inWindow && isAccepted) return 'active';
-  if (inWindow && !isAccepted) return 'pending';
-  const startYmd = leaseCalendarYmd(sd);
-  if (startYmd && startYmd > todayYmd) return isAccepted ? 'accepted' : 'pending';
-  return st === 'pending' || ts === 'STAGED' ? 'pending' : 'expired';
+  if (st === 'active') return 'active';
+  if (st === 'accepted') return 'accepted';
+  if (st === 'expired') return 'expired';
+  if (st === 'cancelled' || st === 'revoked') return 'cancelled';
+  return 'pending';
 }
 
-/** Invite ID column: BURNED is not always “Active” — before lease start show Accepted. */
-function acceptedSectionInviteIdBadge(inv: OwnerInvitationView): { label: string; className: string } {
-  const ts = (inv.token_state || 'STAGED').toUpperCase();
-  const resolved = resolveOwnerInvitationEffectiveStatus(inv);
-  if (ts === 'REVOKED') return { label: 'Revoked', className: 'bg-amber-100 text-amber-700 border-amber-200' };
-  if (ts === 'CANCELLED') return { label: 'Cancelled', className: 'bg-slate-100 text-slate-600 border-slate-200' };
-  if (ts === 'EXPIRED') return { label: 'Expired', className: 'bg-slate-100 text-slate-600 border-slate-200' };
-  if (ts === 'STAGED') return { label: 'Pending', className: 'bg-sky-100 text-sky-700 border-sky-200' };
-  if (ts === 'BURNED') {
-    if (resolved === 'accepted') return { label: 'Accepted', className: 'bg-sky-100 text-sky-800 border-sky-200' };
-    if (resolved === 'active') return { label: 'Active', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
-    if (resolved === 'expired') return { label: 'Completed', className: 'bg-slate-100 text-slate-600 border-slate-200' };
-  }
-  return { label: ts || '—', className: 'bg-slate-100 text-slate-600 border-slate-200' };
-}
-
-function acceptedSectionRowStatus(inv: OwnerInvitationView): { label: string; className: string } {
-  const resolved = resolveOwnerInvitationEffectiveStatus(inv);
-  const ts = (inv.token_state || 'STAGED').toUpperCase();
-  if (resolved === 'accepted') {
-    return { label: 'Accepted', className: 'bg-sky-100 text-sky-800 border-sky-200' };
-  }
-  if (resolved === 'active') {
-    return { label: 'Active', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
-  }
-  if (resolved === 'expired') {
-    if (ts === 'REVOKED') return { label: 'Revoked', className: 'bg-amber-100 text-amber-700 border-amber-200' };
-    if (ts === 'CANCELLED') return { label: 'Cancelled', className: 'bg-slate-100 text-slate-600 border-slate-200' };
-    return { label: 'Completed', className: 'bg-slate-100 text-slate-600 border-slate-200' };
-  }
+function statusBadge(status: InvitationDisplayStatus): { label: string; className: string } {
+  if (status === 'active') return { label: 'Active', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+  if (status === 'accepted') return { label: 'Accepted', className: 'bg-sky-100 text-sky-800 border-sky-200' };
+  if (status === 'expired') return { label: 'Expired', className: 'bg-slate-100 text-slate-600 border-slate-200' };
+  if (status === 'cancelled') return { label: 'Cancelled', className: 'bg-slate-100 text-slate-600 border-slate-200' };
   return { label: 'Pending', className: 'bg-amber-100 text-amber-700 border-amber-200' };
 }
 
@@ -184,7 +108,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
           <p className="text-xs text-slate-500 mt-1">Invites not yet accepted (within 72-hour window)</p>
         </div>
         <div className="overflow-x-auto">
-          {invitations.filter((i) => i.status === 'pending' && !i.is_expired).length === 0 ? (
+          {invitations.filter((i) => invitationDisplayStatus(i) === 'pending').length === 0 ? (
             <p className="p-6 text-slate-500 text-sm">No pending invitations.</p>
           ) : (
             <table className="w-full text-left">
@@ -201,7 +125,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {invitations.filter((i) => i.status === 'pending' && !i.is_expired).map((inv) => (
+                {invitations.filter((i) => invitationDisplayStatus(i) === 'pending').map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-5">
                       <span className="text-sm font-medium text-slate-800">{inv.guest_name || inv.guest_email || '—'}</span>
@@ -216,7 +140,10 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                     <td className="px-6 py-5 text-sm text-slate-600">{inv.region_code}</td>
                     <td className="px-6 py-5 text-xs font-mono text-slate-600">{inv.invitation_code}</td>
                     <td className="px-6 py-5">
-                      <TokenStateBadge tokenState={inv.token_state} />
+                      {(() => {
+                        const badge = statusBadge(invitationDisplayStatus(inv));
+                        return <span className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${badge.className}`}>{badge.label}</span>;
+                      })()}
                     </td>
                     <td className="px-6 py-5">
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-700 border border-amber-200">Pending</span>
@@ -246,7 +173,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
           <p className="text-xs text-slate-500 mt-1">Pending guest invites whose 72-hour window was exceeded (not accepted in time). Tenant invitations are not expired by DocuStay.</p>
         </div>
         <div className="overflow-x-auto">
-          {invitations.filter((i) => i.is_expired).length === 0 ? (
+          {invitations.filter((i) => invitationDisplayStatus(i) === 'expired').length === 0 ? (
             <p className="p-6 text-slate-500 text-sm">No expired invitations.</p>
           ) : (
             <table className="w-full text-left">
@@ -263,7 +190,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {invitations.filter((i) => i.is_expired).map((inv) => (
+                {invitations.filter((i) => invitationDisplayStatus(i) === 'expired').map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-5">
                       <span className="text-sm font-medium text-slate-800">{inv.guest_name || inv.guest_email || '—'}</span>
@@ -278,7 +205,10 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                     <td className="px-6 py-5 text-sm text-slate-600">{inv.region_code}</td>
                     <td className="px-6 py-5 text-xs font-mono text-slate-600">{inv.invitation_code}</td>
                     <td className="px-6 py-5">
-                      <TokenStateBadge tokenState={inv.token_state} />
+                      {(() => {
+                        const badge = statusBadge(invitationDisplayStatus(inv));
+                        return <span className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${badge.className}`}>{badge.label}</span>;
+                      })()}
                     </td>
                     <td className="px-6 py-5">
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-600 border border-slate-200">Expired</span>
@@ -309,7 +239,10 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
           </p>
         </div>
         <div className="overflow-x-auto">
-          {invitations.filter((i) => i.status === 'accepted' || i.status === 'ongoing' || i.status === 'active').length === 0 ? (
+          {invitations.filter((i) => {
+            const status = invitationDisplayStatus(i);
+            return status === 'accepted' || status === 'active';
+          }).length === 0 ? (
             <p className="p-6 text-slate-500 text-sm">No accepted or active invitations.</p>
           ) : (
             <table className="w-full text-left">
@@ -326,9 +259,13 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {invitations.filter((i) => i.status === 'accepted' || i.status === 'ongoing' || i.status === 'active').map((inv) => {
-                  const inviteBadge = acceptedSectionInviteIdBadge(inv);
-                  const rowStatus = acceptedSectionRowStatus(inv);
+                {invitations.filter((i) => {
+                  const status = invitationDisplayStatus(i);
+                  return status === 'accepted' || status === 'active';
+                }).map((inv) => {
+                  const resolved = invitationDisplayStatus(inv);
+                  const inviteBadge = statusBadge(resolved);
+                  const rowStatus = statusBadge(resolved);
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-5">
@@ -420,7 +357,10 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
                         <td className="px-6 py-5 text-sm text-slate-600">{inv.region_code}</td>
                         <td className="px-6 py-5 text-xs font-mono text-slate-600">{inv.invitation_code}</td>
                         <td className="px-6 py-5">
-                          <TokenStateBadge tokenState={inv.token_state} />
+                          {(() => {
+                            const badge = statusBadge(invitationDisplayStatus(inv));
+                            return <span className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${badge.className}`}>{badge.label}</span>;
+                          })()}
                         </td>
                         <td className="px-6 py-5">
                           <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-slate-200 text-slate-600 border border-slate-300">Cancelled by you</span>

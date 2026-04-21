@@ -18,6 +18,7 @@ import {
   localDateInputToUtcStartIso,
   parseForDisplay,
 } from '../../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 
 type GuestTab = 'stays' | 'invitations' | 'ledger' | 'help';
 
@@ -941,7 +942,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                         <td className="px-4 py-2 font-medium text-slate-800 text-sm">{entry.title}</td>
                         <td className="px-4 py-2 text-slate-600 text-sm">{entry.actor_email ?? '—'}</td>
                         <td className="px-4 py-2 text-slate-600 text-sm max-w-xs">
-                          <span className="truncate block">{entry.message}</span>
+                          <span className="truncate block">{scrubAuditLogStateChangeParagraph(entry.message)}</span>
                           <button
                             type="button"
                             onClick={() => setLogMessageModalEntry(entry)}
@@ -1665,7 +1666,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                         <td className="px-4 py-2 font-medium text-slate-800 text-sm">{entry.title}</td>
                         <td className="px-4 py-2 text-slate-600 text-sm">{entry.actor_email ?? '—'}</td>
                         <td className="px-4 py-2 text-slate-600 text-sm max-w-xs">
-                          <span className="truncate block">{entry.message}</span>
+                          <span className="truncate block">{scrubAuditLogStateChangeParagraph(entry.message)}</span>
                           <button
                             type="button"
                             onClick={() => setLogMessageModalEntry(entry)}
@@ -1955,7 +1956,9 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
       >
         {logMessageModalEntry && (
           <div className="p-6">
-            <p className="text-slate-700 whitespace-pre-wrap text-sm">{logMessageModalEntry.message}</p>
+            <p className="text-slate-700 whitespace-pre-wrap text-sm">
+              {scrubAuditLogStateChangeParagraph(logMessageModalEntry.message)}
+            </p>
             <p className="text-slate-500 text-xs mt-4">
               {logMessageModalEntry.created_at ? formatDateTimeLocal(logMessageModalEntry.created_at) : ''}
               {logMessageModalEntry.actor_email && ` · ${logMessageModalEntry.actor_email}`}

@@ -64,6 +64,7 @@ from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE, CATEGORY_
 from app.services.event_ledger import (
     create_ledger_event,
     ledger_event_to_display,
+    ledger_record_disclosure_lines,
     get_actor_email,
     get_actor_display_name,
     _CATEGORY_TO_ACTION_TYPES,
@@ -99,6 +100,7 @@ from app.services.event_ledger import (
     ACTION_SHIELD_MODE_ON,
     ACTION_SHIELD_MODE_OFF,
     ACTION_PROPERTY_TRANSFER_PRIOR_OWNER,
+    EVENT_SOURCE_USER_ACTION,
 )
 from app.services.invitation_cleanup import get_invitation_expire_cutoff
 from app.services.invitation_kinds import (
@@ -1014,7 +1016,7 @@ def _invitations_to_owner_views(
     viewer_user_id: int,
 ) -> list:
     """Build OwnerInvitationView list from invitation list. Shared by owner and manager. Redacts guest PII when viewer is not the relationship owner."""
-    from app.services.state_resolver import resolve_invite_status, resolve_tenant_state
+    from app.services.state_resolver import resolve_invitation_display_status, resolve_tenant_state
     threshold = get_invitation_expire_cutoff_fn()
     out = []
     for inv in invs:
@@ -1065,15 +1067,12 @@ def _invitations_to_owner_views(
             display_status = assignment_status if assignment_status in ("pending", "accepted", "active", "expired") else "pending"
         else:
             has_stay = db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None
-            token_state = (getattr(inv, "token_state", None) or "STAGED").upper()
-            if inv.status == "cancelled":
-                display_status = "cancelled"
-            elif inv.status == "expired" or is_expired:
-                display_status = "expired"
-            elif inv.status == "ongoing" or has_stay or inv.status == "accepted" or (token_state == "BURNED" and inv.status == "pending"):
-                display_status = "active"
-            else:
-                display_status = "pending"
+            display_status = resolve_invitation_display_status(
+                inv,
+                force_expired=is_expired,
+                has_live_stay=has_stay,
+                db=db,
+            )
         demo_flag = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
         show_guest_pii = viewer_is_relationship_owner_for_invitation(inv, viewer_user_id)
         guest_name_out = inv.guest_name if show_guest_pii else REDACTED_GUEST_AUTHORIZATION_LABEL
@@ -2951,6 +2950,7 @@ def guest_logs(
     for r in rows:
         cat, title, msg = ledger_event_to_display(r, db)
         actor_email = get_actor_email(db, r.actor_user_id)
+        disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(
                 id=r.id, property_id=r.property_id, stay_id=r.stay_id, invitation_id=r.invitation_id,
@@ -2958,6 +2958,10 @@ def guest_logs(
                 actor_user_id=r.actor_user_id, actor_email=actor_email, ip_address=r.ip_address,
                 created_at=r.created_at if r.created_at else datetime.now(timezone.utc),
                 property_name=props.get(r.property_id) if r.property_id else None,
+                event_source=disc.get("event_source"),
+                business_meaning_on_record=disc.get("business_meaning_on_record"),
+                trigger_on_record=disc.get("trigger_on_record"),
+                state_change_on_record=disc.get("state_change_on_record"),
             )
         )
     return out
@@ -2988,6 +2992,12 @@ def guest_check_in(
     db.add(stay)
     prop = db.query(Property).filter(Property.id == stay.property_id).first()
     shield_turned_off_on_checkin = False
+    prior_prop_occ = getattr(prop, "occupancy_status", None) if prop else None
+    prior_unit_occ: str | None = None
+    unit_id = getattr(stay, "unit_id", None)
+    unit_row = db.query(Unit).filter(Unit.id == unit_id).first() if unit_id else None
+    if unit_row:
+        prior_unit_occ = getattr(unit_row, "occupancy_status", None)
     if prop:
         prop.occupancy_status = OccupancyStatus.occupied.value
         # DO NOT REMOVE — legacy: Shield off when guest checks in (disabled CR-1a while SHIELD_MODE_ALWAYS_ON).
@@ -3010,12 +3020,9 @@ def guest_check_in(
                 except Exception:
                     pass
         db.add(prop)
-    unit_id = getattr(stay, "unit_id", None)
-    if unit_id:
-        unit = db.query(Unit).filter(Unit.id == unit_id).first()
-        if unit:
-            unit.occupancy_status = OccupancyStatus.occupied.value
-            db.add(unit)
+    if unit_id and unit_row:
+        unit_row.occupancy_status = OccupancyStatus.occupied.value
+        db.add(unit_row)
     db.commit()
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "").strip() or None
@@ -3043,6 +3050,18 @@ def guest_check_in(
         actor_user_id=current_user.id,
         ip_address=ip,
         user_agent=ua,
+        event_source=EVENT_SOURCE_USER_ACTION,
+        business_meaning="Records that the guest completed check-in and DocuStay stored an active stay with updated occupancy fields where applicable.",
+        trigger_description="Guest used the in-app check-in control for this stay on or after the stay start date.",
+        previous_value={
+            "property_occupancy_status": prior_prop_occ,
+            "unit_occupancy_status": prior_unit_occ,
+        },
+        new_value={
+            "property_occupancy_status": getattr(prop, "occupancy_status", None) if prop else None,
+            "unit_occupancy_status": getattr(unit_row, "occupancy_status", None) if unit_row else None,
+            "stay_checked_in_at": now.isoformat(),
+        },
         meta={
             "message": f"{guest_name} checked in at {property_name}. Occupancy set to occupied.",
             "guest_name": guest_name,
@@ -4071,7 +4090,15 @@ def _tenant_property_transfer_notice(
 def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -> dict:
     """Build one unit item for tenant_unit response. Use invitation accepted by THIS user (match guest_email) to avoid showing another tenant's dates."""
     unit = db.query(Unit).filter(Unit.id == ta.unit_id).first()
+    from app.services.state_resolver import resolve_tenant_lease_lifecycle, resolve_tenant_state
+
     if not unit:
+        resolved = resolve_tenant_state(db, tenant_assignment=ta, tenant_invitation=None)
+        lifecycle_state = resolve_tenant_lease_lifecycle(
+            tenant_assignment=ta,
+            tenant_invitation=None,
+            db=db,
+        )
         return {
             "unit": None, "property": None, "invite_id": None, "token_state": None,
             "stay_start_date": ta.start_date.isoformat() if ta.start_date else None,
@@ -4086,12 +4113,21 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
             "co_tenants": [],
             "property_deleted_at": None,
             "property_owner_transfer_notice": None,
+            "invite_status": resolved.invite_status,
+            "assignment_status": resolved.assignment_status,
+            "lifecycle_state": lifecycle_state,
         }
     prop = db.query(Property).filter(Property.id == unit.property_id).first()
     address = ", ".join(filter(None, [prop.street, prop.city, prop.state])) if prop else ""
     user_email = (current_user.email or "").strip().lower()
     tenant_inv = find_invitation_matching_tenant_assignment(
         db, ta, user_email_lower=user_email or None
+    )
+    resolved = resolve_tenant_state(db, tenant_assignment=ta, tenant_invitation=tenant_inv)
+    lifecycle_state = resolve_tenant_lease_lifecycle(
+        tenant_assignment=ta,
+        tenant_invitation=tenant_inv,
+        db=db,
     )
     invite_id = tenant_inv.invitation_code if tenant_inv else None
     token_state = getattr(tenant_inv, "token_state", None) if tenant_inv else None
@@ -4157,6 +4193,9 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
         "co_tenants": co_tenants,
         "property_deleted_at": p_del.isoformat() if p_del else None,
         "property_owner_transfer_notice": transfer_notice,
+        "invite_status": resolved.invite_status,
+        "assignment_status": resolved.assignment_status,
+        "lifecycle_state": lifecycle_state,
     }
 
 
@@ -4164,6 +4203,7 @@ def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user
     """Build unit item from a tenant invitation (for pending invitations addressed to this tenant)."""
     if not inv.unit_id:
         return None
+    from app.services.state_resolver import resolve_tenant_lease_lifecycle, resolve_tenant_state
     unit = db.query(Unit).filter(Unit.id == inv.unit_id).first()
     if not unit:
         return None
@@ -4179,6 +4219,12 @@ def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user
     lease_cohort_id, co_tenants, cohort_member_count = _lease_cohort_context_for_pending_invitation(db, inv, current_user)
     p_del = getattr(prop, "deleted_at", None)
     transfer_notice = _tenant_property_transfer_notice(db, prop, getattr(inv, "created_at", None))
+    resolved = resolve_tenant_state(db, tenant_assignment=None, tenant_invitation=inv)
+    lifecycle_state = resolve_tenant_lease_lifecycle(
+        tenant_assignment=None,
+        tenant_invitation=inv,
+        db=db,
+    )
     return {
         "unit": {"id": unit.id, "unit_label": unit.unit_label, "occupancy_status": get_unit_display_occupancy_status(db, unit)},
         "property": {"id": prop.id, "name": prop.name, "address": address},
@@ -4201,6 +4247,9 @@ def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user
         "co_tenants": co_tenants,
         "property_deleted_at": p_del.isoformat() if p_del else None,
         "property_owner_transfer_notice": transfer_notice,
+        "invite_status": resolved.invite_status,
+        "assignment_status": resolved.assignment_status,
+        "lifecycle_state": lifecycle_state,
     }
 
 
@@ -4697,6 +4746,8 @@ def tenant_invitations(
         .order_by(Invitation.created_at.desc())
         .all()
     )
+    from app.services.state_resolver import resolve_invitation_display_status
+
     threshold = get_invitation_expire_cutoff()
     out = []
     for inv in invs:
@@ -4728,19 +4779,13 @@ def tenant_invitations(
         )
         any_stay = len(stays_for_inv) > 0
         all_stays_terminal = bool(any_stay and active_stay is None)
-        token_state = (getattr(inv, "token_state", None) or "STAGED").upper()
-        if inv.status == "cancelled":
-            display_status = "cancelled"
-        elif inv.status == "expired" or is_expired:
-            display_status = "expired"
-        elif active_stay is not None or inv.status == "ongoing":
-            display_status = "active"
-        elif all_stays_terminal:
-            display_status = "expired"
-        elif inv.status == "accepted" or (token_state == "BURNED" and inv.status == "pending"):
-            display_status = "active"
-        else:
-            display_status = "pending"
+        display_status = resolve_invitation_display_status(
+            inv,
+            force_expired=is_expired,
+            has_live_stay=active_stay is not None,
+            has_terminal_stays_only=all_stays_terminal,
+            db=db,
+        )
         demo_flag = is_demo_user_id(db, getattr(inv, "invited_by_user_id", None) or getattr(inv, "owner_id", None))
         unit_label = _unit_label_if_multi_unit(db, inv.property_id, getattr(inv, "unit_id", None))
         out.append(
@@ -5850,15 +5895,6 @@ def owner_logs(
     owns (including inactive) so property detail history is not empty."""
     from sqlalchemy import or_, desc, cast, String
 
-    try:
-        from app.services.stay_timer import run_status_confirmation_materialize_for_user
-
-        run_status_confirmation_materialize_for_user(
-            db, current_user, client_calendar_date=_parse_guest_client_calendar_date_header(x_client_calendar_date)
-        )
-    except Exception:
-        pass
-
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
         return []
@@ -5951,6 +5987,7 @@ def owner_logs(
     for r in rows:
         cat, title, msg = ledger_event_to_display(r, db)
         actor_email = get_actor_email(db, r.actor_user_id)
+        disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(
                 id=r.id,
@@ -5965,6 +6002,10 @@ def owner_logs(
                 ip_address=r.ip_address,
                 created_at=r.created_at if r.created_at else datetime.now(timezone.utc),
                 property_name=_property_name(r),
+                event_source=disc.get("event_source"),
+                business_meaning_on_record=disc.get("business_meaning_on_record"),
+                trigger_on_record=disc.get("trigger_on_record"),
+                state_change_on_record=disc.get("state_change_on_record"),
             )
         )
     return out
@@ -5985,15 +6026,6 @@ def manager_logs(
     """Business mode: full management lane for assigned properties. Personal mode: guest-residence events only
     for on-site resident properties (same ledger action set as owner Personal mode)."""
     from sqlalchemy import desc, cast, String
-
-    try:
-        from app.services.stay_timer import run_status_confirmation_materialize_for_user
-
-        run_status_confirmation_materialize_for_user(
-            db, current_user, client_calendar_date=_parse_guest_client_calendar_date_header(x_client_calendar_date)
-        )
-    except Exception:
-        pass
 
     property_ids = _manager_property_ids(db, current_user.id)
     if not property_ids:
@@ -6045,6 +6077,7 @@ def manager_logs(
     for r in rows:
         cat, title, msg = ledger_event_to_display(r, db)
         actor_email = get_actor_email(db, r.actor_user_id)
+        disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(
                 id=r.id, property_id=r.property_id, stay_id=r.stay_id, invitation_id=r.invitation_id,
@@ -6052,6 +6085,10 @@ def manager_logs(
                 actor_user_id=r.actor_user_id, actor_email=actor_email, ip_address=r.ip_address,
                 created_at=r.created_at if r.created_at else datetime.now(timezone.utc),
                 property_name=props.get(r.property_id) if r.property_id else None,
+                event_source=disc.get("event_source"),
+                business_meaning_on_record=disc.get("business_meaning_on_record"),
+                trigger_on_record=disc.get("trigger_on_record"),
+                state_change_on_record=disc.get("state_change_on_record"),
             )
         )
     return out
@@ -6136,6 +6173,7 @@ def tenant_logs(
     for r in rows:
         cat, title, msg = ledger_event_to_display(r, db)
         actor_email = get_actor_email(db, r.actor_user_id)
+        disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(
                 id=r.id, property_id=r.property_id, stay_id=r.stay_id, invitation_id=r.invitation_id,
@@ -6143,6 +6181,10 @@ def tenant_logs(
                 actor_user_id=r.actor_user_id, actor_email=actor_email, ip_address=r.ip_address,
                 created_at=r.created_at if r.created_at else datetime.now(timezone.utc),
                 property_name=props.get(r.property_id) if r.property_id else None,
+                event_source=disc.get("event_source"),
+                business_meaning_on_record=disc.get("business_meaning_on_record"),
+                trigger_on_record=disc.get("trigger_on_record"),
+                state_change_on_record=disc.get("state_change_on_record"),
             )
         )
     return out

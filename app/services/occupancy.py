@@ -3,7 +3,6 @@
 Units are considered effectively "occupied" when:
 - the unit's stored occupancy_status is "occupied", or
 - the unit has an active tenant assignment, or
-- the unit has an in-window tenant invitation (e.g. CSV STAGED invite before tenant signup), or
 - the unit has an on-site resident (ResidentMode with manager_personal).
 
 This ensures both owner and manager see the same status for units where
@@ -27,7 +26,6 @@ from app.services.privacy_lanes import (
     viewer_is_relationship_owner_for_invitation,
     viewer_is_relationship_owner_for_stay,
 )
-from app.services.invitation_kinds import TENANT_UNIT_LEASE_KINDS
 from app.services.display_names import label_from_invitation, label_from_user_id
 
 _VACANT = OccupancyStatus.vacant.value
@@ -103,26 +101,8 @@ def normalize_occupancy_status_for_display(
     return raw
 
 
-def _unit_has_in_window_tenant_invitation(db: Session, unit_id: int, today: date) -> bool:
-    """True when a non-revoked tenant invitation covers today (lease window), including pending signup."""
-    return (
-        db.query(Invitation)
-        .filter(
-            Invitation.unit_id == unit_id,
-            func.lower(func.coalesce(Invitation.invitation_kind, "guest")).in_(tuple(TENANT_UNIT_LEASE_KINDS)),
-            # EXPIRED: e.g. owner confirmed unit vacated after tenant lease (matches guest stay vacate flow)
-            Invitation.token_state.notin_(["REVOKED", "CANCELLED", "EXPIRED"]),
-            Invitation.stay_start_date.isnot(None),
-            Invitation.stay_start_date <= today,
-            or_(Invitation.stay_end_date.is_(None), Invitation.stay_end_date >= today),
-        )
-        .first()
-        is not None
-    )
-
-
 def _unit_occupied_by_lease_invite_resident_or_stay(db: Session, unit: Unit, today: date) -> bool:
-    """Occupied for reasons other than the Unit.occupancy_status column (active lease, in-window tenant invite, manager resident, checked-in stay)."""
+    """Occupied for reasons other than the Unit.occupancy_status column (active lease, manager resident, checked-in stay)."""
     has_active_tenant_assignment = (
         db.query(TenantAssignment)
         .filter(
@@ -138,8 +118,6 @@ def _unit_occupied_by_lease_invite_resident_or_stay(db: Session, unit: Unit, tod
         is not None
     )
     if has_active_tenant_assignment:
-        return True
-    if _unit_has_in_window_tenant_invitation(db, unit.id, today):
         return True
     if (
         db.query(ResidentMode)
@@ -230,7 +208,7 @@ def get_units_occupancy_display(
 ) -> dict[int, dict]:
     """
     For each unit_id, return { "occupied_by": str | None, "invite_id": str | None }.
-    Priority: active guest stay (with invite_id) > pending invitation > property manager resident > tenant.
+    Priority: active guest stay (with invite_id) > property manager resident > tenant.
     When anonymize_tenant_lane=True (owner/manager view), tenant-invited guest names are shown as "Occupied"
     and invite_id is omitted (tenant guest activity is private).
     When relationship_viewer_id is set (e.g. property manager on unit summary), tenant-lane guest identity is
@@ -292,35 +270,6 @@ def get_units_occupancy_display(
             "occupied_by": name,
             "invite_id": inv_code,
         }
-
-    # Pending invitations (STAGED) for units not yet filled by a stay
-    still_empty = [uid for uid in unit_ids if out[uid]["occupied_by"] is None]
-    if still_empty:
-        invs = (
-            db.query(Invitation)
-            .filter(
-                Invitation.unit_id.in_(still_empty),
-                Invitation.token_state == "STAGED",
-            )
-            .all()
-        )
-        for inv in invs:
-            if inv.unit_id not in out or out[inv.unit_id]["occupied_by"] is not None:
-                continue
-            if guest_detail_unit_ids is not None and inv.unit_id not in guest_detail_unit_ids:
-                continue
-            if _mask_tenant_lane_guest_in_occupancy_display(
-                db,
-                anonymize_tenant_lane=anonymize_tenant_lane,
-                relationship_viewer_id=relationship_viewer_id,
-                invitation=inv,
-            ):
-                name = "Occupied"
-                inv_code = None
-            else:
-                name = label_from_invitation(db, inv)
-                inv_code = inv.invitation_code
-            out[inv.unit_id] = {"occupied_by": name, "invite_id": inv_code}
 
     # Property manager on-site resident
     still_empty = [uid for uid in unit_ids if out[uid]["occupied_by"] is None]
@@ -396,7 +345,7 @@ def get_units_occupancy_sources(
 ) -> dict[int, str]:
     """
     Per unit, which tier supplies display occupancy (same priority as get_units_occupancy_display):
-    guest_stay | pending_invitation | manager_resident | tenant_assignment | none.
+    guest_stay | manager_resident | tenant_assignment | none.
     Used by the public live page tenant summary so it shows the leaseholder tenant only when they
     are the effective occupier (not superseded by a checked-in guest stay, pending invite, or
     on-site manager resident).
@@ -422,23 +371,6 @@ def get_units_occupancy_sources(
         if guest_detail_unit_ids is not None and s.unit_id not in guest_detail_unit_ids:
             continue
         out[s.unit_id] = "guest_stay"
-
-    still_empty = [uid for uid in unit_ids if out[uid] == "none"]
-    if still_empty:
-        invs = (
-            db.query(Invitation)
-            .filter(
-                Invitation.unit_id.in_(still_empty),
-                Invitation.token_state == "STAGED",
-            )
-            .all()
-        )
-        for inv in invs:
-            if inv.unit_id not in out or out[inv.unit_id] != "none":
-                continue
-            if guest_detail_unit_ids is not None and inv.unit_id not in guest_detail_unit_ids:
-                continue
-            out[inv.unit_id] = "pending_invitation"
 
     still_empty = [uid for uid in unit_ids if out[uid] == "none"]
     if still_empty:

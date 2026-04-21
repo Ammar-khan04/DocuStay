@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { Button } from '../../components/UI';
 import { authApi, invitationsApi, isPropertyTenantInviteKind, type InvitationDetails } from '../../services/api';
 import RegisterFromInvite from './RegisterFromInvite';
 import GuestLogin from './GuestLogin';
 import type { UserSession } from '../../types';
+import { formatCalendarDate } from '../../utils/dateUtils';
 
 interface InviteLandingProps {
   invitationCode: string;
   /** When false and the invite is demo-originated, redirect to `#demo/invite/...` first. */
   sessionIsDemo?: boolean;
+  /** Logged in as a demo tenant (after DemoInviteGate); show explicit accept instead of silent auto-accept. */
+  demoTenantSession?: boolean;
   navigate: (v: string) => void;
   setLoading: (l: boolean) => void;
   notify: (t: 'success' | 'error', m: string) => void;
@@ -18,12 +22,15 @@ interface InviteLandingProps {
 }
 
 /**
- * When user opens #invite/CODE we fetch invite details. If it's a tenant invite we show
- * RegisterFromInvite (full form + agreement). Otherwise we show GuestLogin (sign in or create account).
+ * When user opens #invite/CODE we fetch invite details.
+ * - Production tenant invite: RegisterFromInvite (signup / sign-in then accept elsewhere as needed).
+ * - Demo tenant after `#demo/invite/CODE` sign-in: explicit "Accept invitation" (no silent accept on load).
+ * - Guest invites: GuestLogin or demo guest auto-accept as before.
  */
 const InviteLanding: React.FC<InviteLandingProps> = ({
   invitationCode,
   sessionIsDemo = false,
+  demoTenantSession = false,
   navigate,
   setLoading,
   notify,
@@ -35,12 +42,11 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
   const [details, setDetails] = useState<InvitationDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(true);
   const [demoRedirecting, setDemoRedirecting] = useState(false);
-  const [demoTenantAutoAccepting, setDemoTenantAutoAccepting] = useState(false);
   const [demoGuestAutoAccepting, setDemoGuestAutoAccepting] = useState(false);
+  const [demoTenantAcceptSubmitting, setDemoTenantAcceptSubmitting] = useState(false);
   const code = (invitationCode || '').trim().toUpperCase();
 
   useEffect(() => {
-    setDemoTenantAutoAccepting(false);
     setDemoGuestAutoAccepting(false);
   }, [code]);
 
@@ -62,44 +68,6 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
     setDemoRedirecting(true);
     navigate(`demo/invite/${code}`);
   }, [loadingDetails, details, sessionIsDemo, code, navigate]);
-
-  // Demo behavior: tenant invites should be accepted automatically (no signup/agreement flow).
-  // Must run unconditionally (same hook order every render) — do not place after early returns.
-  useEffect(() => {
-    if (loadingDetails) return;
-    if (!sessionIsDemo) return;
-    if (!details?.valid) return;
-    const tenantInvite =
-      isPropertyTenantInviteKind(details.invitation_kind) || Boolean(details.is_tenant_invite);
-    if (!tenantInvite) return;
-    if (!code) return;
-    if (demoTenantAutoAccepting) return;
-    setDemoTenantAutoAccepting(true);
-    setLoading(true);
-    authApi
-      .acceptInvite(code, null)
-      .then(async () => {
-        const me = await authApi.me();
-        if (me && onTenantLogin) onTenantLogin(me);
-        notify('success', 'Demo invitation accepted.');
-        navigate('tenant-dashboard');
-      })
-      .catch((e) => {
-        notify('error', (e as Error)?.message ?? 'Could not accept invitation.');
-        setDemoTenantAutoAccepting(false);
-      })
-      .finally(() => setLoading(false));
-  }, [
-    loadingDetails,
-    sessionIsDemo,
-    details,
-    code,
-    demoTenantAutoAccepting,
-    setLoading,
-    notify,
-    navigate,
-    onTenantLogin,
-  ]);
 
   // Demo behavior: guest invites should be accepted automatically (no signup/agreement flow).
   // Backend records the same agreement document + PDF as production typed signing.
@@ -156,10 +124,61 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
 
   const isTenantInvite = isPropertyTenantInviteKind(details?.invitation_kind) || Boolean(details?.is_tenant_invite);
 
-  if (demoTenantAutoAccepting) {
+  if (sessionIsDemo && demoTenantSession && details?.valid && isTenantInvite && code) {
+    const handleDemoTenantAccept = () => {
+      setDemoTenantAcceptSubmitting(true);
+      setLoading(true);
+      authApi
+        .acceptInvite(code, null)
+        .then(async () => {
+          const me = await authApi.me();
+          if (me && onTenantLogin) onTenantLogin(me);
+          notify('success', 'Invitation accepted.');
+          navigate('tenant-dashboard');
+        })
+        .catch((e) => {
+          notify('error', (e as Error)?.message ?? 'Could not accept invitation.');
+        })
+        .finally(() => {
+          setDemoTenantAcceptSubmitting(false);
+          setLoading(false);
+        });
+    };
+
     return (
-      <div className="flex-grow flex items-center justify-center min-h-[320px]">
-        <p className="text-slate-500 text-sm">Accepting demo invitation…</p>
+      <div className="flex-grow flex items-center justify-center min-h-[320px] px-4">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm text-center space-y-4">
+          <h1 className="text-xl font-semibold text-slate-900">Tenant invitation</h1>
+          <p className="text-sm text-slate-600">
+            {details.property_name ? (
+              <>
+                Accept access to <span className="font-medium text-slate-800">{details.property_name}</span>
+                {details.stay_start_date && details.stay_end_date ? (
+                  <>
+                    {' '}
+                    for <span className="font-medium">{formatCalendarDate(details.stay_start_date)}</span> –{' '}
+                    <span className="font-medium">{formatCalendarDate(details.stay_end_date)}</span>
+                  </>
+                ) : null}
+                .
+              </>
+            ) : (
+              'Review the lease dates below, then accept to continue (same as production).'
+            )}
+          </p>
+          <Button
+            type="button"
+            variant="primary"
+            className="w-full"
+            disabled={demoTenantAcceptSubmitting}
+            onClick={handleDemoTenantAccept}
+          >
+            {demoTenantAcceptSubmitting ? 'Accepting…' : 'Accept invitation'}
+          </Button>
+          <p className="text-xs text-slate-500">
+            The invite is only completed after you accept here (same as production).
+          </p>
+        </div>
       </div>
     );
   }

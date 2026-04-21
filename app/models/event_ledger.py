@@ -1,6 +1,8 @@
-"""System-wide event ledger. Append-only, immutable.
-Every meaningful platform action is recorded here.
-All logs, audit trails, and activity views read from this ledger."""
+"""System-wide event ledger. Append-only: application code must not update or delete rows after insert.
+
+Every meaningful platform action is recorded here. All logs, audit trails, and activity views read from this ledger.
+Downstream display may add ``event_source``, ``business_meaning``, and ``trigger_description`` in ``meta`` at write time;
+readers infer ``event_source`` when absent (see ``app.services.event_ledger``)."""
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func

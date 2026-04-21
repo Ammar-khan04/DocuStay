@@ -66,7 +66,7 @@ def audit_actor_attribution(
             if has_ma:
                 return {
                     "role": "property_manager",
-                    "role_label": "Property manager",
+                    "role_label": "Manager",
                     "name": name,
                     "email": email,
                 }
@@ -99,7 +99,7 @@ def audit_actor_attribution(
         if u.role == UserRole.property_manager:
             return {
                 "role": "property_manager",
-                "role_label": "Property manager",
+                "role_label": "Manager",
                 "name": name,
                 "email": email,
             }

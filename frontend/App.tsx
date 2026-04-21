@@ -499,6 +499,7 @@ const App: React.FC = () => {
           <InviteLanding
             invitationCode={view.split('/')[1] || ''}
             sessionIsDemo={Boolean(state.user?.is_demo)}
+            demoTenantSession={Boolean(state.user?.is_demo && state.user?.user_type === 'TENANT')}
             navigate={navigate}
             setLoading={setLoading}
             notify={showNotification}

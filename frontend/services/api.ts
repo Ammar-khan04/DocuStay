@@ -753,6 +753,11 @@ export interface OwnerAuditLogEntry {
   ip_address: string | null;
   created_at: string;
   property_name: string | null;
+  /** User Action | System Action | Import (CSV) | Mode Switch | Background Job */
+  event_source?: string | null;
+  business_meaning_on_record?: string | null;
+  trigger_on_record?: string | null;
+  state_change_on_record?: string | null;
 }
 
 export interface BillingInvoiceView {
@@ -871,6 +876,10 @@ export interface LiveLogEntry {
   actor_role_label?: string | null;
   actor_name?: string | null;
   actor_email?: string | null;
+  event_source?: string | null;
+  business_meaning_on_record?: string | null;
+  trigger_on_record?: string | null;
+  state_change_on_record?: string | null;
 }
 
 export interface JurisdictionStatuteView {
@@ -1173,6 +1182,9 @@ export const dashboardApi = {
       lease_cohort_id?: string | null;
       cohort_member_count?: number | null;
       co_tenants?: Array<{ name?: string | null; email?: string | null }>;
+      invite_status?: 'pending' | 'accepted' | 'cancelled' | 'revoked' | 'expired' | 'unknown';
+      assignment_status?: 'none' | 'pending' | 'accepted' | 'active' | 'expired';
+      lifecycle_state?: 'PENDING_STAGED' | 'PENDING_INVITED' | 'ACCEPTED' | 'ACTIVE' | 'EXPIRED' | 'OWNER_RESIDENT' | 'CANCELLED';
     }>;
   }>("/dashboard/tenant/unit"),
   tenantSetDeadMansSwitch: (unitId: number, deadMansSwitchEnabled: boolean) =>
@@ -1449,6 +1461,10 @@ export interface AdminAuditLogEntry {
   ip_address: string | null;
   created_at: string;
   property_name: string | null;
+  event_source?: string | null;
+  business_meaning_on_record?: string | null;
+  trigger_on_record?: string | null;
+  state_change_on_record?: string | null;
 }
 export interface AdminPropertyView {
   id: number;

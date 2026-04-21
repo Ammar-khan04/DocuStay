@@ -276,9 +276,12 @@ TenantLeaseAssignmentStatus = Literal["none", "pending", "accepted", "active", "
 
 
 def _effective_tenant_lease_dates(ta: TenantAssignment, inv: Invitation | None) -> tuple[date | None, date | None]:
-    """Match tenant dashboard / _tenant_unit_item: invitation dates when linked, else assignment."""
+    """Prefer invitation dates when set; otherwise assignment (handles stale invites with null dates)."""
     if inv is not None:
-        return getattr(inv, "stay_start_date", None), getattr(inv, "stay_end_date", None)
+        s = getattr(inv, "stay_start_date", None)
+        e = getattr(inv, "stay_end_date", None)
+        if s is not None or e is not None:
+            return s, e
     return getattr(ta, "start_date", None), getattr(ta, "end_date", None)
 
 

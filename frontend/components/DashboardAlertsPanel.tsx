@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { dashboardApi, emitPropertiesChanged, type DashboardAlertView, type OwnerAuditLogEntry } from '../services/api';
 import { formatDateTimeLocal } from '../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../utils/auditLogMessage';
 import { Button } from './UI';
 
 /** Dispatch this event to refresh alerts immediately (e.g. after revoke, confirm occupancy). */
@@ -434,7 +435,9 @@ export const DashboardAlertsPanel: React.FC<DashboardAlertsPanelProps> = ({
                             </p>
                           )}
                           {entry.message && (entry.message !== entry.title || !entry.property_name) && (
-                            <p className="text-sm mt-1.5 text-slate-600 leading-relaxed">{entry.message}</p>
+                            <p className="text-sm mt-1.5 text-slate-600 leading-relaxed">
+                              {scrubAuditLogStateChangeParagraph(entry.message)}
+                            </p>
                           )}
                           <div className="flex flex-wrap items-center gap-2 mt-2.5">
                             {(entry.category || entry.actor_email) && (

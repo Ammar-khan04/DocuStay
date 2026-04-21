@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { publicApi, resolveBackendMediaUrl, type VerifyResponse } from '../../services/api';
 import { validatePhone, sanitizePhoneInput } from '../../utils/validatePhone';
 import { formatCalendarDate, formatDateTimeLocal } from '../../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 
 const APP_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -341,7 +342,7 @@ export const VerifyPage: React.FC = () => {
                   {result.audit_entries.map((entry, i) => (
                     <li key={i} className="flex gap-3 items-start">
                       <span className="text-gray-400 shrink-0 text-xs whitespace-nowrap">{entry.created_at ? formatDateTimeLocal(entry.created_at) : '—'}</span>
-                      <span>{entry.message || entry.title}</span>
+                      <span>{scrubAuditLogStateChangeParagraph(entry.message) || entry.title}</span>
                     </li>
                   ))}
                 </ul>
@@ -356,7 +357,7 @@ export const VerifyPage: React.FC = () => {
                   {result.audit_entries.map((entry, i) => (
                     <li key={i} className="flex gap-3 items-start">
                       <span className="text-gray-400 shrink-0 text-xs whitespace-nowrap">{entry.created_at ? formatDateTimeLocal(entry.created_at) : '—'}</span>
-                      <span>{entry.message || entry.title}</span>
+                      <span>{scrubAuditLogStateChangeParagraph(entry.message) || entry.title}</span>
                     </li>
                   ))}
                 </ul>

@@ -14,6 +14,7 @@ import { DashboardAlertsPanel, DASHBOARD_ALERTS_REFRESH_EVENT } from '../../comp
 import { InactivePropertyBanner } from '../../components/InactivePropertyBanner';
 import { copyToClipboard } from '../../utils/clipboard';
 import { formatStayDuration, formatLedgerTimestamp, formatCalendarDate } from '../../utils/dateUtils';
+import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 
 interface PropertySummary {
   id: number;
@@ -538,7 +539,7 @@ const ManagerDashboard: React.FC<{
                         <td className="px-6 py-3 text-slate-600 text-sm">{entry.property_name ?? '—'}</td>
                         <td className="px-6 py-3 text-slate-600 text-sm">{entry.actor_email ?? '—'}</td>
                         <td className="px-6 py-3 text-slate-600 text-sm max-w-xs">
-                          <span className="truncate block">{entry.message}</span>
+                          <span className="truncate block">{scrubAuditLogStateChangeParagraph(entry.message)}</span>
                           <button
                             type="button"
                             onClick={() => setLogMessageModalEntry(entry)}
@@ -962,7 +963,9 @@ const ManagerDashboard: React.FC<{
                 <h3 id="log-message-title" className="text-lg font-semibold text-slate-800 mb-4">
                   Full message — {logMessageModalEntry.title}
                 </h3>
-                <p className="text-slate-700 text-sm whitespace-pre-wrap break-words">{logMessageModalEntry.message}</p>
+                <p className="text-slate-700 text-sm whitespace-pre-wrap break-words">
+                  {scrubAuditLogStateChangeParagraph(logMessageModalEntry.message)}
+                </p>
               </div>
               <div className="p-4 border-t border-slate-200">
                 <Button variant="outline" onClick={() => setLogMessageModalEntry(null)}>Close</Button>
