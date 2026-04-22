@@ -48,6 +48,10 @@ from app.services.display_names import (
     label_from_user_id,
 )
 from app.services.state_resolver import resolve_invitation_display_status
+from app.services.tenant_lease_window import (
+    find_invitation_matching_tenant_assignment,
+    resolve_tenant_lease_assignment_status,
+)
 from app.schemas.public import (
     LivePropertyPagePayload,
     LivePropertyInfo,
@@ -264,6 +268,46 @@ def _fmt_short_date_live(d: date) -> str:
     return f"{d.strftime('%b')} {d.day}, {d.year}"
 
 
+def _public_label_for_tenant_lease_assignment_status(st: str) -> str:
+    return {
+        "none": "No assignment on file",
+        "pending": "Pending invitation",
+        "accepted": "Accepted — outside active lease window today",
+        "active": "Active lease",
+        "expired": "Expired or ended",
+    }.get(st, st.replace("_", " ").title())
+
+
+def _lease_invite_resolved_label_for_tenant_assignment(
+    db: Session,
+    ta: TenantAssignment,
+    today: date,
+) -> str:
+    u = db.query(User).filter(User.id == ta.user_id).first() if ta.user_id else None
+    em = (u.email or "").strip().lower() if u else None
+    inv = find_invitation_matching_tenant_assignment(db, ta, user_email_lower=em)
+    st = resolve_tenant_lease_assignment_status(ta, inv, today=today)
+    return _public_label_for_tenant_lease_assignment_status(st)
+
+
+def _lease_invite_resolved_label_for_tenant_stay(
+    db: Session,
+    stay: Stay,
+    inv_map: dict[int, Invitation],
+    today: date,
+) -> str:
+    iid = getattr(stay, "invitation_id", None)
+    inv = inv_map.get(iid) if iid else None
+    disp = resolve_invitation_display_status(inv, today=today, has_live_stay=True, db=db)
+    return {
+        "pending": "Pending invitation",
+        "accepted": "Accepted (invitation)",
+        "active": "Active (checked-in tenant stay)",
+        "expired": "Expired",
+        "cancelled": "Cancelled or revoked",
+    }.get(disp, disp.replace("_", " ").title())
+
+
 def _tenant_summary_strip(rows: list[LiveTenantAssignmentInfo]) -> tuple[str | None, str | None]:
     if not rows:
         return None, None
@@ -288,6 +332,7 @@ def _ta_to_live_tenant_row(
     ta: TenantAssignment,
     unit: Unit | None,
     now: datetime,
+    today: date,
     *,
     cohort_id: str | None = None,
     cohort_member_count: int | None = None,
@@ -300,6 +345,7 @@ def _ta_to_live_tenant_row(
         display = label_for_tenant_assignee(db, ta.user_id)
     tenant_email = (u.email or "").strip() if u else None
     created = ta.created_at if ta.created_at is not None else now
+    lease_invite = _lease_invite_resolved_label_for_tenant_assignment(db, ta, today)
     return LiveTenantAssignmentInfo(
         assignment_id=ta.id,
         stay_id=None,
@@ -311,6 +357,7 @@ def _ta_to_live_tenant_row(
         created_at=created,
         lease_cohort_id=cohort_id,
         lease_cohort_member_count=cohort_member_count,
+        lease_invite_resolved_status=lease_invite,
     )
 
 
@@ -344,7 +391,7 @@ def _live_tenant_summary_for_logged_in_tenant(
         return None
     unit_ids = {ta.unit_id for ta in rows}
     units_by_id = {u.id: u for u in db.query(Unit).filter(Unit.id.in_(unit_ids)).all()}
-    out = [_ta_to_live_tenant_row(db, ta, units_by_id.get(ta.unit_id), now) for ta in rows]
+    out = [_ta_to_live_tenant_row(db, ta, units_by_id.get(ta.unit_id), now, today) for ta in rows]
     assignee_s, period_s = _tenant_summary_strip(out)
     return out, assignee_s, period_s
 
@@ -395,6 +442,7 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
                         ta,
                         units_by_id.get(uid),
                         now,
+                        today,
                         cohort_id=ck,
                         cohort_member_count=cohort_sizes.get(ck) if ck else 1,
                     )
@@ -424,6 +472,7 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
                 start_date=s.stay_start_date,
                 end_date=s.stay_end_date,
                 created_at=created,
+                lease_invite_resolved_status=_lease_invite_resolved_label_for_tenant_stay(db, s, inv_map, today),
             )
         )
     return out2

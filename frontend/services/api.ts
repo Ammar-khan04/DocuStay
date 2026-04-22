@@ -858,6 +858,8 @@ export interface LiveTenantAssignmentInfo {
   created_at: string;
   lease_cohort_id?: string | null;
   lease_cohort_member_count?: number | null;
+  /** Public live: human label from resolve_tenant_lease_assignment_status or invite display (stay rows). */
+  lease_invite_resolved_status?: string | null;
 }
 
 /** Invitation summary – invite states indicate stay status (STAGED/BURNED/EXPIRED/REVOKED). */

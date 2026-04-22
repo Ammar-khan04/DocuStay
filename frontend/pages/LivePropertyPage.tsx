@@ -173,6 +173,12 @@ function tenantAssignmentDisplayName(row: LiveTenantAssignmentInfo): string {
   return (row.tenant_full_name || row.tenant_email || '—').trim() || '—';
 }
 
+function tenantLeaseInviteResolvedSummary(rows: LiveTenantAssignmentInfo[]): string {
+  const labels = rows.map((r) => (r.lease_invite_resolved_status || '').trim()).filter(Boolean);
+  if (!labels.length) return '—';
+  return [...new Set(labels)].join(' · ');
+}
+
 function tenantLeasePeriodLabel(row: LiveTenantAssignmentInfo): string {
   const start = formatCalendarDate(row.start_date);
   if (!row.end_date) return `${start} – Open-ended`;
@@ -517,6 +523,10 @@ function buildDisplayTenantAssignmentsForTenantLivePage(
     return apiRows;
   }
 
+  const cohortLeaseInviteStatus =
+    apiRows.find((r) => r.unit_label === unitLabel && (r.lease_invite_resolved_status || '').trim())
+      ?.lease_invite_resolved_status ?? null;
+
   const memberCount = Math.max(mirror.cohort_member_count ?? 0, peers.length + 1);
   if (memberCount < 2) {
     return apiRows;
@@ -555,6 +565,7 @@ function buildDisplayTenantAssignmentsForTenantLivePage(
       created_at: createdFallback,
       lease_cohort_id: cohortId,
       lease_cohort_member_count: memberCount,
+      lease_invite_resolved_status: cohortLeaseInviteStatus,
     });
   }
 
@@ -580,6 +591,7 @@ function buildDisplayTenantAssignmentsForTenantLivePage(
       created_at: createdFallback,
       lease_cohort_id: cohortId,
       lease_cohort_member_count: memberCount,
+      lease_invite_resolved_status: cohortLeaseInviteStatus,
     });
   }
 
@@ -891,6 +903,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               : lastTenantStay
                 ? `${formatCalendarDate(lastTenantStay.stay_start_date)} – ${formatCalendarDate(lastTenantStay.stay_end_date)} (last stay)`
                 : '—');
+  const tenantSummaryLeaseInviteLine = tenantLeaseInviteResolvedSummary(displayTenantAssignments);
 
   const sessionAuthorityChainLines: { key: string; prefix: string; name: string; email: string }[] = [];
   if (viewerSession) {
@@ -1439,6 +1452,12 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                             <span className="font-semibold text-slate-700">Lease window:</span> {tenantLeasePeriodLabel(row)}
                           </p>
                           <p>
+                            <span className="font-semibold text-slate-700">Invite / lease resolved:</span>{' '}
+                            <span className="text-slate-800">
+                              {(row.lease_invite_resolved_status || '').trim() || '—'}
+                            </span>
+                          </p>
+                          <p>
                             <span className="font-semibold text-slate-700">Assignment created:</span>{' '}
                             {formatDateTimeLocal(row.created_at)}
                           </p>
@@ -1479,6 +1498,10 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               <p>
                 <span className="font-semibold text-slate-700">Assignment period:</span>{' '}
                 {tenantSummaryPeriodLine}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Invite / lease resolved (on record):</span>{' '}
+                {tenantSummaryLeaseInviteLine}
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Tenant invitations on record:</span>{' '}

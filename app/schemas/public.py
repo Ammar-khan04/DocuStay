@@ -114,6 +114,8 @@ class LiveTenantAssignmentInfo(BaseModel):
     created_at: datetime
     lease_cohort_id: str | None = None
     lease_cohort_member_count: int | None = None
+    # Same SOT as dashboard: resolve_tenant_lease_assignment_status (+ invitation) or display invite status for stay rows.
+    lease_invite_resolved_status: str | None = None
 
 
 class LiveInvitationSummary(BaseModel):
