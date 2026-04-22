@@ -1063,8 +1063,14 @@ def _invitations_to_owner_views(
                 tenant_assignment=matching_assignment,
                 tenant_invitation=inv,
             )
-            assignment_status = resolved_tenant.assignment_status
-            display_status = assignment_status if assignment_status in ("pending", "accepted", "active", "expired") else "pending"
+            inv_st = resolved_tenant.invite_status
+            if inv_st in ("cancelled", "revoked"):
+                display_status = "cancelled"
+            elif inv_st == "expired":
+                display_status = "expired"
+            else:
+                assignment_status = resolved_tenant.assignment_status
+                display_status = assignment_status if assignment_status in ("pending", "accepted", "active", "expired") else "pending"
         else:
             has_stay = db.query(Stay).filter(Stay.invitation_id == inv.id).first() is not None
             display_status = resolve_invitation_display_status(
@@ -1159,20 +1165,41 @@ def owner_cancel_invitation(
     db.commit()
     prop = db.query(Property).filter(Property.id == inv.property_id).first()
     property_name = (prop.name if prop else None) or (f"{prop.city}, {prop.state}" if prop else None) or "Property"
+    guest_name = (getattr(inv, "guest_name", None) or "").strip()
+    guest_email = (getattr(inv, "guest_email", None) or "").strip()
+    invitee_for_message = guest_name or guest_email
+    if invitee_for_message and property_name:
+        cancel_notice_message = f"Cancelled invitation for {invitee_for_message} at {property_name}."
+    elif invitee_for_message:
+        cancel_notice_message = f"Cancelled invitation for {invitee_for_message}."
+    elif property_name:
+        cancel_notice_message = f"Cancelled invitation at {property_name}."
+    else:
+        cancel_notice_message = "Invitation cancelled."
+    cancel_log_meta = {
+        "invitation_code": inv.invitation_code,
+        "token_state_previous": prev_token,
+        "token_state_new": "REVOKED",
+        "property_name": property_name,
+    }
+    if guest_name:
+        cancel_log_meta["guest_name"] = guest_name
+    if guest_email:
+        cancel_log_meta["guest_email"] = guest_email
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "").strip() or None
     create_log(
         db,
         CATEGORY_STATUS_CHANGE,
         "Invitation cancelled",
-        f"Invite ID {inv.invitation_code} token_state {prev_token} -> REVOKED (owner cancelled). Property {property_name}, guest {inv.guest_name or inv.guest_email or '—'}.",
+        f"Invite ID {inv.invitation_code} token_state {prev_token} -> REVOKED (owner cancelled). Property {property_name}, guest {guest_name or guest_email or '—'}.",
         property_id=inv.property_id,
         invitation_id=inv.id,
         actor_user_id=current_user.id,
         actor_email=current_user.email,
         ip_address=ip,
         user_agent=ua,
-        meta={"invitation_code": inv.invitation_code, "token_state_previous": prev_token, "token_state_new": "REVOKED"},
+        meta=cancel_log_meta,
     )
     create_ledger_event(
         db,
@@ -1182,12 +1209,12 @@ def owner_cancel_invitation(
         property_id=inv.property_id,
         invitation_id=inv.id,
         actor_user_id=current_user.id,
-        meta={"invitation_code": inv.invitation_code, "token_state_previous": prev_token, "token_state_new": "REVOKED"},
+        meta=cancel_log_meta,
         ip_address=ip,
         user_agent=ua,
     )
     db.commit()
-    return {"status": "success", "message": "Invitation cancelled."}
+    return {"status": "success", "message": cancel_notice_message}
 
 
 @router.post("/owner/properties/{property_id}/confirm-vacant")
@@ -2361,8 +2388,10 @@ def confirm_occupancy_status(
 
 def _refresh_property_occupancy_status_from_units(db: Session, prop: Property) -> str:
     """Recompute Property.occupancy_status from all units + tenant assignments (matches owner dashboard list)."""
+    from app.services.unit_display_order import query_units_for_property_ordered
+
     db.flush()
-    units = db.query(Unit).filter(Unit.property_id == prop.id).all()
+    units = query_units_for_property_ordered(db, prop.id).all()
     eff = get_property_display_occupancy_status(db, prop, units)
     prop.occupancy_status = eff
     db.add(prop)

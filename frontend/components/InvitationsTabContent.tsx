@@ -66,7 +66,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
   introText = "Invitations you've sent. Pending invitations are labeled as expired after 72 hours if not accepted.",
   showCancelledGuestStays = true,
 }) => {
-  const cancelledInvitations = invitations.filter((i) => i.status === 'cancelled');
+  const cancelledInvitations = invitations.filter((i) => invitationDisplayStatus(i) === 'cancelled');
   const cancelledGuestStays = stays.filter((s) => s.cancelled_at);
   const showCancelledCard = showCancelledGuestStays
     ? (cancelledInvitations.length > 0 || cancelledGuestStays.length > 0)

@@ -14,6 +14,7 @@ import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import { toUserFriendlyInvitationError } from '../../utils/invitationErrors';
 import { tenantsPoolForUnitCard, groupOwnerTenantsByLeaseCohort, formatOwnerTenantGroupNames } from '../../utils/leaseCohortGroups';
 import { validateCoTenantRows, type CoTenantInviteRow } from '../../utils/inviteTenantBatch';
+import { partitionUnitsByOccupancyStatus } from '../../utils/unitDisplayOrder';
 
 // Import city data
 import US_CITIES_DATA from '@/data/us-cities.json';
@@ -458,6 +459,16 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
       tenantEmailsDisplay: tenantEmailsFromPool(pool) || tenant?.tenant_email || null,
     };
   }, [unitDetailModal, property, tenantsForThisProperty, propertyStays, user.is_demo, contextMode]);
+
+  const propertyUnitDisplayGroups = useMemo(() => {
+    if (!property?.is_multi_unit || propertyUnits.length === 0) return null;
+    const rows = propertyUnits.map((u) => {
+      const poolRaw = tenantsPoolForUnitCard(tenantsForThisProperty, u.id, u.unit_label || '1', true);
+      const status = effectiveUnitOccupancyLower(u.occupancy_status, poolRaw);
+      return { u, status };
+    });
+    return partitionUnitsByOccupancyStatus(rows);
+  }, [property?.is_multi_unit, propertyUnits, tenantsForThisProperty]);
 
   const loadData = useCallback(() => {
     if (!id || isNaN(id)) {
@@ -1133,80 +1144,180 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                 {((property.is_multi_unit && propertyUnits.length > 0) || (!property.is_multi_unit && property)) && (
                   <Card className="p-6 border-slate-200">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">Units</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {(property.is_multi_unit ? propertyUnits : [{ id: 0, unit_label: '1', occupancy_status: property.occupancy_status ?? 'vacant' }]).map((u) => {
-                        const poolRaw = tenantsPoolForUnitCard(
-                          tenantsForThisProperty,
-                          u.id,
-                          u.unit_label || '1',
-                          !!property.is_multi_unit,
-                        );
-                        const status = effectiveUnitOccupancyLower(u.occupancy_status, poolRaw);
-                        const pool = filterTenantRowsForLiveUnitDisplay(poolRaw);
-                        const statusCls = status === 'occupied' ? 'bg-emerald-100 text-emerald-700' : status === 'vacant' ? 'bg-sky-100 text-sky-700' : status === 'unconfirmed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600';
-                        const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : (u.occupancy_status ?? 'vacant');
-                        const tenantRow = pickTenantFromFilteredPool(pool);
-                        const tenantLabel =
-                          occupantNamesFromTenantPool(pool) ||
-                          (tenantRow ? tenantRow.tenant_name || tenantRow.tenant_email || null : null);
-                        const poolEmailsLine = tenantEmailsFromPool(pool);
-                        const managersHere = managersForUnitCard(assignedManagers, u.id, !!property.is_multi_unit);
-                        const managersLine =
-                          managersHere.length > 0 ? managersHere.map(managerDisplayName).join(', ') : null;
-                        return (
-                          <button
-                            key={u.id}
-                            type="button"
-                            onClick={() =>
-                              setUnitDetailModal({
-                                id: u.id,
-                                unit_label: u.unit_label || '1',
-                                occupancy_status: u.occupancy_status,
-                              })
-                            }
-                            className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2 w-full text-left cursor-pointer transition-shadow hover:shadow-md hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#6B90F2] focus:ring-offset-2"
-                            aria-label={`Open details for unit ${u.unit_label}`}
-                          >
-                            <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium w-fit ${statusCls}`}>{label}</span>
-                            {managersLine && (
-                              <p className="text-xs text-slate-600">
-                                Managed by: <span className="font-medium text-slate-800">{managersLine}</span>
-                              </p>
-                            )}
-                            {tenantLabel && tenantRow && (
-                              <div className="text-xs text-slate-700 space-y-0.5 border-t border-slate-200/80 pt-2 mt-0.5">
-                                <p className="font-medium text-slate-800">Tenants: {tenantLabel}</p>
-                                {pool.length === 1 && tenantRow.tenant_name && tenantRow.tenant_email && (
-                                  <p className="text-slate-500">{tenantRow.tenant_email}</p>
-                                )}
-                                {pool.length > 1 && poolEmailsLine && (
-                                  <p className="text-slate-500 break-all">{poolEmailsLine}</p>
-                                )}
-                                {(tenantRow.start_date || tenantRow.end_date) && (
-                                  <p className="text-slate-600">
-                                    Lease {formatCalendarDate(tenantRow.start_date)} –{' '}
-                                    {tenantRow.end_date ? formatCalendarDate(tenantRow.end_date) : 'Open-ended'}
-                                  </p>
-                                )}
-                                {pool.some((t) => ownerLeaseState(t) === 'pending') &&
-                                  (unitPoolHasActiveLease(poolRaw) ? (
-                                    <p className="text-amber-700">Co-tenant pending signup</p>
-                                  ) : (
-                                    <p className="text-amber-700">Pending signup</p>
-                                  ))}
-                              </div>
-                            )}
-                            {contextMode === 'personal' && status === 'occupied' && u.occupied_by && (
-                              <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>
-                            )}
-                            {contextMode === 'personal' && status === 'occupied' && u.invite_id && (
-                              <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {!property.is_multi_unit && property ? (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {[{ id: 0, unit_label: '1', occupancy_status: property.occupancy_status ?? 'vacant' }].map((u) => {
+                          const poolRaw = tenantsPoolForUnitCard(
+                            tenantsForThisProperty,
+                            u.id,
+                            u.unit_label || '1',
+                            !!property.is_multi_unit,
+                          );
+                          const status = effectiveUnitOccupancyLower(u.occupancy_status, poolRaw);
+                          const pool = filterTenantRowsForLiveUnitDisplay(poolRaw);
+                          const statusCls =
+                            status === 'occupied'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : status === 'vacant'
+                                ? 'bg-sky-100 text-sky-700'
+                                : status === 'unconfirmed'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-slate-100 text-slate-600';
+                          const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : (u.occupancy_status ?? 'vacant');
+                          const tenantRow = pickTenantFromFilteredPool(pool);
+                          const tenantLabel =
+                            occupantNamesFromTenantPool(pool) ||
+                            (tenantRow ? tenantRow.tenant_name || tenantRow.tenant_email || null : null);
+                          const poolEmailsLine = tenantEmailsFromPool(pool);
+                          const managersHere = managersForUnitCard(assignedManagers, u.id, !!property.is_multi_unit);
+                          const managersLine =
+                            managersHere.length > 0 ? managersHere.map(managerDisplayName).join(', ') : null;
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() =>
+                                setUnitDetailModal({
+                                  id: u.id,
+                                  unit_label: u.unit_label || '1',
+                                  occupancy_status: u.occupancy_status,
+                                })
+                              }
+                              className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2 w-full text-left cursor-pointer transition-shadow hover:shadow-md hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#6B90F2] focus:ring-offset-2"
+                              aria-label={`Open details for unit ${u.unit_label}`}
+                            >
+                              <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium w-fit ${statusCls}`}>{label}</span>
+                              {managersLine && (
+                                <p className="text-xs text-slate-600">
+                                  Managed by: <span className="font-medium text-slate-800">{managersLine}</span>
+                                </p>
+                              )}
+                              {tenantLabel && tenantRow && (
+                                <div className="text-xs text-slate-700 space-y-0.5 border-t border-slate-200/80 pt-2 mt-0.5">
+                                  <p className="font-medium text-slate-800">Tenants: {tenantLabel}</p>
+                                  {pool.length === 1 && tenantRow.tenant_name && tenantRow.tenant_email && (
+                                    <p className="text-slate-500">{tenantRow.tenant_email}</p>
+                                  )}
+                                  {pool.length > 1 && poolEmailsLine && (
+                                    <p className="text-slate-500 break-all">{poolEmailsLine}</p>
+                                  )}
+                                  {(tenantRow.start_date || tenantRow.end_date) && (
+                                    <p className="text-slate-600">
+                                      Lease {formatCalendarDate(tenantRow.start_date)} –{' '}
+                                      {tenantRow.end_date ? formatCalendarDate(tenantRow.end_date) : 'Open-ended'}
+                                    </p>
+                                  )}
+                                  {pool.some((t) => ownerLeaseState(t) === 'pending') &&
+                                    (unitPoolHasActiveLease(poolRaw) ? (
+                                      <p className="text-amber-700">Co-tenant pending signup</p>
+                                    ) : (
+                                      <p className="text-amber-700">Pending signup</p>
+                                    ))}
+                                </div>
+                              )}
+                              {contextMode === 'personal' && status === 'occupied' && u.occupied_by && (
+                                <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>
+                              )}
+                              {contextMode === 'personal' && status === 'occupied' && u.invite_id && (
+                                <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : propertyUnitDisplayGroups ? (
+                      <div className="space-y-8">
+                        {propertyUnitDisplayGroups.map((section) => (
+                          <div key={section.key}>
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3 pb-2 border-b border-slate-200">
+                              {section.heading}
+                            </h4>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              {section.items.map(({ u }) => {
+                                const poolRaw = tenantsPoolForUnitCard(
+                                  tenantsForThisProperty,
+                                  u.id,
+                                  u.unit_label || '1',
+                                  !!property.is_multi_unit,
+                                );
+                                const status = effectiveUnitOccupancyLower(u.occupancy_status, poolRaw);
+                                const pool = filterTenantRowsForLiveUnitDisplay(poolRaw);
+                                const statusCls =
+                                  status === 'occupied'
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : status === 'vacant'
+                                      ? 'bg-sky-100 text-sky-700'
+                                      : status === 'unconfirmed'
+                                        ? 'bg-amber-100 text-amber-700'
+                                        : 'bg-slate-100 text-slate-600';
+                                const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : (u.occupancy_status ?? 'vacant');
+                                const tenantRow = pickTenantFromFilteredPool(pool);
+                                const tenantLabel =
+                                  occupantNamesFromTenantPool(pool) ||
+                                  (tenantRow ? tenantRow.tenant_name || tenantRow.tenant_email || null : null);
+                                const poolEmailsLine = tenantEmailsFromPool(pool);
+                                const managersHere = managersForUnitCard(assignedManagers, u.id, !!property.is_multi_unit);
+                                const managersLine =
+                                  managersHere.length > 0 ? managersHere.map(managerDisplayName).join(', ') : null;
+                                return (
+                                  <button
+                                    key={u.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setUnitDetailModal({
+                                        id: u.id,
+                                        unit_label: u.unit_label || '1',
+                                        occupancy_status: u.occupancy_status,
+                                      })
+                                    }
+                                    className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2 w-full text-left cursor-pointer transition-shadow hover:shadow-md hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#6B90F2] focus:ring-offset-2"
+                                    aria-label={`Open details for unit ${u.unit_label}`}
+                                  >
+                                    <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-medium w-fit ${statusCls}`}>{label}</span>
+                                    {managersLine && (
+                                      <p className="text-xs text-slate-600">
+                                        Managed by: <span className="font-medium text-slate-800">{managersLine}</span>
+                                      </p>
+                                    )}
+                                    {tenantLabel && tenantRow && (
+                                      <div className="text-xs text-slate-700 space-y-0.5 border-t border-slate-200/80 pt-2 mt-0.5">
+                                        <p className="font-medium text-slate-800">Tenants: {tenantLabel}</p>
+                                        {pool.length === 1 && tenantRow.tenant_name && tenantRow.tenant_email && (
+                                          <p className="text-slate-500">{tenantRow.tenant_email}</p>
+                                        )}
+                                        {pool.length > 1 && poolEmailsLine && (
+                                          <p className="text-slate-500 break-all">{poolEmailsLine}</p>
+                                        )}
+                                        {(tenantRow.start_date || tenantRow.end_date) && (
+                                          <p className="text-slate-600">
+                                            Lease {formatCalendarDate(tenantRow.start_date)} –{' '}
+                                            {tenantRow.end_date ? formatCalendarDate(tenantRow.end_date) : 'Open-ended'}
+                                          </p>
+                                        )}
+                                        {pool.some((t) => ownerLeaseState(t) === 'pending') &&
+                                          (unitPoolHasActiveLease(poolRaw) ? (
+                                            <p className="text-amber-700">Co-tenant pending signup</p>
+                                          ) : (
+                                            <p className="text-amber-700">Pending signup</p>
+                                          ))}
+                                      </div>
+                                    )}
+                                    {contextMode === 'personal' && status === 'occupied' && u.occupied_by && (
+                                      <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>
+                                    )}
+                                    {contextMode === 'personal' && status === 'occupied' && u.invite_id && (
+                                      <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </Card>
                 )}
 

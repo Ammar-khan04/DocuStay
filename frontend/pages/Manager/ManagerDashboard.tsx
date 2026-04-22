@@ -15,6 +15,7 @@ import { InactivePropertyBanner } from '../../components/InactivePropertyBanner'
 import { copyToClipboard } from '../../utils/clipboard';
 import { formatStayDuration, formatLedgerTimestamp, formatCalendarDate } from '../../utils/dateUtils';
 import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
+import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../../utils/propertyInvitationSummary';
 
 interface PropertySummary {
   id: number;
@@ -23,6 +24,10 @@ interface PropertySummary {
   occupancy_status: string;
   unit_count: number;
   occupied_count: number;
+  invitation_pending_count?: number | null;
+  invitation_accepted_count?: number | null;
+  invitation_active_count?: number | null;
+  invitation_cancelled_count?: number | null;
   shield_mode_enabled?: boolean;
   deleted_at?: string | null;
 }
@@ -432,8 +437,8 @@ const ManagerDashboard: React.FC<{
           notify={notify}
           showVerifyQR={false}
           onCancelInvitation={async (id) => {
-            await dashboardApi.cancelInvitation(id);
-            notify('success', 'Invitation cancelled.');
+            const res = await dashboardApi.cancelInvitation(id);
+            notify('success', res.message ?? 'Invitation cancelled.');
             loadInvitationsAndStays();
             window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
           }}
@@ -794,6 +799,11 @@ const ManagerDashboard: React.FC<{
                         Shield: {p.shield_mode_enabled ? 'ON' : 'OFF'}
                       </span>
                     </div>
+                  </div>
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Invitation activity</p>
+                    <p className="text-sm font-medium text-slate-800">{propertyInvitationCountsLine(p)}</p>
+                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{PROPERTY_INVITATION_COUNTS_FOOTNOTE}</p>
                   </div>
                   {/* Units – expandable, same function as owner property detail */}
                   {expandedPropertyId === p.id && (

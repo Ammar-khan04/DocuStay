@@ -464,8 +464,8 @@ const TenantDashboard: React.FC<{
     if (!inviteRevokeConfirm) return;
     setInviteRevokeLoading(true);
     try {
-      await dashboardApi.cancelInvitation(inviteRevokeConfirm.id);
-      notify('success', 'Invitation cancelled.');
+      const res = await dashboardApi.cancelInvitation(inviteRevokeConfirm.id);
+      notify('success', res.message ?? 'Invitation cancelled.');
       setInviteRevokeConfirm(null);
       loadData();
       window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));

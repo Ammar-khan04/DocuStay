@@ -798,6 +798,15 @@ export interface LivePropertyInfo {
   owner_occupied?: boolean;
   /** Why occupancy reads as it does: guest stay vs tenant lease vs owner residence. */
   occupancy_summary_detail?: string;
+  /** Align multi-unit occupancy badge with owner dashboard property list. */
+  is_multi_unit?: boolean;
+  unit_count?: number | null;
+  occupied_unit_count?: number | null;
+  vacant_unit_count?: number | null;
+  invitation_pending_count?: number | null;
+  invitation_accepted_count?: number | null;
+  invitation_active_count?: number | null;
+  invitation_cancelled_count?: number | null;
 }
 
 export interface LiveOwnerInfo {
@@ -1062,7 +1071,21 @@ export const dashboardApi = {
     });
   },
   managerBilling: () => request<BillingResponse>("/dashboard/manager/billing"),
-  managerProperties: () => request<{ id: number; name: string | null; address: string; occupancy_status: string; unit_count: number; occupied_count: number }[]>("/managers/properties"),
+  managerProperties: () =>
+    request<
+      {
+        id: number;
+        name: string | null;
+        address: string;
+        occupancy_status: string;
+        unit_count: number;
+        occupied_count: number;
+        invitation_pending_count?: number | null;
+        invitation_accepted_count?: number | null;
+        invitation_active_count?: number | null;
+        invitation_cancelled_count?: number | null;
+      }[]
+    >("/managers/properties"),
   getManagerProperty: (propertyId: number) =>
     request<{
       id: number;
@@ -1075,6 +1098,10 @@ export const dashboardApi = {
       occupancy_status: string;
       unit_count: number;
       occupied_count: number;
+      invitation_pending_count?: number | null;
+      invitation_accepted_count?: number | null;
+      invitation_active_count?: number | null;
+      invitation_cancelled_count?: number | null;
       region_code?: string | null;
       property_type_label?: string | null;
       is_multi_unit?: boolean;
@@ -1087,6 +1114,7 @@ export const dashboardApi = {
         id: number;
         unit_label: string;
         occupancy_status: string;
+        is_primary_residence?: boolean;
         occupied_by?: string | null;
         invite_id?: string | null;
         current_tenant_name?: string | null;
@@ -1833,6 +1861,11 @@ export interface Property {
   /** Multi-unit: how many units are effectively occupied/vacant (for consistent status display). */
   occupied_unit_count?: number | null;
   vacant_unit_count?: number | null;
+  /** Property-lane invitations; not unit occupancy. */
+  invitation_pending_count?: number | null;
+  invitation_accepted_count?: number | null;
+  invitation_active_count?: number | null;
+  invitation_cancelled_count?: number | null;
   ownership_proof_filename?: string | null;
   ownership_proof_type?: string | null;
   ownership_proof_uploaded_at?: string | null;

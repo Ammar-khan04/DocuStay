@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.invitation import Invitation
@@ -17,6 +17,7 @@ from app.models.user import User
 from app.services.invitation_kinds import (
     TENANT_UNIT_LEASE_KINDS,
     bypasses_unit_lease_overlap_for_kind,
+    is_property_invited_tenant_signup_kind,
     is_tenant_lease_extension_kind,
 )
 
@@ -228,6 +229,58 @@ def find_tenant_assignment_for_lease_extension_accept(
         .all()
     )
     return rows[0] if rows else None
+
+
+def find_tenant_assignment_for_invitation_summary(db: Session, inv: Invitation) -> TenantAssignment | None:
+    """Resolve the ``TenantAssignment`` row that governs lease-state for property-level counts.
+
+    Uses the same date matching as accept/register flows. When multiple assignments share the same
+    lease window (co-tenants), disambiguates with ``invitation.guest_email`` if possible.
+    """
+    if getattr(inv, "unit_id", None) is None:
+        return None
+    if not is_property_invited_tenant_signup_kind(getattr(inv, "invitation_kind", None)):
+        return None
+
+    inv_email = (getattr(inv, "guest_email", None) or "").strip().lower()
+
+    if is_tenant_lease_extension_kind(getattr(inv, "invitation_kind", None)):
+        if inv_email and "@" in inv_email:
+            user = (
+                db.query(User)
+                .filter(func.lower(func.trim(User.email)) == inv_email)
+                .first()
+            )
+            if user is not None:
+                return find_tenant_assignment_for_lease_extension_accept(db, user.id, inv)
+        return None
+
+    if inv_email and "@" in inv_email:
+        user = (
+            db.query(User)
+            .filter(func.lower(func.trim(User.email)) == inv_email)
+            .first()
+        )
+        if user is not None:
+            ta = find_tenant_assignment_matching_invitation(db, user.id, inv)
+            if ta is not None:
+                return ta
+
+    matches = [
+        ta
+        for ta in db.query(TenantAssignment).filter(TenantAssignment.unit_id == inv.unit_id).all()
+        if assignment_matches_invitation_dates(ta, inv)
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    if inv_email:
+        for ta in matches:
+            u = db.query(User).filter(User.id == ta.user_id).first()
+            if u and (u.email or "").strip().lower() == inv_email:
+                return ta
+    return None
 
 
 def assert_tenant_lease_extension_no_other_occupant_conflict(

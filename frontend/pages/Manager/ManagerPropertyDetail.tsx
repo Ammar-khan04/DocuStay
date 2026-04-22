@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Modal } from '../../components/UI';
 import { InviteRoleChoiceModal } from '../../components/InviteRoleChoiceModal';
@@ -16,6 +16,7 @@ import { JURISDICTION_RULES } from '../../services/jleService';
 import { formatStayDuration, formatCalendarDate, formatDateTimeLocal } from '../../utils/dateUtils';
 import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import type { OwnerStayView, OwnerAuditLogEntry, BillingResponse } from '../../services/api';
+import { partitionUnitsByOccupancyStatus } from '../../utils/unitDisplayOrder';
 
 type ManagerPropertySummary = {
   id: number; name: string | null; address: string;
@@ -29,6 +30,7 @@ type UnitSummary = {
   id: number;
   unit_label: string;
   occupancy_status: string;
+  is_primary_residence?: boolean;
   occupied_by?: string | null;
   invite_id?: string | null;
   current_tenant_name?: string | null;
@@ -125,6 +127,13 @@ const ManagerPropertyDetail: React.FC<{
   }, [loadData]);
 
   const realUnits = units.filter((u) => u.id > 0);
+  const managerUnitDisplayGroups = useMemo(() => {
+    if (!property?.is_multi_unit) return null;
+    const physical = units.filter((u) => u.id > 0);
+    if (physical.length === 0) return null;
+    const rows = physical.map((u) => ({ u, status: (u.occupancy_status || 'vacant').toLowerCase() }));
+    return partitionUnitsByOccupancyStatus(rows);
+  }, [property?.is_multi_unit, units]);
   useEffect(() => {
     if (realUnits.length === 0) {
       setResidenceUnitChoice(null);
@@ -568,69 +577,144 @@ const ManagerPropertyDetail: React.FC<{
           {/* Units */}
           <Card className="p-6 border-slate-200">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">Units</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {units.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => setUnitDetailModal(u)}
-                  className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2 w-full text-left cursor-pointer transition-shadow hover:shadow-md hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#6B90F2] focus:ring-offset-2"
-                  aria-label={`Open details for unit ${u.unit_label}`}
-                >
-                  <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
-                  {statusBadge(u.occupancy_status)}
-                  {contextMode === 'personal' && u.occupied_by && <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>}
-                  {contextMode === 'personal' && u.invite_id && <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>}
-                  {(u.current_tenant_name || u.current_tenant_email || u.lease_start_date) && (
-                    <div className="mt-1 pt-2 border-t border-slate-200/90 space-y-1 text-xs text-slate-600">
-                      <p className="font-semibold text-slate-700 uppercase tracking-wide text-[10px]">Current tenant</p>
-                      {typeof u.lease_cohort_member_count === 'number' && u.lease_cohort_member_count > 1 ? (
-                        <p className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 rounded px-1.5 py-0.5 w-fit">
-                          Shared lease · {u.lease_cohort_member_count} tenants
-                        </p>
-                      ) : null}
-                      {u.current_tenant_name ? (
-                        <p>
-                          <span className="text-slate-500">Name</span>{' '}
-                          <span className="font-medium text-slate-800">{u.current_tenant_name}</span>
-                        </p>
-                      ) : null}
-                      {u.current_tenant_email ? (
-                        <p className="break-all">
-                          <span className="text-slate-500">Email</span>{' '}
-                          <span className="font-medium text-slate-800">{u.current_tenant_email}</span>
-                        </p>
-                      ) : null}
-                      {u.lease_start_date ? (
-                        <p>
-                          <span className="text-slate-500">Lease</span>{' '}
-                          <span className="font-medium text-slate-800">{formatManagerUnitLeaseLine(u.lease_start_date, u.lease_end_date)}</span>
-                        </p>
-                      ) : null}
+            {!property?.is_multi_unit || realUnits.length === 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {units.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setUnitDetailModal(u)}
+                    className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2 w-full text-left cursor-pointer transition-shadow hover:shadow-md hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#6B90F2] focus:ring-offset-2"
+                    aria-label={`Open details for unit ${u.unit_label}`}
+                  >
+                    <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
+                    {statusBadge(u.occupancy_status)}
+                    {contextMode === 'personal' && u.occupied_by && <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>}
+                    {contextMode === 'personal' && u.invite_id && <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>}
+                    {(u.current_tenant_name || u.current_tenant_email || u.lease_start_date) && (
+                      <div className="mt-1 pt-2 border-t border-slate-200/90 space-y-1 text-xs text-slate-600">
+                        <p className="font-semibold text-slate-700 uppercase tracking-wide text-[10px]">Current tenant</p>
+                        {typeof u.lease_cohort_member_count === 'number' && u.lease_cohort_member_count > 1 ? (
+                          <p className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 rounded px-1.5 py-0.5 w-fit">
+                            Shared lease · {u.lease_cohort_member_count} tenants
+                          </p>
+                        ) : null}
+                        {u.current_tenant_name ? (
+                          <p>
+                            <span className="text-slate-500">Name</span>{' '}
+                            <span className="font-medium text-slate-800">{u.current_tenant_name}</span>
+                          </p>
+                        ) : null}
+                        {u.current_tenant_email ? (
+                          <p className="break-all">
+                            <span className="text-slate-500">Email</span>{' '}
+                            <span className="font-medium text-slate-800">{u.current_tenant_email}</span>
+                          </p>
+                        ) : null}
+                        {u.lease_start_date ? (
+                          <p>
+                            <span className="text-slate-500">Lease</span>{' '}
+                            <span className="font-medium text-slate-800">{formatManagerUnitLeaseLine(u.lease_start_date, u.lease_end_date)}</span>
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+                    {(u.occupancy_status || '').toLowerCase() === 'vacant' && u.id > 0 && (
+                      <Button
+                        variant="outline"
+                        type="button"
+                        className="w-full"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (contextMode === 'personal') {
+                            setInviteGuestUnitId(u.id);
+                            setInviteGuestStayLabel(`Unit ${u.unit_label}`);
+                            setInviteGuestOpen(true);
+                          } else {
+                            setInviteRoleChoiceUnit({ unitId: u.id, unitLabel: u.unit_label });
+                          }
+                        }}
+                      >
+                        Invite
+                      </Button>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : managerUnitDisplayGroups ? (
+              <div className="space-y-8">
+                {managerUnitDisplayGroups.map((section) => (
+                  <div key={section.key}>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3 pb-2 border-b border-slate-200">
+                      {section.heading}
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {section.items.map(({ u }) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => setUnitDetailModal(u)}
+                          className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-col gap-2 w-full text-left cursor-pointer transition-shadow hover:shadow-md hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#6B90F2] focus:ring-offset-2"
+                          aria-label={`Open details for unit ${u.unit_label}`}
+                        >
+                          <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
+                          {statusBadge(u.occupancy_status)}
+                          {contextMode === 'personal' && u.occupied_by && <p className="text-xs text-slate-600">Occupied by {u.occupied_by}</p>}
+                          {contextMode === 'personal' && u.invite_id && <p className="text-xs text-slate-500">Invite ID {u.invite_id}</p>}
+                          {(u.current_tenant_name || u.current_tenant_email || u.lease_start_date) && (
+                            <div className="mt-1 pt-2 border-t border-slate-200/90 space-y-1 text-xs text-slate-600">
+                              <p className="font-semibold text-slate-700 uppercase tracking-wide text-[10px]">Current tenant</p>
+                              {typeof u.lease_cohort_member_count === 'number' && u.lease_cohort_member_count > 1 ? (
+                                <p className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 rounded px-1.5 py-0.5 w-fit">
+                                  Shared lease · {u.lease_cohort_member_count} tenants
+                                </p>
+                              ) : null}
+                              {u.current_tenant_name ? (
+                                <p>
+                                  <span className="text-slate-500">Name</span>{' '}
+                                  <span className="font-medium text-slate-800">{u.current_tenant_name}</span>
+                                </p>
+                              ) : null}
+                              {u.current_tenant_email ? (
+                                <p className="break-all">
+                                  <span className="text-slate-500">Email</span>{' '}
+                                  <span className="font-medium text-slate-800">{u.current_tenant_email}</span>
+                                </p>
+                              ) : null}
+                              {u.lease_start_date ? (
+                                <p>
+                                  <span className="text-slate-500">Lease</span>{' '}
+                                  <span className="font-medium text-slate-800">{formatManagerUnitLeaseLine(u.lease_start_date, u.lease_end_date)}</span>
+                                </p>
+                              ) : null}
+                            </div>
+                          )}
+                          {(u.occupancy_status || '').toLowerCase() === 'vacant' && u.id > 0 && (
+                            <Button
+                              variant="outline"
+                              type="button"
+                              className="w-full"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (contextMode === 'personal') {
+                                  setInviteGuestUnitId(u.id);
+                                  setInviteGuestStayLabel(`Unit ${u.unit_label}`);
+                                  setInviteGuestOpen(true);
+                                } else {
+                                  setInviteRoleChoiceUnit({ unitId: u.id, unitLabel: u.unit_label });
+                                }
+                              }}
+                            >
+                              Invite
+                            </Button>
+                          )}
+                        </button>
+                      ))}
                     </div>
-                  )}
-                  {(u.occupancy_status || '').toLowerCase() === 'vacant' && u.id > 0 && (
-                    <Button
-                      variant="outline"
-                      type="button"
-                      className="w-full"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (contextMode === 'personal') {
-                          setInviteGuestUnitId(u.id);
-                          setInviteGuestStayLabel(`Unit ${u.unit_label}`);
-                          setInviteGuestOpen(true);
-                        } else {
-                          setInviteRoleChoiceUnit({ unitId: u.id, unitLabel: u.unit_label });
-                        }
-                      }}
-                    >
-                      Invite
-                    </Button>
-                  )}
-                </button>
-              ))}
-            </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </Card>
         </div>
       )}

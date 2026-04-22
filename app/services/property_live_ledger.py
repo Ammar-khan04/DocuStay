@@ -4,9 +4,10 @@ Event ledger rows for public live / verify property timelines.
 GET /public/live/{slug} and verify merge ledger rows tied to the property (property_id,
 stay, invitation, or unit on the property).
 
-By default, guest-stay lifecycle and guest invite/authorization rows are excluded for
-public / owner-style evidence. Presence changes (Present/Away) are included so the full
-chain of events is visible on the audit timeline and live link.
+By default, guest-stay lifecycle and most guest invite/authorization rows are excluded for
+public / owner-style evidence. Pending-invite cancellation (``GuestInviteCancelled``) stays
+visible so property audit timelines reflect withdrawn invites. Presence changes (Present/Away)
+are included so the full chain of events is visible on the audit timeline and live link.
 Stay-end reminder events may appear; display text scrubs the substring ``dms``.
 The live router passes ``exclude_guest_stay_actions=False`` when the Bearer viewer is an
 assigned tenant on that property so they still see guest-stay notifications on the timeline.
@@ -31,7 +32,6 @@ _LIVE_PUBLIC_LEDGER_EXCLUDED_ACTIONS: frozenset[str] = frozenset(
         el.ACTION_GUEST_INVITE_CREATED,
         el.ACTION_GUEST_INVITE_ACCEPTED,
         el.ACTION_GUEST_INVITE_REVOKED,
-        el.ACTION_GUEST_INVITE_CANCELLED,
         el.ACTION_GUEST_CHECK_IN,
         el.ACTION_GUEST_CHECK_OUT,
         el.ACTION_STAY_CANCELLED,
@@ -61,9 +61,9 @@ def merged_public_property_ledger_rows(
     """Newest-first ledger rows for this property.
 
     When ``exclude_guest_stay_actions`` is true (default), guest-stay lanes are omitted for
-    property-level / verify timelines. Set false for assigned-tenant live viewers who should
-    see guest-stay notifications. Presence actions are always included so the audit timeline
-    reflects all status and presence changes.
+    property-level / verify timelines, except ``GuestInviteCancelled`` (see module docstring).
+    Set false for assigned-tenant live viewers who should see guest-stay notifications.
+    Presence actions are always included so the audit timeline reflects status and presence changes.
     """
     stay_ids = [r[0] for r in db.query(Stay.id).filter(Stay.property_id == property_id).all()]
     inv_ids = [r[0] for r in db.query(Invitation.id).filter(Invitation.property_id == property_id).all()]

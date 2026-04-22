@@ -147,7 +147,9 @@ def clear_stored_unit_occupied_without_lease_or_stay(db: Session, property_id: i
 
     Called when ``owner_occupied`` is turned off so property-level reconcile matches business-mode expectations.
     """
-    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units = query_units_for_property_ordered(db, property_id).all()
     if not units:
         return
     today = date.today()

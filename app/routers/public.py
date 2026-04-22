@@ -36,7 +36,11 @@ from app.services.event_ledger import (
 from app.services.property_live_ledger import merged_public_property_ledger_rows
 from app.services.ledger_actor_attribution import audit_actor_attribution
 from app.services.shield_mode_policy import effective_shield_mode_enabled
-from app.services.occupancy import get_property_display_occupancy_status, normalize_occupancy_status_for_display
+from app.services.occupancy import (
+    get_property_display_occupancy_status,
+    normalize_occupancy_status_for_display,
+    count_effectively_occupied_units,
+)
 from app.services.display_names import (
     label_for_stay,
     label_from_invitation,
@@ -351,9 +355,10 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
     pending invite, or on-site manager fills the unit, the leaseholder tenant row is not shown for that unit.
     """
     from app.services.occupancy import get_units_occupancy_sources
+    from app.services.unit_display_order import query_units_for_property_ordered
 
     now = datetime.now(timezone.utc)
-    unit_rows = db.query(Unit).filter(Unit.property_id == property_id).all()
+    unit_rows = query_units_for_property_ordered(db, property_id).all()
     if unit_rows:
         unit_ids = [u.id for u in unit_rows]
         sources = get_units_occupancy_sources(db, unit_ids, guest_detail_unit_ids=None)
@@ -375,7 +380,8 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
             ck = cohort_map.get(_ta.id)
             if ck:
                 cohort_sizes[ck] = cohort_sizes.get(ck, 0) + 1
-        for uid in sorted(unit_ids):
+        for u in unit_rows:
+            uid = u.id
             if sources.get(uid) != "tenant_assignment":
                 continue
             unit_tas = [x for x in active_tas if x.unit_id == uid]
@@ -506,9 +512,28 @@ def get_live_property_page(
     ]
 
     token_state = getattr(prop, "usat_token_state", None) or "staged"
-    units_for_live = db.query(Unit).filter(Unit.property_id == prop.id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units_for_live = query_units_for_property_ordered(db, prop.id).all()
     display_occupancy = get_property_display_occupancy_status(db, prop, units_for_live)
     owner_occ_flag = bool(getattr(prop, "owner_occupied", False))
+    is_multi = bool(getattr(prop, "is_multi_unit", False))
+    occ_lower = (display_occupancy or "").lower()
+    occupied_units = (
+        count_effectively_occupied_units(db, units_for_live)
+        if units_for_live
+        else (1 if occ_lower == OccupancyStatus.occupied.value else 0)
+    )
+    total_units = len(units_for_live) if units_for_live else (1 if not is_multi else 0)
+    unit_count_val = total_units or 1
+    vacant_units = max(0, int(unit_count_val) - int(occupied_units))
+    from app.services.property_invitation_summary import (
+        filter_invitations_for_live_property_evidence,
+        invitation_counts_dict,
+    )
+
+    inv_for_counts = filter_invitations_for_live_property_evidence(db, property_id=prop.id, viewer=viewer)
+    inv_count_fields = invitation_counts_dict(inv_for_counts, db)
     prop_info = LivePropertyInfo(
         name=prop.name,
         street=prop.street,
@@ -523,6 +548,11 @@ def get_live_property_page(
         apn=getattr(prop, "apn", None) or None,
         owner_occupied=owner_occ_flag,
         occupancy_summary_detail="",
+        is_multi_unit=is_multi,
+        unit_count=unit_count_val,
+        occupied_unit_count=occupied_units,
+        vacant_unit_count=vacant_units,
+        **inv_count_fields,
     )
 
     # Jurisdictional wrap: applicable law for this property (zip → region → statutes)

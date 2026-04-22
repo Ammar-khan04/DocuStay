@@ -51,6 +51,16 @@ class LivePropertyInfo(BaseModel):
     owner_occupied: bool = False
     # Plain-language explanation of why occupancy reads as it does (guest vs tenant vs owner residence).
     occupancy_summary_detail: str = ""
+    # Multi-unit: same display inputs as owner dashboard property card (GET /owners/properties/{id}).
+    is_multi_unit: bool = False
+    unit_count: int | None = None
+    occupied_unit_count: int | None = None
+    vacant_unit_count: int | None = None
+    # Invitation pipeline (same visibility as live “Invitation states”; independent of occupancy counts).
+    invitation_pending_count: int = 0
+    invitation_accepted_count: int = 0
+    invitation_active_count: int = 0
+    invitation_cancelled_count: int = 0
 
 
 class LiveOwnerInfo(BaseModel):

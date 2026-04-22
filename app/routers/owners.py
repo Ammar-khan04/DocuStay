@@ -360,6 +360,15 @@ def list_my_properties(
     if not props:
         return []
     prop_ids = [p.id for p in props]
+    from collections import defaultdict
+
+    from app.services.privacy_lanes import filter_property_lane_invitations_for_owner
+    from app.services.property_invitation_summary import invitation_counts_dict
+
+    all_prop_invitations = db.query(Invitation).filter(Invitation.property_id.in_(prop_ids)).all()
+    invitations_by_property: dict[int, list[Invitation]] = defaultdict(list)
+    for inv in all_prop_invitations:
+        invitations_by_property[inv.property_id].append(inv)
     unit_count_rows = (
         db.query(Unit.property_id, func.count(Unit.id).label("cnt"))
         .filter(Unit.property_id.in_(prop_ids))
@@ -368,8 +377,10 @@ def list_my_properties(
     )
     unit_count_map = {r.property_id: r.cnt for r in unit_count_rows}
     # Load units once so we can compute effective occupancy + counts consistently for cards.
+    from app.services.unit_display_order import query_units_for_properties_ordered
+
     units_by_property_id: dict[int, list[Unit]] = {pid: [] for pid in prop_ids}
-    all_units = db.query(Unit).filter(Unit.property_id.in_(prop_ids)).all()
+    all_units = query_units_for_properties_ordered(db, prop_ids).all()
     for u in all_units:
         units_by_property_id.setdefault(u.property_id, []).append(u)
     out = []
@@ -383,6 +394,10 @@ def list_my_properties(
         total_units = int(data["unit_count"] or 1)
         data["occupied_unit_count"] = occupied_units
         data["vacant_unit_count"] = max(0, total_units - occupied_units)
+        lane_invs = filter_property_lane_invitations_for_owner(
+            db, invitations_by_property.get(p.id, []), current_user.id
+        )
+        data.update(invitation_counts_dict(lane_invs, db))
         out.append(PropertyResponse(**data))
     return out
 
@@ -872,7 +887,7 @@ def bulk_upload_properties(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_owner_onboarding_complete),
 ):
-    """Upload properties via CSV. Required: Address, City, State, Zip, Occupied (YES/NO). If Occupied=YES: Tenant Name, Lease Start, Lease End required. Optional: Tenant 2 Name through Tenant 12 Name (and matching Tenant N Email) for shared-lease co-tenants; Tenant Email (optional); Unit No, Shield Mode, Tax ID, APN. Each property gets a Property Lifecycle Anchor Token. Occupied=YES: burn property token, set occupancy, create primary tenant invite (pending, STAGED) plus co-tenant invites (tenant_cotenant, pending, STAGED) when extra columns are set. Occupied=NO: token STAGED, status VACANT."""
+    """Upload properties via CSV. Required: Address, City, State, Zip, Occupied (YES/NO). If Occupied=YES: Tenant Name, Lease Start, Lease End required. Optional: Tenant 2 Name through Tenant 12 Name (and matching Tenant N Email) for shared-lease co-tenants; Tenant Email (optional); Unit No, Shield Mode, Tax ID, APN. Each property gets a Property Lifecycle Anchor Token. Occupied=YES creates staged/pending tenant invite rows (primary + optional co-tenants) and keeps property occupancy/token staged until acceptance materializes. Occupied=NO: token STAGED, status VACANT."""
     profile = db.query(OwnerProfile).filter(OwnerProfile.user_id == current_user.id).first()
     if not profile:
         profile = OwnerProfile(user_id=current_user.id)
@@ -1111,7 +1126,13 @@ def bulk_upload_properties(
         if existing_match is None:
             # Primary residence: from primary_residence column, or when primary_unit_val is set for multi-unit
             owner_occ = primary_residence or (primary_unit_val is not None and primary_unit_val >= 1)
-            occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
+            has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
+            # CSV-imported tenant rows are staged invites; keep property occupancy vacant until acceptance materializes.
+            occ_status = (
+                OccupancyStatus.vacant.value
+                if has_pending_tenant_invite
+                else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
+            )
             prop = Property(
                 owner_profile_id=profile.id,
                 name=prop_name,
@@ -1140,7 +1161,11 @@ def bulk_upload_properties(
                     break
             else:
                 prop.usat_token = "USAT-" + secrets.token_hex(8).upper() + "-" + str(prop.id)
-            prop.usat_token_state = USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED
+            prop.usat_token_state = (
+                USAT_TOKEN_STAGED
+                if has_pending_tenant_invite
+                else (USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED)
+            )
             # Note: units are created below when this CSV indicates multi-unit grouping for this address+name.
             # Address normalization and utility lookup shelved for now.
             # _apply_smarty_address(prop, street.strip(), city.strip(), state_upper, zip_code)
@@ -1296,9 +1321,14 @@ def bulk_upload_properties(
             existing_props_by_key[key] = prop
             existing_match = prop
         else:
-            # Primary residence (owner-occupied) implies unit is occupied; same as tenant Occupied=YES
+            # Keep CSV tenant-import rows vacant while invitation is still staged/pending.
             owner_occ = primary_residence
-            new_occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
+            has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
+            new_occ_status = (
+                OccupancyStatus.vacant.value
+                if has_pending_tenant_invite
+                else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
+            )
             updates: dict[str, object] = {}
             if (existing_match.name or "").strip() != address_as_name:
                 # Preserve provided name; only fall back to address_as_name when CSV provides none.
@@ -1323,7 +1353,11 @@ def bulk_upload_properties(
                 updates["tax_id"] = tax_id_val
             if (existing_match.apn or None) != apn_val:
                 updates["apn"] = apn_val
-            new_token_state = USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED
+            new_token_state = (
+                USAT_TOKEN_STAGED
+                if has_pending_tenant_invite
+                else (USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED)
+            )
             if (existing_match.usat_token_state or USAT_TOKEN_STAGED) != new_token_state:
                 existing_match.usat_token_state = new_token_state
                 updates["usat_token_state"] = new_token_state
@@ -1799,7 +1833,12 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
 
             if existing_match is None:
                 owner_occ = primary_residence
-                occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
+                has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
+                occ_status = (
+                    OccupancyStatus.vacant.value
+                    if has_pending_tenant_invite
+                    else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
+                )
                 prop = Property(
                     owner_profile_id=profile.id,
                     name=prop_name,
@@ -1826,7 +1865,11 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         break
                 else:
                     prop.usat_token = "USAT-" + secrets.token_hex(8).upper() + "-" + str(prop.id)
-                prop.usat_token_state = USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED
+                prop.usat_token_state = (
+                    USAT_TOKEN_STAGED
+                    if has_pending_tenant_invite
+                    else (USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED)
+                )
                 created += 1
 
                 create_log(
@@ -1966,7 +2009,12 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
             else:
                 # Update existing property fields (same logic as sync bulk upload)
                 owner_occ = primary_residence
-                new_occ_status = OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value
+                has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
+                new_occ_status = (
+                    OccupancyStatus.vacant.value
+                    if has_pending_tenant_invite
+                    else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
+                )
                 updates: dict[str, object] = {}
                 if (existing_match.name or "").strip() != prop_name:
                     updates["name"] = prop_name
@@ -1990,7 +2038,11 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                     updates["tax_id"] = tax_id_val
                 if (existing_match.apn or None) != apn_val:
                     updates["apn"] = apn_val
-                new_token_state = USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED
+                new_token_state = (
+                    USAT_TOKEN_STAGED
+                    if has_pending_tenant_invite
+                    else (USAT_TOKEN_RELEASED if occupied else USAT_TOKEN_STAGED)
+                )
                 if (existing_match.usat_token_state or USAT_TOKEN_STAGED) != new_token_state:
                     existing_match.usat_token_state = new_token_state
                     updates["usat_token_state"] = new_token_state
@@ -2366,13 +2418,21 @@ def get_property(
     from app.services.jurisdiction_sot import get_jurisdiction_for_property
     payload = PropertyResponse.model_validate(prop).model_dump()
     # Use effective occupancy (includes units with on-site manager) for display
-    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units = query_units_for_property_ordered(db, property_id).all()
     payload["occupancy_status"] = get_property_display_occupancy_status(db, prop, units)
     occupied_units = count_effectively_occupied_units(db, units) if units else (1 if (payload["occupancy_status"] or "").lower() == OccupancyStatus.occupied.value else 0)
     total_units = len(units) if units else (1 if not getattr(prop, "is_multi_unit", False) else 0)
     payload["unit_count"] = total_units or payload.get("unit_count") or 1
     payload["occupied_unit_count"] = occupied_units
     payload["vacant_unit_count"] = max(0, int(payload["unit_count"] or 1) - occupied_units)
+    from app.services.privacy_lanes import filter_property_lane_invitations_for_owner
+    from app.services.property_invitation_summary import invitation_counts_dict
+
+    invs_one = db.query(Invitation).filter(Invitation.property_id == property_id).all()
+    lane_one = filter_property_lane_invitations_for_owner(db, invs_one, current_user.id)
+    payload.update(invitation_counts_dict(lane_one, db))
     jinfo = get_jurisdiction_for_property(db, prop.zip_code, prop.region_code)
     if jinfo:
         payload["jurisdiction_documentation"] = PropertyJurisdictionDocumentation(
@@ -2416,7 +2476,9 @@ def list_property_units(
     ).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
-    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units = query_units_for_property_ordered(db, property_id).all()
     if not units:
         # Single-unit property: return implicit unit (id=0 for "whole property")
         return [
@@ -2500,7 +2562,9 @@ def invite_property_manager(
         ).first()
         if existing_assignment:
             raise HTTPException(status_code=400, detail="This manager is already assigned to this property.")
-    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units = query_units_for_property_ordered(db, property_id).all()
     sole_manager_property = (not bool(prop.is_multi_unit)) or len(units) <= 1
     other_manager_count = (
         db.query(PropertyManagerAssignment)
@@ -4445,7 +4509,9 @@ def owner_invite_tenant_by_property(
     ).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
-    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units = query_units_for_property_ordered(db, property_id).all()
     if len(units) > 1:
         raise HTTPException(status_code=400, detail="Use unit-specific invite for multi-unit properties")
     if units:

@@ -531,6 +531,8 @@ OWNER_BUSINESS_ACTIONS: set[str] = {
     ACTION_MASTER_POA_SIGNED,
     ACTION_OVERSTAY_OCCURRED,
     ACTION_INVITATION_EXPIRED,
+    # Owner/manager-cancelled pending invites (guest or tenant signup rows); ledger uses this action for all lanes.
+    ACTION_GUEST_INVITE_CANCELLED,
     # Property/management-lane guest stays: visible after privacy filter (tenant-lane revokes excluded).
     ACTION_STAY_REVOKED,
 }
@@ -666,6 +668,30 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
             msg = f"{title} for {meta['property_name']}"
         else:
             msg = title
+    elif action == ACTION_GUEST_INVITE_CANCELLED:
+        base_title = title
+        gn = (meta.get("guest_name") or "").strip()
+        ge_raw = (meta.get("guest_email") or "").strip()
+        prop_nm = (meta.get("property_name") or "").strip()
+        invitee = ""
+        if gn:
+            invitee = gn
+        elif ge_raw and db:
+            invitee = _display_name_for_email(db, ge_raw, invitation_id=entry.invitation_id)
+        elif ge_raw:
+            invitee = ge_raw
+        if invitee and prop_nm:
+            msg = f"Pending invitation for {invitee} at {prop_nm} was withdrawn."
+        elif invitee:
+            msg = f"Pending invitation for {invitee} was withdrawn."
+        elif prop_nm:
+            msg = f"A pending invitation at {prop_nm} was withdrawn."
+        else:
+            msg = base_title
+        if gn:
+            title = f"{base_title} — {gn}"
+        elif invitee:
+            title = f"{base_title} — {invitee}"
     elif has_custom_message:
         msg = str(meta["message"])
     elif meta.get("property_name"):

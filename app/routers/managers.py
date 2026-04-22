@@ -67,6 +67,10 @@ class PropertySummary(BaseModel):
     occupancy_status: str
     unit_count: int
     occupied_count: int
+    invitation_pending_count: int = 0
+    invitation_accepted_count: int = 0
+    invitation_active_count: int = 0
+    invitation_cancelled_count: int = 0
     region_code: str | None = None
     property_type_label: str | None = None
     is_multi_unit: bool = False
@@ -80,6 +84,7 @@ class UnitSummary(BaseModel):
     id: int
     unit_label: str
     occupancy_status: str
+    is_primary_residence: bool = False
     occupied_by: str | None = None  # guest name, "X (Property manager)", or tenant name
     invite_id: str | None = None  # invitation_code when applicable (not for manager/tenant)
     current_tenant_name: str | None = None
@@ -114,9 +119,19 @@ def list_assigned_properties(
         if not property_ids:
             return []
     props = db.query(Property).filter(Property.id.in_(property_ids)).all()
+    from collections import defaultdict
+
+    from app.services.privacy_lanes import filter_property_lane_invitations_for_manager
+    from app.services.property_invitation_summary import invitation_counts_dict
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    mgr_inv_all = db.query(Invitation).filter(Invitation.property_id.in_(property_ids)).all()
+    invitations_by_property: dict[int, list[Invitation]] = defaultdict(list)
+    for inv in mgr_inv_all:
+        invitations_by_property[inv.property_id].append(inv)
     out = []
     for p in props:
-        units = db.query(Unit).filter(Unit.property_id == p.id).all()
+        units = query_units_for_property_ordered(db, p.id).all()
         unit_count = len(units) if units else 1  # single-unit: 1 implicit
         occupied = (
             count_effectively_occupied_units(db, units)
@@ -134,6 +149,10 @@ def list_assigned_properties(
                 )
             )
         address = ", ".join(filter(None, [p.street, p.city, p.state, p.zip_code or ""]))
+        mgr_lane = filter_property_lane_invitations_for_manager(
+            db, invitations_by_property.get(p.id, []), current_user.id
+        )
+        inv_counts = invitation_counts_dict(mgr_lane, db)
         out.append(
             PropertySummary(
                 id=p.id,
@@ -142,6 +161,10 @@ def list_assigned_properties(
                 occupancy_status=prop_status,
                 unit_count=unit_count,
                 occupied_count=occupied,
+                invitation_pending_count=inv_counts["invitation_pending_count"],
+                invitation_accepted_count=inv_counts["invitation_accepted_count"],
+                invitation_active_count=inv_counts["invitation_active_count"],
+                invitation_cancelled_count=inv_counts["invitation_cancelled_count"],
                 region_code=getattr(p, "region_code", None),
                 shield_mode_enabled=effective_shield_mode_enabled(p),
                 live_slug=(getattr(p, "live_slug", None) or "").strip() or None,
@@ -171,7 +194,9 @@ def get_property(
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
-    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units = query_units_for_property_ordered(db, property_id).all()
     unit_count = len(units) if units else 1
     occupied = (
         count_effectively_occupied_units(db, units)
@@ -190,6 +215,12 @@ def get_property(
         )
     )
     address = ", ".join(filter(None, [prop.street, prop.city, prop.state, prop.zip_code or ""]))
+    from app.services.privacy_lanes import filter_property_lane_invitations_for_manager
+    from app.services.property_invitation_summary import invitation_counts_dict
+
+    mgr_invs = db.query(Invitation).filter(Invitation.property_id == property_id).all()
+    mgr_lane = filter_property_lane_invitations_for_manager(db, mgr_invs, current_user.id)
+    inv_counts = invitation_counts_dict(mgr_lane, db)
     return PropertySummary(
         id=prop.id,
         name=prop.name,
@@ -201,6 +232,10 @@ def get_property(
         occupancy_status=prop_status,
         unit_count=unit_count,
         occupied_count=occupied,
+        invitation_pending_count=inv_counts["invitation_pending_count"],
+        invitation_accepted_count=inv_counts["invitation_accepted_count"],
+        invitation_active_count=inv_counts["invitation_active_count"],
+        invitation_cancelled_count=inv_counts["invitation_cancelled_count"],
         region_code=getattr(prop, "region_code", None),
         property_type_label=getattr(prop, "property_type_label", None) or (prop.property_type.value if prop.property_type else None),
         is_multi_unit=getattr(prop, "is_multi_unit", False),
@@ -230,7 +265,9 @@ def list_property_units(
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
-    units = db.query(Unit).filter(Unit.property_id == property_id).all()
+    from app.services.unit_display_order import query_units_for_property_ordered
+
+    units = query_units_for_property_ordered(db, property_id).all()
     if not units:
         # Single-unit property: return implicit unit; tenant invite may have unit_id=null
         today_su = date.today()
@@ -277,6 +314,7 @@ def list_property_units(
                 occupancy_status=normalize_occupancy_status_for_display(
                     db, prop.id, None, prop.occupancy_status or OccupancyStatus.vacant.value
                 ),
+                is_primary_residence=bool(getattr(prop, "owner_occupied", False)),
                 occupied_by=None,
                 invite_id=None,
                 current_tenant_name=tn_su,
@@ -400,6 +438,7 @@ def list_property_units(
                 id=u.id,
                 unit_label=u.unit_label,
                 occupancy_status=get_unit_display_occupancy_status(db, u),
+                is_primary_residence=bool(getattr(u, "is_primary_residence", 0)),
                 occupied_by=occupancy_display.get(u.id, {}).get("occupied_by") if context_mode == "personal" else None,
                 invite_id=occupancy_display.get(u.id, {}).get("invite_id") if context_mode == "personal" else None,
                 current_tenant_name=tn,

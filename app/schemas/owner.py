@@ -111,6 +111,12 @@ class PropertyResponse(BaseModel):
     occupied_unit_count: int | None = None
     vacant_unit_count: int | None = None
 
+    # Property-lane invitations only (excludes tenant-lane guest invites). Independent of unit occupancy.
+    invitation_pending_count: int = 0
+    invitation_accepted_count: int = 0
+    invitation_active_count: int = 0
+    invitation_cancelled_count: int = 0
+
     # Smarty standardized address (ZIP-code utility bucket / authority letters)
     smarty_delivery_line_1: str | None = None
     smarty_city_name: str | None = None

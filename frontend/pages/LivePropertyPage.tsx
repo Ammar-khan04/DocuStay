@@ -11,6 +11,7 @@ import {
   type LiveOwnerInfo,
   type LivePropertyManagerInfo,
   type LiveLogEntry,
+  type LivePropertyInfo,
   type LivePropertyPagePayload,
   type LiveTenantAssignmentInfo,
   type OwnerTenantView,
@@ -20,6 +21,7 @@ import {
 import { groupLiveTenantRowsByCohort } from '../utils/leaseCohortGroups';
 import { formatCalendarDate, formatDateTimeLocal, getTodayLocal, parseForDisplay } from '../utils/dateUtils';
 import { scrubAuditLogStateChangeParagraph } from '../utils/auditLogMessage';
+import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../utils/propertyInvitationSummary';
 
 function stayIsTenant(stay: Pick<LiveCurrentGuestInfo, 'stay_kind'>): boolean {
   return (stay.stay_kind ?? 'guest').toLowerCase() === 'tenant';
@@ -35,6 +37,61 @@ function statusDisplay(status: string): string {
   if (s === 'occupied') return 'OCCUPIED';
   if (s === 'unconfirmed') return 'UNCONFIRMED';
   return 'UNKNOWN';
+}
+
+/** Same badge text / tone / detail as `propertyStatusSummary` on OwnerDashboard for multi-unit. */
+function livePropertyOccupancySummary(prop: LivePropertyInfo): {
+  badgeText: string;
+  badgeTone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown';
+  detailText: string | null;
+} {
+  const status = (prop.occupancy_status || 'vacant').toLowerCase();
+  const badgeTone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown' =
+    status === 'occupied'
+      ? 'occupied'
+      : status === 'vacant'
+        ? 'vacant'
+        : status === 'unconfirmed'
+          ? 'unconfirmed'
+          : 'unknown';
+
+  if (prop.is_multi_unit) {
+    const occ = prop.occupied_unit_count ?? null;
+    const vac = prop.vacant_unit_count ?? null;
+    const parts: string[] = [];
+    if (occ != null) parts.push(`${occ} occupied`);
+    if (vac != null) parts.push(`${vac} vacant`);
+    const badgeText = parts.length > 0 ? parts.join(' · ') : 'MULTI-UNIT';
+    return { badgeText, badgeTone, detailText: parts.length > 0 ? parts.join(' • ') : null };
+  }
+
+  return { badgeText: statusDisplay(prop.occupancy_status || 'vacant'), badgeTone, detailText: null };
+}
+
+function liveOccupancyBadgeClasses(tone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown'): string {
+  switch (tone) {
+    case 'occupied':
+      return 'bg-emerald-100 text-emerald-800';
+    case 'vacant':
+      return 'bg-slate-200 text-slate-700';
+    case 'unconfirmed':
+      return 'bg-amber-100 text-amber-800';
+    default:
+      return 'bg-slate-100 text-slate-600';
+  }
+}
+
+function liveOccupancyBadgeDotClasses(tone: 'occupied' | 'vacant' | 'unconfirmed' | 'unknown'): string {
+  switch (tone) {
+    case 'occupied':
+      return 'bg-emerald-500';
+    case 'vacant':
+      return 'bg-slate-400';
+    case 'unconfirmed':
+      return 'bg-amber-500';
+    default:
+      return 'bg-slate-400';
+  }
 }
 
 /** When the verified owner opens their own live link: occupancy copy is tenant vs owner residence only (no guest wording). */
@@ -704,7 +761,10 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
     !!viewerSession &&
     ownerEmailNormalized.length > 0 &&
     normalizeEmail(viewerSession.email) === normalizeEmail(ownerEmailNormalized);
-  const statusLabel = statusDisplay(prop.occupancy_status);
+  const occupancySummary = livePropertyOccupancySummary(prop);
+  const statusLabel = occupancySummary.badgeText;
+  const occupancyBadgeTone = occupancySummary.badgeTone;
+  const occupancyDetailText = occupancySummary.detailText;
   const isVacant = (prop.occupancy_status || '').toLowerCase() === 'vacant' && !has_current_guest;
   const liveLink = typeof window !== 'undefined' ? window.location.href : `#live/${slug}`;
   const hasPoaOnRecord = poa_signature_id != null;
@@ -916,16 +976,16 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                 <p className="text-xs font-medium text-slate-500 mb-0.5">Current property status</p>
                 <p className="text-sm text-slate-700 mb-2 max-w-2xl leading-relaxed">{occupancyRecordAssertion}</p>
                 <span
-                  className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold uppercase ${
-                    statusLabel === 'OCCUPIED'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : statusLabel === 'VACANT'
-                        ? 'bg-sky-100 text-sky-800'
-                        : 'bg-slate-100 text-slate-700'
-                  }`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase ${liveOccupancyBadgeClasses(occupancyBadgeTone)}`}
                 >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${liveOccupancyBadgeDotClasses(occupancyBadgeTone)}`}
+                  />
                   {statusLabel}
                 </span>
+                {prop.is_multi_unit && occupancyDetailText ? (
+                  <p className="text-sm text-slate-600 mt-1.5">{occupancyDetailText}</p>
+                ) : null}
                 {occupancyContextDetail ? (
                   <p className="text-sm text-slate-600 mt-2 max-w-2xl leading-relaxed">{occupancyContextDetail}</p>
                 ) : null}
@@ -939,6 +999,11 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                   {authLabel}
                 </span>
               </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Invitation pipeline</p>
+              <p className="text-sm text-slate-800 font-medium">{propertyInvitationCountsLine(prop)}</p>
+              <p className="text-xs text-slate-500 mt-1.5 max-w-2xl leading-relaxed">{PROPERTY_INVITATION_COUNTS_FOOTNOTE}</p>
             </div>
             {hasActiveOccupants && !ownerViewingOwnLivePage && (
               <div className="mt-4 pt-4 border-t border-slate-200 space-y-6">
@@ -1105,7 +1170,16 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             <div className="grid gap-x-6 gap-y-2 text-sm">
               <p><span className="font-semibold text-slate-700">Property:</span> {propertySummaryLine}</p>
               <p>
-                <span className="font-semibold text-slate-700">Status (stored field):</span> {statusLabel}
+                <span className="font-semibold text-slate-700">Status (stored field):</span>{' '}
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold uppercase align-middle ${liveOccupancyBadgeClasses(occupancyBadgeTone)}`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${liveOccupancyBadgeDotClasses(occupancyBadgeTone)}`} />
+                  {statusLabel}
+                </span>
+                {prop.is_multi_unit && occupancyDetailText ? (
+                  <span className="block text-slate-600 mt-1 text-sm">{occupancyDetailText}</span>
+                ) : null}
                 <span className="block text-slate-600 mt-1 text-sm font-normal">{occupancyRecordAssertion}</span>
               </p>
               {occupancyContextDetail ? (

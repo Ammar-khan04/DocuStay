@@ -18,6 +18,7 @@ import { InvitationsTabContent } from '../../components/InvitationsTabContent';
 import { DashboardAlertsPanel, DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlertsPanel';
 import { SUPPORT_EMAIL, supportMailtoHref } from '../../constants/supportContact';
 import { groupOwnerTenantsByLeaseCohort, isSharedLeaseGroup } from '../../utils/leaseCohortGroups';
+import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../../utils/propertyInvitationSummary';
 
 function daysLeft(endDateStr: string): number {
   const end = parseForDisplay(endDateStr);
@@ -85,6 +86,10 @@ function mergePropertyAfterUpdate(prev: Property, updated: Property): Property {
     unit_count: updated.unit_count ?? prev.unit_count,
     occupied_unit_count: updated.occupied_unit_count ?? prev.occupied_unit_count,
     vacant_unit_count: updated.vacant_unit_count ?? prev.vacant_unit_count,
+    invitation_pending_count: updated.invitation_pending_count ?? prev.invitation_pending_count,
+    invitation_accepted_count: updated.invitation_accepted_count ?? prev.invitation_accepted_count,
+    invitation_active_count: updated.invitation_active_count ?? prev.invitation_active_count,
+    invitation_cancelled_count: updated.invitation_cancelled_count ?? prev.invitation_cancelled_count,
   };
 }
 
@@ -893,7 +898,12 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
             notify={notify}
             showVerifyQR={true}
             onVerifyQR={(code) => { setVerifyQRInviteId(code); setShowVerifyQRModal(true); }}
-            onCancelInvitation={async (id) => { await dashboardApi.cancelInvitation(id); notify('success', 'Invitation cancelled.'); loadData(); window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT)); }}
+            onCancelInvitation={async (id) => {
+              const res = await dashboardApi.cancelInvitation(id);
+              notify('success', res.message ?? 'Invitation cancelled.');
+              loadData();
+              window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+            }}
             onResendInvitation={contextMode === 'personal' ? async (id) => { await dashboardApi.tenantResendInvitation(id); loadData(); } : undefined}
             introText={contextMode === 'business' ? 'Tenant invitations: pending rows are awaiting tenant registration (links do not expire on a short clock). Guest invitations use a pending window as shown below.' : "Invitations you've sent. Pending invitations are labeled as expired after 72 hours if not accepted."}
           />
@@ -1432,6 +1442,12 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                             </span>
                           )}
                         </div>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Invitation activity</p>
+                        <p className="text-sm font-medium text-slate-800">{propertyInvitationCountsLine(prop)}</p>
+                        <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{PROPERTY_INVITATION_COUNTS_FOOTNOTE}</p>
                       </div>
 
                       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">

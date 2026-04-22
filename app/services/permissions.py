@@ -305,8 +305,10 @@ def get_owner_personal_mode_units(db: Session, user_id: int) -> list[int]:
         )
         .all()
     )
+    from app.services.unit_display_order import query_units_for_property_ordered
+
     for prop in primary_props:
-        units = db.query(Unit).filter(Unit.property_id == prop.id).order_by(Unit.id).all()
+        units = query_units_for_property_ordered(db, prop.id).all()
         if units:
             if len(units) == 1:
                 unit_ids.append(units[0].id)
