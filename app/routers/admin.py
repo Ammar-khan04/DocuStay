@@ -84,6 +84,7 @@ def admin_list_audit_logs(
 ):
     """Global event ledger viewer with filters. No scoping to a single owner."""
     from app.services.event_ledger import (
+        build_ledger_display_resolution_context,
         ledger_event_to_display,
         ledger_record_disclosure_lines,
         get_actor_email,
@@ -113,6 +114,7 @@ def admin_list_audit_logs(
         )
     q = q.order_by(desc(EventLedger.created_at)).offset(offset).limit(limit)
     rows = q.all()
+    ledger_ctx = build_ledger_display_resolution_context(db, rows)
     prop_ids = {r.property_id for r in rows if r.property_id}
     props = {p.id: p.name or f"{p.city}, {p.state}" for p in db.query(Property).filter(Property.id.in_(prop_ids)).all()} if prop_ids else {}
 
@@ -125,8 +127,8 @@ def admin_list_audit_logs(
 
     out = []
     for r in rows:
-        cat, title, msg = ledger_event_to_display(r, db)
-        actor_email = get_actor_email(db, r.actor_user_id)
+        cat, title, msg = ledger_event_to_display(r, db, resolution_context=ledger_ctx)
+        actor_email = get_actor_email(db, r.actor_user_id, resolution_context=ledger_ctx)
         disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             AdminAuditLogEntry(

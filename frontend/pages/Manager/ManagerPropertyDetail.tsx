@@ -17,6 +17,12 @@ import { formatStayDuration, formatCalendarDate, formatDateTimeLocal } from '../
 import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import type { OwnerStayView, OwnerAuditLogEntry, BillingResponse } from '../../services/api';
 import { partitionUnitsByOccupancyStatus } from '../../utils/unitDisplayOrder';
+import {
+  filterOpenGuestStaysForDashboard,
+  filterPhysicallyCheckedInOpenStays,
+  isStayPhysicallyCheckedIn,
+} from '../../utils/guestStayState';
+import { JURISDICTION_CONTEXT_DISCLAIMER } from '../../utils/jurisdictionUiCopy';
 
 type ManagerPropertySummary = {
   id: number; name: string | null; address: string;
@@ -160,14 +166,15 @@ const ManagerPropertyDetail: React.FC<{
   }, [contextMode, activeSection]);
 
   const propertyStays = stays.filter((s) => s.property_id === id);
-  const activeStaysForProperty = propertyStays.filter((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  const openGuestStaysForProperty = filterOpenGuestStaysForDashboard(propertyStays);
+  const activeStaysForProperty = filterPhysicallyCheckedInOpenStays(propertyStays);
   const isOccupied = activeStaysForProperty.length > 0;
   const activeStay = activeStaysForProperty[0];
-  const upcomingStayForProperty = propertyStays.find((s) => !s.checked_in_at && !s.cancelled_at);
+  const upcomingStayForProperty = openGuestStaysForProperty.find((s) => !isStayPhysicallyCheckedIn(s));
   // Business mode: use property status only (no guest data). Personal mode: use stays for occupancy.
   const isOccupiedForDisplay = contextMode === 'business'
     ? (property?.occupancy_status || '').toLowerCase() === 'occupied'
-    : activeStaysForProperty.length > 0;
+    : !!(activeStaysForProperty[0] ?? openGuestStaysForProperty[0]);
   const displayStatus = isOccupiedForDisplay ? 'OCCUPIED' : (property?.occupancy_status ?? 'vacant').toUpperCase();
   const propertyLogs = logs.filter((l) => l.property_id === id);
   const hasPersonalModeUnitHere = units.some((u) => u.id > 0 && personalModeUnits.includes(u.id));
@@ -372,11 +379,11 @@ const ManagerPropertyDetail: React.FC<{
             </Card>
           )}
           <Card className="p-6 border-slate-200">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">Master Power of Attorney</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4">Owner authorization on file</h3>
             {property.live_slug ? (
               <div className="space-y-2">
                 <p className="text-sm text-slate-600">
-                  Master POA (PDF)
+                  Owner authorization (PDF)
                   <span className="ml-2 text-slate-500">(owner signed)</span>
                 </p>
                 <Button
@@ -388,11 +395,11 @@ const ManagerPropertyDetail: React.FC<{
                     });
                   }}
                 >
-                  View POA
+                  View authorization
                 </Button>
               </div>
             ) : (
-              <p className="text-sm text-slate-500">No live link is set for this property yet; the POA PDF is available from the live page once the owner completes signing.</p>
+              <p className="text-sm text-slate-500">No live link is set for this property yet; the owner authorization PDF is available from the live page once the owner completes signing.</p>
             )}
           </Card>
 
@@ -819,12 +826,16 @@ const ManagerPropertyDetail: React.FC<{
 
       {activeSection === 'documentation' && (
         <div className="space-y-8">
-          <h3 className="text-3xl font-black text-slate-800 tracking-tighter">Region documentation: {jurisdictionInfo.name}</h3>
+          <h3 className="text-3xl font-black text-slate-800 tracking-tighter">Jurisdiction reference &amp; record cadence — {jurisdictionInfo.name}</h3>
+          <p className="text-xs text-slate-500 leading-relaxed border border-slate-200 bg-slate-50/80 rounded-lg px-3 py-2">
+            {JURISDICTION_CONTEXT_DISCLAIMER}
+          </p>
           <section>
+            <h4 className="text-sm font-bold text-slate-700 mb-2 uppercase tracking-wider">Threshold descriptions (reference)</h4>
             <p className="text-slate-600 leading-relaxed mb-4">
               {jurisdictionInfo.legalThresholdDays != null
-                ? <>The legal tenancy threshold for {jurisdictionInfo.name} is <strong>{jurisdictionInfo.legalThresholdDays} days</strong>. The platform renews authorizations every <strong>{jurisdictionInfo.platformRenewalCycleDays} days</strong> to maintain a defensible audit trail.</>
-                : <>Tenancy in {jurisdictionInfo.name} is {jurisdictionInfo.jurisdictionGroup === 'D' ? 'behavior-based' : 'lease-defined'}. The platform uses a <strong>{jurisdictionInfo.platformRenewalCycleDays}-day</strong> renewal cycle.</>
+                ? <>General commentary sometimes cites <strong>{jurisdictionInfo.legalThresholdDays} days</strong> in connection with occupancy questions in {jurisdictionInfo.name}; that is third-party context, not a DocuStay determination. Owner authorization records renew on a <strong>{jurisdictionInfo.platformRenewalCycleDays}-day</strong> cadence for consistent documentation and audit timestamps.</>
+                : <>Secondary sources describe rules in {jurisdictionInfo.name} in different ways ({jurisdictionInfo.jurisdictionGroup === 'D' ? 'often behavior-based' : 'often lease-defined'} in summaries—reference only). The product uses a <strong>{jurisdictionInfo.platformRenewalCycleDays}-day</strong> authorization record cycle by default.</>
               }
             </p>
           </section>

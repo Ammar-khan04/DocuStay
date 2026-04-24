@@ -5,7 +5,7 @@ import { InviteRoleChoiceModal } from '../../components/InviteRoleChoiceModal';
 import { InviteTenantModal } from '../../components/InviteTenantModal';
 import { InviteGuestModal } from '../../components/InviteGuestModal';
 import { UserSession } from '../../types';
-import { dashboardApi, getContextMode, setContextMode, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, type OwnerInvitationView, type OwnerAuditLogEntry } from '../../services/api';
+import { dashboardApi, getContextMode, setContextMode, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, type OwnerInvitationView, type OwnerAuditLogEntry, type OwnerStayView } from '../../services/api';
 import { ModeSwitcher } from '../../components/ModeSwitcher';
 import Settings from '../Settings/Settings';
 import HelpCenter from '../Support/HelpCenter';
@@ -16,6 +16,13 @@ import { copyToClipboard } from '../../utils/clipboard';
 import { formatStayDuration, formatLedgerTimestamp, formatCalendarDate } from '../../utils/dateUtils';
 import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../../utils/propertyInvitationSummary';
+import {
+  filterOpenGuestStaysForDashboard,
+  filterPhysicallyCheckedInOpenStays,
+  sortGuestStayDashboardRows,
+  guestStayRowDisplay,
+  GUEST_STAY_TABLE_BADGE_CLASS,
+} from '../../utils/guestStayState';
 
 interface PropertySummary {
   id: number;
@@ -51,7 +58,7 @@ const ManagerDashboard: React.FC<{
   const [unitsLoading, setUnitsLoading] = useState(false);
   type ManagerTab = 'properties' | 'guests' | 'invitations' | 'logs' | 'billing' | 'settings' | 'help';
   const [activeTab, setActiveTab] = useState<ManagerTab>('properties');
-  const [stays, setStays] = useState<any[]>([]);
+  const [stays, setStays] = useState<OwnerStayView[]>([]);
   const [invitations, setInvitations] = useState<OwnerInvitationView[]>([]);
   const [logs, setLogs] = useState<OwnerAuditLogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -233,7 +240,10 @@ const ManagerDashboard: React.FC<{
     return <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{status}</span>;
   };
 
-  const activeStays = stays.filter((s: any) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  const activeStays = filterPhysicallyCheckedInOpenStays(stays);
+  const managerPersonalGuestRows = sortGuestStayDashboardRows(
+    filterOpenGuestStaysForDashboard(stays).filter((s) => !s.invitation_only)
+  );
 
   const sidebarNavBase: { id: ManagerTab; label: string; icon: string }[] = [
     { id: 'properties', label: 'Properties', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
@@ -413,17 +423,40 @@ const ManagerDashboard: React.FC<{
           <Card className="p-6">
             <h2 className="font-semibold text-gray-900 mb-4">Stays</h2>
             <p className="text-slate-500 text-sm mb-4">Guests who accepted and their current or past stay at properties you manage.</p>
-            {stays.filter((s: any) => !s.invitation_only).length === 0 ? (
+            {managerPersonalGuestRows.length === 0 ? (
               <p className="text-slate-500 text-sm">No stays yet. When guests accept an invitation, they appear here.</p>
             ) : (
-              <ul className="space-y-2">
-                {stays.filter((s: any) => !s.invitation_only).map((s: any) => (
-                  <li key={s.stay_id} className="flex justify-between items-center py-2 border-b border-slate-100 last:border-0">
-                    <span className="text-sm">{s.guest_name} · {s.property_name} · {formatStayDuration(s.stay_start_date, s.stay_end_date)}</span>
-                    {s.checked_in_at && !s.checked_out_at && !s.cancelled_at && <span className="text-xs font-medium text-emerald-700">Active</span>}
-                  </li>
-                ))}
-              </ul>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-100 text-slate-500 uppercase text-[10px] tracking-widest font-extrabold border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Guest</th>
+                      <th className="px-4 py-3">Property</th>
+                      <th className="px-4 py-3">Stay</th>
+                      <th className="px-4 py-3">Timeline</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {managerPersonalGuestRows.map((s) => {
+                      const row = guestStayRowDisplay(s);
+                      return (
+                        <tr key={s.stay_id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-sm font-medium text-slate-800">{s.guest_name}</td>
+                          <td className="px-4 py-3 text-sm text-slate-600">{s.property_name}</td>
+                          <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{formatStayDuration(s.stay_start_date, s.stay_end_date)}</td>
+                          <td className="px-4 py-3 text-sm font-semibold"><span className={row.daysCls}>{row.daysText}</span></td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${GUEST_STAY_TABLE_BADGE_CLASS[row.tone]}`}>
+                              {row.statusLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
         </div>
@@ -702,7 +735,11 @@ const ManagerDashboard: React.FC<{
           <div className="grid gap-6">
             {managerFilteredProperties.map((p) => {
               // Business mode: use property status only (no guest data). Personal mode: can use stays for occupancy.
-              const activeStayForProp = contextMode === 'personal' ? activeStays.find((s: any) => s.property_id === p.id) : null;
+              const openForProp = contextMode === 'personal' ? filterOpenGuestStaysForDashboard(stays) : [];
+              const activeStayForProp =
+                contextMode === 'personal'
+                  ? activeStays.find((s) => s.property_id === p.id) ?? openForProp.find((s) => s.property_id === p.id)
+                  : null;
               const isOccupied = contextMode === 'business'
                 ? (p.occupancy_status || '').toLowerCase() === 'occupied'
                 : !!activeStayForProp;

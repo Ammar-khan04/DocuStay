@@ -13,7 +13,7 @@ interface Props {
   notify: (t: "success" | "error", m: string) => void;
 }
 
-/** Sign Master POA: pending flow (complete-signup) or existing owner (link-poa). Then go to dashboard. */
+/** Owner authorization signing step: pending flow (complete-signup) or existing owner (link-poa). Then go to dashboard. */
 export default function OnboardingPOA({ user, onCompleteSignup, navigate, setLoading, notify }: Props) {
   const [poaModalOpen, setPoaModalOpen] = useState(false);
   const [linking, setLinking] = useState(false);

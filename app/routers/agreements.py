@@ -734,8 +734,8 @@ def sign_owner_poa_with_dropbox(
     create_log(
         db,
         CATEGORY_STATUS_CHANGE,
-        "Master POA signed",
-        f"Owner signed Master POA: {sig.owner_full_name} <{sig.owner_email}>, signature_id={sig.id}.",
+        "Owner authorization signed",
+        f"Owner signed authorization document: {sig.owner_full_name} <{sig.owner_email}>, signature_id={sig.id}.",
         actor_email=sig.owner_email,
         ip_address=ip,
         user_agent=ua,
@@ -766,8 +766,8 @@ def sign_owner_poa_with_dropbox(
         title=send_title,
         signer_email=sig.owner_email,
         signer_name=sig.owner_full_name,
-        subject="DocuStay – Please sign the Master POA (documentation & records)",
-        message="Please sign the Master Power of Attorney for documentation and property records to complete your owner account registration.",
+        subject="DocuStay – Please sign your owner authorization (documentation & records)",
+        message="Please sign your owner authorization document for documentation and property records to complete your owner account registration. DocuStay maintains records based on authorization you provide; it does not exercise independent legal authority.",
     )
     sign_url = None
     if request_id:

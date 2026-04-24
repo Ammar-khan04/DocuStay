@@ -9,6 +9,16 @@ import { UserSession } from '../../types';
 import { dashboardApi, propertiesApi, getContextMode, setContextMode, onPropertiesChanged, buildGuestInviteUrl, demoStoredUnsignedGuestAgreementPdfUrl, DOCUSTAY_OWNER_TRANSFER_TOKEN_KEY, type OwnerStayView, type OwnerInvitationView, type OwnerAuditLogEntry, type Property, type BulkUploadResult, type BillingResponse, type BillingInvoiceView, type BillingPaymentView, type OwnerTenantView } from '../../services/api';
 import { copyToClipboard } from '../../utils/clipboard';
 import { getTodayLocal, formatStayDuration, formatLedgerTimestamp, formatDateTimeLocal, parseForDisplay, formatCalendarDate } from '../../utils/dateUtils';
+import {
+  guestStayDaysLeft as daysLeft,
+  guestStayIsOverstayed as isOverstayed,
+  isStayPhysicallyCheckedIn,
+  guestStayRowDisplay,
+  filterOpenGuestStaysForDashboard,
+  sortGuestStayDashboardRows,
+  filterPhysicallyCheckedInOpenStays,
+  GUEST_STAY_TABLE_BADGE_CLASS,
+} from '../../utils/guestStayState';
 import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import { toUserFriendlyInvitationError } from '../../utils/invitationErrors';
 import Settings from '../Settings/Settings';
@@ -19,23 +29,6 @@ import { DashboardAlertsPanel, DASHBOARD_ALERTS_REFRESH_EVENT } from '../../comp
 import { SUPPORT_EMAIL, supportMailtoHref } from '../../constants/supportContact';
 import { groupOwnerTenantsByLeaseCohort, isSharedLeaseGroup } from '../../utils/leaseCohortGroups';
 import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../../utils/propertyInvitationSummary';
-
-function daysLeft(endDateStr: string): number {
-  const end = parseForDisplay(endDateStr);
-  end.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  return Math.max(0, diff);
-}
-
-function isOverstayed(endDateStr: string): boolean {
-  const end = parseForDisplay(endDateStr);
-  end.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return end.getTime() < today.getTime();
-}
 
 function canOfferLeaseExtension(t: OwnerTenantView): boolean {
   return t.id > 0 && (ownerLeaseState(t) === 'active' || ownerLeaseState(t) === 'accepted');
@@ -232,8 +225,21 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
     }).finally(() => setLoadingWrapper(false));
   };
 
+  /** Keep ref in sync so alert-refresh listener always calls the latest loadData (avoids stale closures). */
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
   useEffect(() => {
     loadData();
+  }, []);
+
+  /** Guest check-in/out, revokes, and other flows dispatch this; PropertyDetail listens — main dashboard must too or stays stay stale in Personal mode. */
+  useEffect(() => {
+    const onDashboardAlertsRefresh = () => {
+      loadDataRef.current();
+    };
+    window.addEventListener(DASHBOARD_ALERTS_REFRESH_EVENT, onDashboardAlertsRefresh);
+    return () => window.removeEventListener(DASHBOARD_ALERTS_REFRESH_EVENT, onDashboardAlertsRefresh);
   }, []);
 
   useEffect(() => {
@@ -378,9 +384,10 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
       : statusFiltered;
   }, [properties, propertiesTabFilter, shieldFilter]);
 
-  // Only checked-in stays count as active for occupancy, current guest, and Status Confirmation
-  const activeStays = stays.filter((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
-  const activeCount = activeStays.length;
+  const openGuestStays = filterOpenGuestStaysForDashboard(stays);
+  const activeStays = filterPhysicallyCheckedInOpenStays(stays);
+  const personalGuestDashboardRows = sortGuestStayDashboardRows(openGuestStays);
+  const activeCount = personalGuestDashboardRows.length;
   // Overstay = still active (not checked out, not cancelled) but end date has passed
   const overstays = activeStays.filter((s) => isOverstayed(s.stay_end_date));
   const firstOverstay = overstays[0];
@@ -1324,7 +1331,10 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                   const address = [prop.street, prop.city, prop.state, prop.zip_code].filter(Boolean).join(', ');
                   const displayName = prop.name || address || `Property #${prop.id}`;
                   // Business mode: use property status only (no guest data). Personal mode: can use stays for occupancy.
-                  const activeStayForProp = contextMode === 'personal' ? activeStays.find((s) => s.property_id === prop.id) : null;
+                  const activeStayForProp =
+                    contextMode === 'personal'
+                      ? activeStays.find((s) => s.property_id === prop.id) ?? openGuestStays.find((s) => s.property_id === prop.id)
+                      : null;
                   const isOccupied = (prop.occupancy_status || '').toLowerCase() === 'occupied';
                   const shieldStatus = isOccupied ? 'PASSIVE GUARD' : 'ACTIVE MONITORING';
                   const isSelected = selectedPropertyIds.has(prop.id);
@@ -2002,15 +2012,13 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-800">
-                        {activeStays.length === 0 ? (
+                        {personalGuestDashboardRows.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-slate-500">No active stays. Invite a guest to get started.</td>
+                            <td colSpan={5} className="px-6 py-12 text-center text-slate-500">No guest stays yet. Invite a guest or wait for them to accept and check in.</td>
                           </tr>
                         ) : (
-                          activeStays.map((stay) => {
-                        const overstay = isOverstayed(stay.stay_end_date);
-                        const dLeft = daysLeft(stay.stay_end_date);
-                        const revoked = !!stay.revoked_at;
+                          personalGuestDashboardRows.map((stay) => {
+                        const row = guestStayRowDisplay(stay);
                         return (
                           <tr key={stay.stay_id} className="hover:bg-slate-50 transition-colors group">
                             <td className="px-6 py-5">
@@ -2021,19 +2029,17 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                             </td>
                             <td className="px-6 py-5 text-sm text-slate-600">{stay.property_name}</td>
                             <td className="px-6 py-5">
-                              <span className={`text-sm font-bold ${revoked ? 'text-amber-600' : overstay ? 'text-red-600' : 'text-green-600'}`}>{revoked ? '—' : overstay ? 'EXPIRED' : `${dLeft}d`}</span>
+                              <span className={`text-sm font-bold ${row.daysCls}`}>{row.daysText}</span>
                             </td>
                             <td className="px-6 py-5">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                                revoked ? 'bg-amber-50 text-amber-700 border border-amber-500/20' : overstay ? 'bg-red-50 text-red-600 border border-red-500/20' : 'bg-green-50 text-green-700 border border-green-200'
-                              }`}>
-                                {revoked ? 'Revoked' : overstay ? 'Overstayed' : 'Active'}
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${GUEST_STAY_TABLE_BADGE_CLASS[row.tone]}`}>
+                                {row.statusLabel}
                               </span>
                             </td>
                             <td className="px-6 py-5 text-right space-x-3">
-                              {revoked ? (
-                                <span className="text-xs text-slate-500">Revoked</span>
-                              ) : overstay ? (
+                              {!row.showRevoke && !row.showRemove ? (
+                                <span className="text-xs text-slate-500">{row.statusLabel}</span>
+                              ) : row.showRemove ? (
                                 <Button variant="danger" onClick={() => handleInitiateRemoval(stay)} className="text-xs py-2">Remove</Button>
                               ) : (
                                 <Button variant="ghost" onClick={() => handleRevokeClick(stay)} className="text-xs py-2 text-red-600 hover:text-red-700">Revoke</Button>

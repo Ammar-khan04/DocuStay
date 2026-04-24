@@ -425,11 +425,11 @@ def _validate_and_claim_owner_poa(
     """Validate POA signature exists, email matches, not already used, and (when sent to Dropbox) completed in Dropbox. Raises HTTPException on failure."""
     sig = db.query(OwnerPOASignature).filter(OwnerPOASignature.id == poa_signature_id).first()
     if not sig:
-        raise HTTPException(status_code=400, detail="Invalid Master POA signature. Please sign the document again.")
+        raise HTTPException(status_code=400, detail="Invalid owner authorization signature. Please sign the document again.")
     if sig.owner_email.strip().lower() != (owner_email or "").strip().lower():
-        raise HTTPException(status_code=400, detail="Master POA signature email does not match registration email.")
+        raise HTTPException(status_code=400, detail="Owner authorization signature email does not match registration email.")
     if sig.used_by_user_id is not None:
-        raise HTTPException(status_code=400, detail="This Master POA signature was already used for another account.")
+        raise HTTPException(status_code=400, detail="This owner authorization signature was already used for another account.")
     if getattr(sig, "dropbox_sign_request_id", None) and not getattr(sig, "signed_pdf_bytes", None):
         pdf_bytes = get_signed_pdf(sig.dropbox_sign_request_id)
         if pdf_bytes:
@@ -1713,7 +1713,7 @@ def pending_owner_confirm_identity(
         "stripe_verification_session_id": session_id,
     }
     db.commit()
-    return {"status": "ok", "message": "Identity verified. Now sign the Master POA to complete signup."}
+    return {"status": "ok", "message": "Identity verified. Now sign your owner authorization document to complete signup."}
 
 
 @router.get("/pending-owner/me", response_model=PendingOwnerMeResponse)
@@ -1773,7 +1773,7 @@ def pending_owner_identity_retry(
         return PendingOwnerIdentityRetryResponse(
             url=None,
             already_verified=True,
-            message="Identity is already verified. You can continue to sign the Master POA.",
+            message="Identity is already verified. You can continue to sign your owner authorization document.",
         )
     if status == "requires_input":
         _url = getattr(session, "url", None) or (session.get("url") if hasattr(session, "get") and callable(session.get) else None)
@@ -1875,17 +1875,17 @@ def link_owner_poa(
     if not getattr(current_user, "identity_verified_at", None):
         raise HTTPException(
             status_code=403,
-            detail="Complete identity verification before linking your Master POA. Go to Identity Verification.",
+            detail="Complete identity verification before linking your owner authorization. Go to Identity Verification.",
         )
     from app.models.user import OwnerType
     if getattr(current_user, "owner_type", None) == OwnerType.authorized_agent and not data.authorized_agent_certified:
         raise HTTPException(
             status_code=400,
-            detail="As an Authorized Agent you must certify that you have authority under your management agreement to delegate documentation authority to DocuStay.",
+            detail="As an Authorized Agent you must certify that you have authority under your management agreement to authorize DocuStay to maintain records on behalf of the owner in line with that agreement.",
         )
     _validate_and_claim_owner_poa(
         db, data.poa_signature_id, current_user.email,
-        dropbox_incomplete_message="Please complete signing in Dropbox before linking your Master POA.",
+        dropbox_incomplete_message="Please complete signing in Dropbox before linking your owner authorization.",
     )
     poa = db.query(OwnerPOASignature).filter(OwnerPOASignature.id == data.poa_signature_id).first()
     if poa:
@@ -1897,12 +1897,12 @@ def link_owner_poa(
                 db,
                 CATEGORY_STATUS_CHANGE,
                 "Authorized Agent certification",
-                f"Authorized Agent certified authority under management agreement to delegate documentation authority to DocuStay (user_id={current_user.id}, email={current_user.email}).",
+                f"Authorized Agent certified authority under management agreement to authorize DocuStay to maintain records on behalf of the owner (user_id={current_user.id}, email={current_user.email}).",
                 actor_user_id=current_user.id,
                 actor_email=current_user.email,
             )
         db.commit()
-    return {"status": "ok", "message": "Master POA linked to your account."}
+    return {"status": "ok", "message": "Owner authorization linked to your account."}
 
 
 @router.get("/register/guest")

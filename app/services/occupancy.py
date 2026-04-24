@@ -21,6 +21,7 @@ from app.models.invitation import Invitation
 from app.models.user import User
 from app.models.tenant_assignment import TenantAssignment
 from app.services.privacy_lanes import (
+    REDACTED_GUEST_AUTHORIZATION_LABEL,
     is_tenant_lane_invitation,
     is_tenant_lane_stay,
     viewer_is_relationship_owner_for_invitation,
@@ -61,6 +62,23 @@ def _mask_tenant_lane_guest_in_occupancy_display(
             return False
         return not viewer_is_relationship_owner_for_invitation(invitation, relationship_viewer_id)
     return False
+
+
+def _mask_property_lane_guest_for_relationship_viewer(
+    db: Session,
+    stay: Stay,
+    relationship_viewer_id: int | None,
+) -> bool:
+    """
+    Personal-mode style viewer: hide property/manager-lane guest identity when they are not the
+    direct relationship owner. Tenant-lane stays are excluded here so tenant-lane rules stay
+    solely in ``_mask_tenant_lane_guest_in_occupancy_display``.
+    """
+    if relationship_viewer_id is None:
+        return False
+    if is_tenant_lane_stay(db, stay):
+        return False
+    return not viewer_is_relationship_owner_for_stay(db, stay, relationship_viewer_id)
 
 
 def has_legitimate_occupancy_unknown(db: Session, property_id: int, unit_id: int | None = None) -> bool:
@@ -213,8 +231,9 @@ def get_units_occupancy_display(
     Priority: active guest stay (with invite_id) > property manager resident > tenant.
     When anonymize_tenant_lane=True (owner/manager view), tenant-invited guest names are shown as "Occupied"
     and invite_id is omitted (tenant guest activity is private).
-    When relationship_viewer_id is set (e.g. property manager on unit summary), tenant-lane guest identity is
-    masked unless that user is the relationship owner for the stay/invitation (occupancy counts unchanged).
+    When relationship_viewer_id is set (personal unit summary), tenant-lane stays keep that same rule via
+    ``_mask_tenant_lane_guest_in_occupancy_display``. Property/manager-lane guest stays additionally use
+    ``REDACTED_GUEST_AUTHORIZATION_LABEL`` and omit invite_id when the viewer is not the relationship owner.
     When guest_detail_unit_ids is set (e.g. owner personal mode), guest stays/invites are only included for
     those units — not for units the owner rents out (tenant guest flow stays private).
     """
@@ -257,6 +276,9 @@ def get_units_occupancy_display(
             stay=s,
         ):
             name = "Occupied"
+            inv_code = None
+        elif _mask_property_lane_guest_for_relationship_viewer(db, s, relationship_viewer_id):
+            name = REDACTED_GUEST_AUTHORIZATION_LABEL
             inv_code = None
         else:
             guest_user = users_by_id.get(s.guest_id)

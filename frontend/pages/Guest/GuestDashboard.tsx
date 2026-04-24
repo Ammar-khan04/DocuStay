@@ -19,6 +19,15 @@ import {
   parseForDisplay,
 } from '../../utils/dateUtils';
 import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
+import {
+  filterOpenGuestFacingStays,
+  guestFacingCompletedStays,
+  guestDashboardStayRowKey,
+  guestStayRowDisplayForGuestView,
+  GUEST_STAY_INLINE_BADGE_CLASS,
+  isGuestStayPhysicallyCheckedIn,
+} from '../../utils/guestStayState';
+import { JURISDICTION_CONTEXT_DISCLAIMER } from '../../utils/jurisdictionUiCopy';
 
 type GuestTab = 'stays' | 'invitations' | 'ledger' | 'help';
 
@@ -140,12 +149,6 @@ function preferredFirstInFilteredList(rows: GuestStayView[]): GuestStayView | un
   return firstReal ?? rows[0];
 }
 
-function guestStayRowKey(s: GuestStayView): string {
-  return s.record_kind === "agreement_archive" && s.agreement_signature_id != null
-    ? `arch:${s.agreement_signature_id}`
-    : `stay:${s.stay_id}`;
-}
-
 export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string) => void; notify: (t: 'success' | 'error', m: string) => void }> = ({ user, navigate, notify }) => {
   const [stays, setStays] = useState<GuestStayView[]>([]);
   const [pendingInvites, setPendingInvites] = useState<GuestPendingInviteView[]>([]);
@@ -223,13 +226,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
       .then(([staysData, pendingData]) => {
         const uniqueStays = [
           ...new Map(
-            staysData.map((s) => {
-              const k =
-                s.record_kind === "agreement_archive" && s.agreement_signature_id != null
-                  ? `arch:${s.agreement_signature_id}`
-                  : `stay:${s.stay_id}`;
-              return [k, s];
-            })
+            staysData.map((s) => [guestDashboardStayRowKey(s), s] as const)
           ).values(),
         ];
         const inviteCodesFromRealStays = new Set(
@@ -441,9 +438,10 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
     !!s &&
     !isAgreementArchive(s) &&
     !!s.stay_id &&
-    !!s.checked_in_at &&
+    isGuestStayPhysicallyCheckedIn(s) &&
     !s.checked_out_at &&
-    !s.cancelled_at;
+    !s.cancelled_at &&
+    !s.revoked_at;
 
   useEffect(() => {
     if (!selectedStay || !isActiveCheckedInStay(selectedStay)) {
@@ -458,7 +456,14 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
       setStayPresenceAwayStartedAt(p.away_started_at || null);
       setStayPresenceGuestsAuthorized(p.guests_authorized_during_away ?? false);
     }).catch(() => {});
-  }, [selectedStay?.stay_id, selectedStay?.checked_in_at, selectedStay?.checked_out_at, selectedStay?.cancelled_at]);
+  }, [
+    selectedStay?.stay_id,
+    selectedStay?.checked_in_at,
+    selectedStay?.checked_out_at,
+    selectedStay?.cancelled_at,
+    selectedStay?.revoked_at,
+    selectedStay?.stay_status,
+  ]);
 
   const doSetStayPresence = useCallback(async (status: 'present' | 'away', guestsAuthorized?: boolean) => {
     if (!selectedStay || !isActiveCheckedInStay(selectedStay)) return;
@@ -652,25 +657,16 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
   const isEmpty = stays.length === 0 && pendingInvites.length === 0;
   const today = getTodayStr();
 
-  const activeStays = stays.filter(
-    (s) =>
-      !isAgreementArchive(s) &&
-      !s.checked_out_at &&
-      !s.cancelled_at &&
-      s.approved_stay_start_date <= today &&
-      s.approved_stay_end_date >= today
-  );
-  const futureStays = stays.filter(
-    (s) =>
-      !isAgreementArchive(s) && !s.checked_out_at && !s.cancelled_at && s.approved_stay_start_date > today
-  );
-  const completedStays = stays.filter(
-    (s) =>
-      isAgreementArchive(s) ||
-      s.checked_out_at != null ||
-      s.cancelled_at != null ||
-      (s.approved_stay_end_date < today && !s.checked_out_at && !s.cancelled_at)
-  );
+  const openGuestStays = filterOpenGuestFacingStays(stays);
+  const activeStays = openGuestStays.filter((s) => {
+    const inWindow =
+      s.approved_stay_start_date <= today && s.approved_stay_end_date >= today;
+    const overstaying =
+      isGuestStayPhysicallyCheckedIn(s) && s.approved_stay_end_date < today;
+    return inWindow || overstaying;
+  });
+  const futureStays = openGuestStays.filter((s) => s.approved_stay_start_date > today);
+  const completedStays = guestFacingCompletedStays(stays, openGuestStays);
 
   const filteredStays: GuestStayView[] =
     stayFilter === 'all'
@@ -1016,23 +1012,31 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                 <div className="flex flex-col gap-2">
                     {filteredStays.map((s) => {
                       const isArch = isAgreementArchive(s);
-                      const isActive = !!(s.checked_in_at && s.approved_stay_start_date <= today && s.approved_stay_end_date >= today);
-                      const isFuture = s.approved_stay_start_date > today;
-                      const isUpcoming = !s.checked_in_at && !s.checked_out_at && !s.cancelled_at && s.approved_stay_start_date <= today && s.approved_stay_end_date >= today;
-                      // Show Check in when guest hasn't checked in yet (within stay window); show Checkout only after check-in or if revoked
-                      const canCheckIn = !isArch && isUpcoming;
-                      const hasCheckedIn = !!(s.checked_in_at != null && s.checked_in_at !== '');
-                      const canCheckout =
+                      const inWindow =
+                        s.approved_stay_start_date <= today && s.approved_stay_end_date >= today;
+                      const isFutureCal = s.approved_stay_start_date > today;
+                      const checkedIn = isGuestStayPhysicallyCheckedIn(s);
+                      const canCheckIn =
                         !isArch &&
-                        (hasCheckedIn || s.revoked_at != null) &&
+                        inWindow &&
+                        !checkedIn &&
                         !s.checked_out_at &&
                         !s.cancelled_at &&
-                        s.approved_stay_end_date >= today;
-                      const canCancel = !isArch && isFuture && !s.cancelled_at;
-                      const isSelected = !!(selectedStay && guestStayRowKey(selectedStay) === guestStayRowKey(s));
+                        !s.revoked_at;
+                      const canCheckout =
+                        !isArch &&
+                        (checkedIn || s.revoked_at != null) &&
+                        !s.checked_out_at &&
+                        !s.cancelled_at;
+                      const canCancel = !isArch && isFutureCal && !s.cancelled_at && !s.checked_out_at;
+                      const rowDisplay = !isArch ? guestStayRowDisplayForGuestView(s) : null;
+                      const isSelected = !!(
+                        selectedStay &&
+                        guestDashboardStayRowKey(selectedStay) === guestDashboardStayRowKey(s)
+                      );
                       return (
                       <div
-                        key={guestStayRowKey(s)}
+                        key={guestDashboardStayRowKey(s)}
                         className={`rounded-xl border bg-white text-left transition-all ${
                           isSelected
                             ? 'border-slate-300 border-l-4 border-l-[#6B90F2] bg-[#6B90F2]/10 shadow-sm'
@@ -1046,20 +1050,15 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                           >
                             {s.property_deleted_at ? <InactivePropertyBanner role="guest" compact className="text-left mb-3" /> : null}
                             <div className="flex items-center gap-2 mb-2 flex-wrap">
-                              {(s.revoked_at || s.vacate_by) && (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-red-50 text-red-700 border border-red-100">Revoked</span>
-                              )}
                               {isArch ? (
                                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-amber-50 text-amber-900 border border-amber-200">
                                   Agreement record
                                 </span>
-                              ) : (
-                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide ${
-                                s.cancelled_at ? 'bg-amber-50 text-amber-700 border border-amber-100' : s.checked_out_at ? 'bg-slate-100 text-slate-600 border border-slate-200' : isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : isUpcoming ? 'bg-[#FFC107] text-slate-900 border-0' : isFuture ? 'bg-slate-200 text-slate-700 border-0' : 'bg-slate-100 text-slate-600'
-                              }`}>
-                                {s.cancelled_at ? 'Cancelled' : s.checked_out_at ? 'Completed' : isActive ? 'Active' : isUpcoming ? 'UPCOMING' : isFuture ? 'FUTURE' : 'Previous'}
+                              ) : rowDisplay ? (
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide ${GUEST_STAY_INLINE_BADGE_CLASS[rowDisplay.tone]}`}>
+                                {rowDisplay.statusLabel}
                               </span>
-                              )}
+                              ) : null}
                               <span className="text-slate-400 text-xs">{s.region_code}</span>
                             </div>
                             <p className="text-sm text-slate-600">
@@ -1135,7 +1134,8 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
             </div>
           )}
           {stay && stayFilter !== 'future_invites' && (() => {
-        const detailHasCheckedIn = !!(stay.checked_in_at != null && stay.checked_in_at !== '');
+        const detailCheckedIn = isGuestStayPhysicallyCheckedIn(stay);
+        const detailRow = !isAgreementArchive(stay) ? guestStayRowDisplayForGuestView(stay) : null;
         return (
         <div className="flex-1 min-w-0 space-y-6 overflow-y-auto">
       {/* Revoked: Authorization Revoked per guidance */}
@@ -1175,33 +1175,11 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                 <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold uppercase tracking-wide bg-amber-50 text-amber-900 border border-amber-200">
                   Agreement record
                 </span>
-              ) : (
-              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold uppercase tracking-wide ${
-                stay.cancelled_at
-                  ? 'bg-amber-50 text-amber-700 border border-amber-100'
-                  : stay.checked_out_at
-                    ? 'bg-slate-100 text-slate-600'
-                    : detailHasCheckedIn && stay.approved_stay_start_date <= today && stay.approved_stay_end_date >= today
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : !detailHasCheckedIn && stay.approved_stay_start_date <= today && stay.approved_stay_end_date >= today
-                        ? 'bg-[#FFC107] text-slate-900 border-0'
-                        : stay.approved_stay_start_date > today
-                          ? 'bg-slate-200 text-slate-700 border-0'
-                          : 'bg-slate-100 text-slate-600'
-              }`}>
-                {stay.cancelled_at
-                  ? 'Cancelled'
-                  : stay.checked_out_at
-                    ? 'Completed'
-                    : detailHasCheckedIn && stay.approved_stay_start_date <= today && stay.approved_stay_end_date >= today
-                      ? 'Active'
-                      : !detailHasCheckedIn && stay.approved_stay_start_date <= today && stay.approved_stay_end_date >= today
-                        ? 'UPCOMING'
-                        : stay.approved_stay_start_date > today
-                          ? 'FUTURE'
-                          : 'Ended'}
+              ) : detailRow ? (
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold uppercase tracking-wide ${GUEST_STAY_INLINE_BADGE_CLASS[detailRow.tone]}`}>
+                {detailRow.statusLabel}
               </span>
-              )}
+              ) : null}
               <span className="text-slate-400">·</span>
               <span className="text-slate-500 text-sm">{stay.property_name}{stay.unit_label ? ` — Unit ${stay.unit_label}` : ''}</span>
               <span className="text-slate-400 text-sm">({stay.region_code})</span>
@@ -1209,13 +1187,14 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                 <>
                   <span className="text-slate-400">·</span>
                   <span className="text-slate-500 text-sm font-mono">Invite ID: {stay.invite_id}</span>
-                      {stay.token_state && (
+                  {stay.token_state && stay.token_state !== 'BURNED' && (
                     <span className={`ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${
-                      stay.token_state === 'BURNED' ? 'bg-[#28A745] text-white' :
                       stay.token_state === 'EXPIRED' ? 'bg-slate-100 text-slate-600' :
-                      stay.token_state === 'REVOKED' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                      stay.token_state === 'REVOKED' ? 'bg-amber-50 text-amber-700' :
+                      stay.token_state === 'STAGED' ? 'bg-sky-50 text-sky-800 border border-sky-200' :
+                      'bg-slate-100 text-slate-600'
                     }`}>
-                      {stay.token_state === 'BURNED' ? 'Active' : stay.token_state === 'STAGED' ? 'Pending' : stay.token_state === 'EXPIRED' ? 'Expired' : stay.token_state === 'REVOKED' ? 'Revoked' : stay.token_state}
+                      {stay.token_state === 'STAGED' ? 'Pending' : stay.token_state === 'EXPIRED' ? 'Expired' : stay.token_state === 'REVOKED' ? 'Revoked' : stay.token_state}
                     </span>
                   )}
                 </>
@@ -1228,21 +1207,23 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                   ? 'Stay cancelled'
                   : stay.checked_out_at
                     ? 'Stay completed'
-                    : stay.approved_stay_end_date < today
-                      ? 'Stay ended'
-                      : stay.approved_stay_start_date > today
-                        ? (() => {
-                            const host =
-                              (stay.residence_assigned_by_name && stay.residence_assigned_by_name.trim()) ||
-                              'your host';
-                            const accepted =
-                              (stay.stay_accepted_by_name && stay.stay_accepted_by_name.trim()) ||
-                              guestFullName.trim() ||
-                              (guestEmail || '').trim() ||
-                              'Guest';
-                            return `Assigned residence by ${host} and accepted by ${accepted}`;
-                          })()
-                        : 'Current stay'}
+                    : detailCheckedIn && !stay.checked_out_at && !stay.cancelled_at
+                      ? 'Current stay'
+                      : stay.approved_stay_end_date < today
+                        ? 'Stay ended'
+                        : stay.approved_stay_start_date > today
+                          ? (() => {
+                              const host =
+                                (stay.residence_assigned_by_name && stay.residence_assigned_by_name.trim()) ||
+                                'your host';
+                              const accepted =
+                                (stay.stay_accepted_by_name && stay.stay_accepted_by_name.trim()) ||
+                                guestFullName.trim() ||
+                                (guestEmail || '').trim() ||
+                                'Guest';
+                              return `Assigned residence by ${host} and accepted by ${accepted}`;
+                            })()
+                          : 'Current stay'}
             </h1>
             <div className="flex gap-6 mt-4">
               <div>
@@ -1287,7 +1268,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                   });
                 }}
               >
-                View property POA (PDF)
+                View owner authorization (PDF)
               </Button>
             )}
             {!isAgreementArchive(stay) && stay.invite_id && (
@@ -1300,7 +1281,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                 Verify with QR code
               </Button>
             )}
-            {!isAgreementArchive(stay) && !stay.checked_out_at && !stay.cancelled_at && stay.approved_stay_end_date >= today && stay.approved_stay_start_date <= today && !detailHasCheckedIn && (
+            {!isAgreementArchive(stay) && !stay.checked_out_at && !stay.cancelled_at && stay.approved_stay_end_date >= today && stay.approved_stay_start_date <= today && !detailCheckedIn && (
               <button
                 type="button"
                 disabled={!!checkingInStay}
@@ -1310,7 +1291,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                 {checkingInStay?.stay_id === stay.stay_id ? 'Checking in…' : 'Check in'}
               </button>
             )}
-            {!isAgreementArchive(stay) && !stay.checked_out_at && !stay.cancelled_at && stay.approved_stay_end_date >= today && (detailHasCheckedIn || stay.revoked_at != null) && (
+            {!isAgreementArchive(stay) && !stay.checked_out_at && !stay.cancelled_at && (detailCheckedIn || stay.revoked_at != null) && (
               <button
                 type="button"
                 className="w-full h-11 rounded-lg font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
@@ -1428,7 +1409,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
               stay.token_state === 'STAGED' ? 'bg-blue-500' :
               'bg-slate-400'
             }`} />
-            {stay.token_state === 'BURNED' ? 'Active' :
+            {stay.token_state === 'BURNED' ? 'Invitation confirmed' :
              stay.token_state === 'REVOKED' ? 'Revoked' :
              stay.token_state === 'EXPIRED' ? 'Expired' :
              stay.token_state === 'CANCELLED' ? 'Cancelled' :
@@ -1549,9 +1530,9 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-800">Power of Attorney (POA)</p>
+                  <p className="text-sm font-medium text-slate-800">Owner authorization (POA)</p>
                   <p className="text-xs text-slate-500">
-                    Master owner authorization on file for this property establishes documentation authority in DocuStay. It is not specific to your guest role.
+                    DocuStay&apos;s records can include owner-provided authorization for this property. That record is not specific to your guest role.
                   </p>
                 </div>
                 {stay.property_live_slug ? (
@@ -1566,11 +1547,11 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
                       });
                     }}
                   >
-                    View POA (PDF)
+                    View owner authorization (PDF)
                   </Button>
                 ) : (
                   <p className="text-xs text-slate-500 shrink-0 max-w-[14rem] text-right">
-                    Public POA link is not available from this stay yet. Ask your host or check back after the property publishes a live page.
+                    A public authorization PDF link is not available from this stay yet. Ask your host or check back after the property publishes a live page.
                   </p>
                 )}
               </div>
@@ -1592,28 +1573,25 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
             </div>
           </div>
 
-          {/* Applicable law from Jurisdiction SOT (same as live property page) */}
+          {/* Jurisdiction reference (same source as live property page; UI framing only) */}
           {stay && (stay.jurisdiction_state_name || (stay.jurisdiction_statutes && stay.jurisdiction_statutes.length > 0)) && (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-700">APPLICABLE LAW ({(stay.jurisdiction_state_name ?? (stay.region_code || 'State')).toUpperCase()})</p>
-              <ul className="mt-2 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-700">Legal context — {(stay.jurisdiction_state_name ?? (stay.region_code || 'State')).toUpperCase()}</p>
+              <p className="text-xs text-slate-500 mt-2 leading-relaxed border border-slate-200 bg-slate-50/80 rounded-lg px-3 py-2">
+                {JURISDICTION_CONTEXT_DISCLAIMER}
+              </p>
+              <ul className="mt-3 space-y-2">
                 {(stay.jurisdiction_statutes ?? []).map((s, i) => (
                   <li key={i} className="text-sm text-slate-700">
                     <span className="font-medium text-slate-900">{s.citation}</span>
-                    {s.plain_english && <span className="block text-slate-600 mt-0.5">{s.plain_english}</span>}
+                    {s.plain_english && (
+                      <span className="block text-slate-500 mt-0.5 text-xs leading-relaxed">
+                        Reference summary (informational): {s.plain_english}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
-              {stay.removal_guest_text && (
-                <p className="text-slate-600 text-sm mt-2">
-                  <span className="font-medium text-slate-700">Guest removal: </span>{stay.removal_guest_text}
-                </p>
-              )}
-              {stay.removal_tenant_text && (
-                <p className="text-slate-600 text-sm mt-0.5">
-                  <span className="font-medium text-slate-700">Tenant eviction: </span>{stay.removal_tenant_text}
-                </p>
-              )}
             </div>
           )}
 
@@ -1688,7 +1666,7 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
 
         {/* Right: Presence (active checked-in stay) + Help */}
         <div className="space-y-6">
-          {!isAgreementArchive(stay) && detailHasCheckedIn && !stay.checked_out_at && !stay.cancelled_at && stay.approved_stay_end_date >= today && (
+          {!isAgreementArchive(stay) && detailCheckedIn && !stay.checked_out_at && !stay.cancelled_at && !stay.revoked_at && (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h4 className="font-semibold text-slate-900 mb-3">Presence at this property</h4>
               <p className="text-sm text-slate-600 mb-4">Set here or away for this stay. Each property you’re invited to has its own status.</p>

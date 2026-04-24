@@ -591,9 +591,15 @@ export interface OwnerStayView {
   needs_occupancy_confirmation?: boolean;
   show_occupancy_confirmation_ui?: boolean;
   confirmation_deadline_at?: string | null;
-  occupancy_confirmation_response?: string | null;
-  /** Set when the owner marked the property inactive (soft-deleted). */
-  property_deleted_at?: string | null;
+    occupancy_confirmation_response?: string | null;
+    /** Set when the owner marked the property inactive (soft-deleted). */
+    property_deleted_at?: string | null;
+    /** UnifiedLifecycleStatus from state_resolver (same calendar + acceptance SOT as tenant lease). */
+    lifecycle_state?: string | null;
+    /** resolve_stay_status: none | upcoming | checked_in | checked_out | cancelled | revoked | ended */
+    stay_status?: string | null;
+    /** resolve_invite_status when linked invitation exists. */
+    invite_status?: string | null;
 }
 
 export interface OwnerInvitationView {
@@ -701,6 +707,10 @@ export interface GuestStayView {
   /** Guest who accepted the stay (from stay guest user or agreement signature). */
   stay_accepted_by_name?: string | null;
   property_deleted_at?: string | null;
+  /** From state_resolver (same SOT as owner/manager guest rows). */
+  lifecycle_state?: string | null;
+  stay_status?: string | null;
+  invite_status?: string | null;
 }
 
 /** Tenant dashboard: guest asked to extend a stay (approve/decline). */
@@ -1191,7 +1201,8 @@ export const dashboardApi = {
   },
   tenantDebug: () =>
     request<{ tenant_assignments_count: number; stays_count: number }>("/dashboard/tenant/debug"),
-  tenantUnit: () => request<{
+  tenantUnit: () =>
+    request<{
     units: Array<{
       unit: { id: number; unit_label: string; occupancy_status: string } | null;
       property: { id: number; name: string; address: string } | null;
@@ -1216,7 +1227,7 @@ export const dashboardApi = {
       assignment_status?: 'none' | 'pending' | 'accepted' | 'active' | 'expired';
       lifecycle_state?: 'PENDING_STAGED' | 'PENDING_INVITED' | 'ACCEPTED' | 'ACTIVE' | 'EXPIRED' | 'OWNER_RESIDENT' | 'CANCELLED';
     }>;
-  }>("/dashboard/tenant/unit"),
+  }>("/dashboard/tenant/unit", { headers: clientCalendarDateHeaders() }),
   tenantSetDeadMansSwitch: (unitId: number, deadMansSwitchEnabled: boolean) =>
     request<{ status: string; dead_mans_switch_enabled: boolean; updated_count: number; message?: string }>(
       "/dashboard/tenant/dead-mans-switch",
@@ -1749,7 +1760,7 @@ export const publicApi = {
 };
 
 const LIVE_POA_UNAVAILABLE_MSG =
-  "No signed Master POA is on file for this property yet. The property owner must complete Master POA signing in DocuStay (Settings or onboarding). After that, the PDF will open here.";
+  "No signed owner authorization is on file for this property yet. The property owner must complete authorization signing in DocuStay (Settings or onboarding). After that, the PDF will open here.";
 
 async function blobLooksLikePdf(blob: Blob): Promise<boolean> {
   if ((blob.type || "").toLowerCase().includes("pdf")) return true;
@@ -1830,7 +1841,7 @@ export async function openLivePoaPdfInNewTab(
         userMessage: "Could not reach DocuStay. Check your connection and API URL, then try again.",
       };
     }
-    return { ok: false, userMessage: "Could not open the POA PDF. Please try again." };
+    return { ok: false, userMessage: "Could not open the authorization PDF. Please try again." };
   }
 }
 

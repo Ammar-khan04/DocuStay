@@ -281,15 +281,15 @@ const Settings: React.FC<{
           </Card>
         )}
 
-        {/* Master POA (owners only) – same structure as guest agreement section */}
+        {/* Owner authorization (owners only) – same structure as guest agreement section */}
         {isOwner && (
           <Card className="p-8 md:p-10">
-            <h2 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-3 mb-4">Master Power of Attorney (POA)</h2>
+            <h2 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-3 mb-4">Owner authorization (POA)</h2>
             <p className="text-gray-600 text-sm mb-2">
-              The Master POA is a one-time, account-level legal document you signed during onboarding that establishes DocuStay as your legal representative for all property protection activities.
+              The authorization document you signed during onboarding is a one-time, account-level record. It reflects authorization you provided so DocuStay can maintain documentation and append-only activity records for properties you add—not independent legal authority exercised by DocuStay.
             </p>
             <p className="text-gray-500 text-xs mb-6">
-              It designates DocuStay as your Authorized Agent to generate legal evidence packages and maintain audit trails for all properties you add.
+              DocuStay remains a third-party recordkeeper: records are based on your authorization and on actions taken in the platform.
             </p>
             {poaSignature === undefined ? (
               <p className="text-gray-500 text-sm">Loading…</p>
@@ -303,13 +303,13 @@ const Settings: React.FC<{
                 </Button>
               </div>
             ) : (
-              <p className="text-sm text-gray-500">No Master POA signature on file for this account.</p>
+              <p className="text-sm text-gray-500">No owner authorization signature on file for this account.</p>
             )}
             {user?.is_demo && user.user_type === 'PROPERTY_OWNER' && (
               <div className="mt-4 pt-4 border-t border-gray-200">
-                <p className="text-xs text-gray-500 mb-2">Demo: view the unsigned Master POA PDF (same template as production, no signature overlay).</p>
+                <p className="text-xs text-gray-500 mb-2">Demo: view the unsigned authorization PDF (same template as production, no signature overlay).</p>
                 <Button variant="outline" type="button" onClick={openDemoUnsignedPoaPdf}>
-                  Download unsigned POA (demo)
+                  Download unsigned authorization (demo)
                 </Button>
               </div>
             )}

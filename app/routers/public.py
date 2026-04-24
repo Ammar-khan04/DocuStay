@@ -26,6 +26,7 @@ from app.services.dropbox_sign import get_signed_pdf
 from app.services.invitation_agreement_ledger import emit_invitation_agreement_signed_if_dropbox_complete
 from app.services.audit_log import create_log, CATEGORY_VERIFY_ATTEMPT, CATEGORY_FAILED_ATTEMPT
 from app.services.event_ledger import (
+    build_ledger_display_resolution_context,
     create_ledger_event,
     ledger_event_to_display,
     ledger_record_disclosure_lines,
@@ -47,10 +48,13 @@ from app.services.display_names import (
     label_for_tenant_assignee,
     label_from_user_id,
 )
-from app.services.state_resolver import resolve_invitation_display_status
-from app.services.tenant_lease_window import (
-    find_invitation_matching_tenant_assignment,
-    resolve_tenant_lease_assignment_status,
+from app.services.state_resolver import (
+    resolve_invitation_display_status,
+    resolve_live_property_authorization_state,
+    resolve_public_tenant_assignment_row_label,
+    resolve_public_tenant_stay_invitation_row_label,
+    resolve_verify_guest_authorization_history_status,
+    resolve_verify_primary_guest_stay_status,
 )
 from app.schemas.public import (
     LivePropertyPagePayload,
@@ -268,46 +272,6 @@ def _fmt_short_date_live(d: date) -> str:
     return f"{d.strftime('%b')} {d.day}, {d.year}"
 
 
-def _public_label_for_tenant_lease_assignment_status(st: str) -> str:
-    return {
-        "none": "No assignment on file",
-        "pending": "Pending invitation",
-        "accepted": "Accepted — outside active lease window today",
-        "active": "Active lease",
-        "expired": "Expired or ended",
-    }.get(st, st.replace("_", " ").title())
-
-
-def _lease_invite_resolved_label_for_tenant_assignment(
-    db: Session,
-    ta: TenantAssignment,
-    today: date,
-) -> str:
-    u = db.query(User).filter(User.id == ta.user_id).first() if ta.user_id else None
-    em = (u.email or "").strip().lower() if u else None
-    inv = find_invitation_matching_tenant_assignment(db, ta, user_email_lower=em)
-    st = resolve_tenant_lease_assignment_status(ta, inv, today=today)
-    return _public_label_for_tenant_lease_assignment_status(st)
-
-
-def _lease_invite_resolved_label_for_tenant_stay(
-    db: Session,
-    stay: Stay,
-    inv_map: dict[int, Invitation],
-    today: date,
-) -> str:
-    iid = getattr(stay, "invitation_id", None)
-    inv = inv_map.get(iid) if iid else None
-    disp = resolve_invitation_display_status(inv, today=today, has_live_stay=True, db=db)
-    return {
-        "pending": "Pending invitation",
-        "accepted": "Accepted (invitation)",
-        "active": "Active (checked-in tenant stay)",
-        "expired": "Expired",
-        "cancelled": "Cancelled or revoked",
-    }.get(disp, disp.replace("_", " ").title())
-
-
 def _tenant_summary_strip(rows: list[LiveTenantAssignmentInfo]) -> tuple[str | None, str | None]:
     if not rows:
         return None, None
@@ -345,7 +309,7 @@ def _ta_to_live_tenant_row(
         display = label_for_tenant_assignee(db, ta.user_id)
     tenant_email = (u.email or "").strip() if u else None
     created = ta.created_at if ta.created_at is not None else now
-    lease_invite = _lease_invite_resolved_label_for_tenant_assignment(db, ta, today)
+    lease_invite = resolve_public_tenant_assignment_row_label(db, ta, today)
     return LiveTenantAssignmentInfo(
         assignment_id=ta.id,
         stay_id=None,
@@ -462,6 +426,8 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
         label = label_for_stay(db, s)
         email = (guest_u.email or "").strip() if guest_u else None
         created = s.created_at if getattr(s, "created_at", None) is not None else now
+        iid = getattr(s, "invitation_id", None)
+        inv_row = inv_map.get(iid) if iid else None
         out2.append(
             LiveTenantAssignmentInfo(
                 assignment_id=None,
@@ -472,7 +438,9 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
                 start_date=s.stay_start_date,
                 end_date=s.stay_end_date,
                 created_at=created,
-                lease_invite_resolved_status=_lease_invite_resolved_label_for_tenant_stay(db, s, inv_map, today),
+                lease_invite_resolved_status=resolve_public_tenant_stay_invitation_row_label(
+                    inv_row, today=today, db=db
+                ),
             )
         )
     return out2
@@ -648,9 +616,10 @@ def get_live_property_page(
         limit=500,
         exclude_guest_stay_actions=(personalized is None),
     )
+    ledger_ctx = build_ledger_display_resolution_context(db, log_rows)
     logs = []
     for r in log_rows:
-        cat, title, msg = ledger_event_to_display(r, db)
+        cat, title, msg = ledger_event_to_display(r, db, resolution_context=ledger_ctx)
         attr = audit_actor_attribution(db, actor_user_id=r.actor_user_id, property_id=prop.id)
         disc = ledger_record_disclosure_lines(r, display_title=title)
         logs.append(
@@ -726,8 +695,12 @@ def get_live_property_page(
 
     if current_stays_live:
         cg_rows = _live_guest_info_rows(db, slug, current_stays_live)
-        all_revoked = all(getattr(s, "revoked_at", None) for s in current_stays_live)
-        authorization_state = "REVOKED" if all_revoked else "ACTIVE"
+        authorization_state = resolve_live_property_authorization_state(
+            has_current_guest_stays=True,
+            all_current_stays_revoked=all(getattr(s, "revoked_at", None) for s in current_stays_live),
+            has_last_ended_stay=False,
+            viewer_is_record_owner_for_property=False,
+        )
         return LivePropertyPagePayload(
             has_current_guest=True,
             property=prop_info,
@@ -785,13 +758,16 @@ def get_live_property_page(
     # Guest authorization on this page is about stays. Do not infer EXPIRED from property
     # occupancy alone — a new listing can be marked occupied or unknown while the tenant
     # invite is still pending and there are no guest stays yet.
-    authorization_state = "EXPIRED" if last_stay else "NONE"
-    # Verified owner viewing their own live link: not "none" when there is no guest stay but
-    # the property is on-record (e.g. tenant-occupied, USAT still staged).
-    if authorization_state == "NONE" and viewer is not None and getattr(viewer, "role", None) == UserRole.owner:
+    viewer_is_owner = False
+    if viewer is not None and getattr(viewer, "role", None) == UserRole.owner:
         vprof = db.query(OwnerProfile).filter(OwnerProfile.user_id == viewer.id).first()
-        if vprof and vprof.id == prop.owner_profile_id:
-            authorization_state = "ACTIVE"
+        viewer_is_owner = bool(vprof and vprof.id == prop.owner_profile_id)
+    authorization_state = resolve_live_property_authorization_state(
+        has_current_guest_stays=False,
+        all_current_stays_revoked=False,
+        has_last_ended_stay=last_stay is not None,
+        viewer_is_record_owner_for_property=viewer_is_owner,
+    )
 
     return LivePropertyPagePayload(
         has_current_guest=False,
@@ -863,32 +839,7 @@ def _build_verify_record(
     revoked_at = getattr(stay, "revoked_at", None) if stay else None
     cancelled_at = getattr(stay, "cancelled_at", None) if stay else None
 
-    # Status (single resolver for invitation-backed lifecycle; ACTIVE remains runtime-derived).
-    if not stay:
-        display_status = resolve_invitation_display_status(
-            inv,
-            has_live_stay=False,
-            db=db,
-        )
-        status = {
-            "cancelled": "CANCELLED",
-            "expired": "EXPIRED",
-            "active": "ACTIVE",
-            "accepted": "ACCEPTED",
-            "pending": "PENDING",
-        }.get(display_status, "PENDING")
-    elif revoked_at:
-        status = "REVOKED"
-    elif cancelled_at:
-        status = "CANCELLED"
-    elif checked_out_at:
-        status = "COMPLETED"
-    elif stay_end_date < today:
-        status = "EXPIRED"
-    elif checked_in_at:
-        status = "ACTIVE"
-    else:
-        status = "PENDING"
+    status = resolve_verify_primary_guest_stay_status(inv, stay, today=today, db=db)
 
     # Signed agreement
     sig = (
@@ -963,9 +914,10 @@ def _build_verify_record(
 
     # Event ledger entries (same full-property scope as GET /public/live/{slug})
     ledger_rows = merged_public_property_ledger_rows(db, prop.id, limit=500)
+    verify_ledger_ctx = build_ledger_display_resolution_context(db, ledger_rows)
     ledger_entries = []
     for lr in ledger_rows:
-        cat, title, msg = ledger_event_to_display(lr, db)
+        cat, title, msg = ledger_event_to_display(lr, db, resolution_context=verify_ledger_ctx)
         attr = audit_actor_attribution(db, actor_user_id=lr.actor_user_id, property_id=prop.id)
         ledger_entries.append(LiveLogEntry(
             category=cat,
@@ -989,22 +941,10 @@ def _build_verify_record(
             .all()
         )
         for idx, s in enumerate(all_stays, 1):
+            s_status = resolve_verify_guest_authorization_history_status(s, today=today)
             s_revoked = getattr(s, "revoked_at", None)
             s_cancelled = getattr(s, "cancelled_at", None)
             s_checkout = getattr(s, "checked_out_at", None)
-            s_checkin = getattr(s, "checked_in_at", None)
-            if s_revoked:
-                s_status = "REVOKED"
-            elif s_cancelled:
-                s_status = "CANCELLED"
-            elif s_checkout:
-                s_status = "COMPLETED"
-            elif s.stay_end_date and s.stay_end_date < today:
-                s_status = "EXPIRED"
-            elif s_checkin:
-                s_status = "ACTIVE"
-            else:
-                s_status = "PENDING"
             g_name = label_for_stay(db, s)
             authorization_history.append(VerifyGuestAuthorization(
                 authorization_number=idx,

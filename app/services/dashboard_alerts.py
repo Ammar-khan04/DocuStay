@@ -116,8 +116,15 @@ def create_alert_for_owner_and_managers(
     stay_id: int | None = None,
     invitation_id: int | None = None,
     meta: dict | None = None,
+    stay_id_for_guest_privacy: int | None = None,
+    message_for_non_relationship_owner: str | None = None,
+    meta_for_non_relationship_owner: dict | None = None,
 ) -> None:
-    """Create dashboard alerts for the property owner and all assigned managers (caller's session; caller commits)."""
+    """Create dashboard alerts for the property owner and all assigned managers (caller's session; caller commits).
+
+    Optional guest info flow: when ``stay_id_for_guest_privacy`` and ``message_for_non_relationship_owner`` are set,
+    recipients who are not ``viewer_is_relationship_owner_for_stay`` for that stay get the generic message/meta.
+    """
     if property_id is None:
         logging.getLogger(__name__).warning("create_alert_for_owner_and_managers: property_id is None, skipping alerts")
         return
@@ -142,6 +149,34 @@ def create_alert_for_owner_and_managers(
         recipient_ids.append(owner_user_id)
     for a in db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.property_id == property_id).all():
         recipient_ids.append(a.user_id)
+
+    if stay_id_for_guest_privacy is not None and message_for_non_relationship_owner is not None:
+        from app.models.stay import Stay
+        from app.services.privacy_lanes import viewer_is_relationship_owner_for_stay
+
+        st_priv = db.query(Stay).filter(Stay.id == stay_id_for_guest_privacy).first()
+        inv_meta = dict(meta) if meta else {}
+        other_meta = dict(meta_for_non_relationship_owner) if meta_for_non_relationship_owner is not None else {}
+        seen_u: set[int] = set()
+        for uid in recipient_ids:
+            if uid is None or uid in seen_u:
+                continue
+            seen_u.add(uid)
+            show_pii = bool(st_priv and viewer_is_relationship_owner_for_stay(db, st_priv, uid))
+            create_dashboard_alert(
+                db,
+                uid,
+                alert_type,
+                title,
+                message if show_pii else message_for_non_relationship_owner,
+                severity=severity,
+                property_id=property_id,
+                stay_id=stay_id,
+                invitation_id=invitation_id,
+                meta=inv_meta if show_pii else other_meta,
+            )
+        return
+
     _add_alerts_for_user_ids_on_session(
         db,
         recipient_ids,

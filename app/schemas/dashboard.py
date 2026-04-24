@@ -73,6 +73,10 @@ class OwnerStayView(BaseModel):
     confirmation_deadline_at: datetime | None = None  # stay_end_date + 48h
     occupancy_confirmation_response: str | None = None  # vacated | renewed | holdover
     property_deleted_at: datetime | None = None
+    # Single source of truth from app.services.state_resolver (same calendar + acceptance rules as tenant lease).
+    lifecycle_state: str = "PENDING_STAGED"
+    stay_status: str = "none"
+    invite_status: str = "unknown"
 
 
 class JurisdictionStatuteInDashboard(BaseModel):
@@ -117,6 +121,10 @@ class GuestStayView(BaseModel):
     residence_assigned_by_name: str | None = None
     stay_accepted_by_name: str | None = None
     property_deleted_at: datetime | None = None
+    # Same state_resolver SOT as owner/manager guest rows (`resolve_guest_stay_lifecycle`, `resolve_stay_status`, `resolve_invite_status`).
+    lifecycle_state: str = "PENDING_STAGED"
+    stay_status: str = "none"
+    invite_status: str = "unknown"
 
 
 class TenantGuestExtensionRequestView(BaseModel):

@@ -135,7 +135,7 @@ def require_owner_identity_verified(
     if not getattr(current_user, "identity_verified_at", None):
         raise HTTPException(
             status_code=403,
-            detail="Complete identity verification to continue. You cannot sign the Master POA or access the dashboard until your identity is verified.",
+            detail="Complete identity verification to continue. You cannot sign the owner authorization document or access the dashboard until your identity is verified.",
         )
     return current_user
 
@@ -151,7 +151,7 @@ def require_owner_onboarding_complete(
         if not poa and not poa_waived:
             raise HTTPException(
                 status_code=403,
-                detail="Sign and link the Master POA to complete onboarding. You cannot add properties or access the dashboard until the Master POA is linked.",
+                detail="Sign and link your owner authorization to complete onboarding. You cannot add properties or access the dashboard until it is linked.",
             )
         return current_user
     except HTTPException:

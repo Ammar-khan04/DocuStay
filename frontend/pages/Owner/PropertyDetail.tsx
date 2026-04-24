@@ -15,6 +15,8 @@ import { toUserFriendlyInvitationError } from '../../utils/invitationErrors';
 import { tenantsPoolForUnitCard, groupOwnerTenantsByLeaseCohort, formatOwnerTenantGroupNames } from '../../utils/leaseCohortGroups';
 import { validateCoTenantRows, type CoTenantInviteRow } from '../../utils/inviteTenantBatch';
 import { partitionUnitsByOccupancyStatus } from '../../utils/unitDisplayOrder';
+import { isStayPhysicallyCheckedIn } from '../../utils/guestStayState';
+import { JURISDICTION_CONTEXT_DISCLAIMER } from '../../utils/jurisdictionUiCopy';
 
 // Import city data
 import US_CITIES_DATA from '@/data/us-cities.json';
@@ -226,13 +228,13 @@ function unitStayDurationSummary(
   tenant: OwnerTenantView | null,
   businessMode: boolean,
 ): string {
-  const active = stays.find((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  const active = stays.find((s) => isStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at);
   if (active?.stay_start_date && active?.stay_end_date) {
     return businessMode
       ? `Authorization active (checked in): ${formatStayDuration(active.stay_start_date, active.stay_end_date)}`
       : `Guest stay (checked in): ${formatStayDuration(active.stay_start_date, active.stay_end_date)}`;
   }
-  const upcoming = stays.find((s) => !s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  const upcoming = stays.find((s) => !isStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at);
   if (upcoming?.stay_start_date && upcoming?.stay_end_date) {
     return businessMode
       ? `Scheduled authorization: ${formatStayDuration(upcoming.stay_start_date, upcoming.stay_end_date)}`
@@ -387,9 +389,9 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
     jurisdictionGroup: jDoc?.jurisdiction_group ?? jFallback.group,
   };
   const propertyStays = stays.filter((s) => s.property_id === id);
-  // Only checked-in stays (guest clicked Check in) count as active for occupancy and Status Confirmation
-  const activeStaysForProperty = propertyStays.filter((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
-  const activeStays = stays.filter((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  // Active guest stays: backend stay_status + not checked out/cancelled (aligns with state_resolver)
+  const activeStaysForProperty = propertyStays.filter((s) => isStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at);
+  const activeStays = stays.filter((s) => isStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at);
   const activeStay = activeStaysForProperty.find((s) => !isOverstayed(s.stay_end_date)) ?? activeStaysForProperty[0];
   const isOccupied = activeStaysForProperty.length > 0;
   const isInactive = !!(property?.deleted_at);
@@ -397,7 +399,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   /** Stay to use for vacated/renewed/holdover: confirmation prompt stay, or any checked-in active stay on this property */
   const stayForOccupancyActions = stayNeedingConfirmation ?? (activeStaysForProperty.length > 0 ? activeStay ?? null : null);
   /** Upcoming stay (not yet checked in) for Status Confirmation copy */
-  const upcomingStayForProperty = propertyStays.find((s) => !s.checked_in_at && !s.checked_out_at && !s.cancelled_at);
+  const upcomingStayForProperty = propertyStays.find((s) => !isStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at);
 
   const tenantsForThisProperty = useMemo(
     () => ownerTenantsRows.filter((t) => t.property_id != null && t.property_id === property?.id),
@@ -437,8 +439,8 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
     const tenant = pickTenantFromFilteredPool(pool);
     const unitStays = propertyStays.filter((s) => stayMatchesUnit(s, u, isMulti));
     const displayStay =
-      unitStays.find((s) => s.checked_in_at && !s.checked_out_at && !s.cancelled_at) ??
-      unitStays.find((s) => !s.checked_in_at && !s.checked_out_at && !s.cancelled_at) ??
+      unitStays.find((s) => isStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at) ??
+      unitStays.find((s) => !isStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at) ??
       null;
     const inviteCode =
       (displayStay?.invite_id || tenant?.invitation_code || '').trim() || null;
@@ -1953,14 +1955,17 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
 
         {activeTab === 'documentation' && (
           <div className="max-w-3xl space-y-8">
-            <h3 className="text-3xl font-black text-slate-800 tracking-tighter">Region documentation: {jurisdictionInfo.name}</h3>
+            <h3 className="text-3xl font-black text-slate-800 tracking-tighter">Jurisdiction reference &amp; record cadence — {jurisdictionInfo.name}</h3>
+            <p className="text-xs text-slate-500 leading-relaxed border border-slate-200 bg-slate-50/80 rounded-lg px-3 py-2">
+              {JURISDICTION_CONTEXT_DISCLAIMER}
+            </p>
 
             <section>
-              <h4 className="text-lg font-bold text-slate-700 mb-4 uppercase tracking-wider">Jurisdiction threshold</h4>
+              <h4 className="text-lg font-bold text-slate-700 mb-4 uppercase tracking-wider">Threshold descriptions (reference)</h4>
               <p className="text-slate-600 leading-relaxed mb-4">
                 {jurisdictionInfo.legalThresholdDays != null
-                  ? <>The legal tenancy threshold for {jurisdictionInfo.name} is <strong>{jurisdictionInfo.legalThresholdDays} days</strong>. The platform creates renewed authorization records every <strong>{jurisdictionInfo.platformRenewalCycleDays} days</strong> to interrupt continuity and maintain a defensible audit trail.</>
-                  : <>Tenancy in {jurisdictionInfo.name} is {jurisdictionInfo.jurisdictionGroup === 'D' ? 'behavior-based' : 'lease-defined'} (no fixed day threshold). The platform uses a <strong>{jurisdictionInfo.platformRenewalCycleDays}-day</strong> renewal cycle as the default authorization period.</>
+                  ? <>General commentary sometimes associates <strong>{jurisdictionInfo.legalThresholdDays} days</strong> with occupancy questions in {jurisdictionInfo.name}; treat that as outside reference material, not a determination by DocuStay. For consistent recordkeeping, owner authorization is logged on a <strong>{jurisdictionInfo.platformRenewalCycleDays}-day</strong> renewal cadence with timestamps in the audit trail.</>
+                  : <>How tenancy is described for {jurisdictionInfo.name} varies by source ({jurisdictionInfo.jurisdictionGroup === 'D' ? 'often called behavior-based' : 'often tied to a lease'} in secondary summaries—context only, not a DocuStay ruling). The product defaults to a <strong>{jurisdictionInfo.platformRenewalCycleDays}-day</strong> authorization record cycle unless your workflow uses a different setting.</>
                 }
               </p>
             </section>

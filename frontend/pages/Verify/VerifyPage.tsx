@@ -290,7 +290,7 @@ export const VerifyPage: React.FC = () => {
                       {result.poa_url && (
                         <a href={resolveBackendMediaUrl(result.poa_url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                          View Power of Attorney
+                          View owner authorization (PDF)
                         </a>
                       )}
                       <button type="button" onClick={() => setShowLedger(!showLedger)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-600 text-white text-sm font-semibold hover:bg-slate-700 transition-colors">
@@ -310,7 +310,7 @@ export const VerifyPage: React.FC = () => {
                   {/* Authority & links */}
                   <div className="space-y-3 pt-2 border-t border-gray-200">
                     {result.poa_signed_at && (
-                      <p className="text-sm text-gray-600">Property documented under Master POA (signed {formatCalendarDate(result.poa_signed_at)}).</p>
+                      <p className="text-sm text-gray-600">DocuStay&apos;s record for this property includes owner authorization on file (signed {formatCalendarDate(result.poa_signed_at)}).</p>
                     )}
                     <div className="flex flex-wrap items-center gap-3 text-sm">
                       {result.live_slug && (

@@ -32,7 +32,12 @@ _TENANT_PRESENCE_LEDGER_ACTIONS = frozenset(
 )
 
 
-def is_tenant_lane_invitation(db: Session, inv: Invitation) -> bool:
+def is_tenant_lane_invitation(
+    db: Session,
+    inv: Invitation,
+    *,
+    users_by_id: dict[int, User] | None = None,
+) -> bool:
     """
     True if this invitation belongs to the tenant lane (created by a tenant).
     Tenant-invited guest data is private to the tenant — owners/managers must never see it.
@@ -40,7 +45,10 @@ def is_tenant_lane_invitation(db: Session, inv: Invitation) -> bool:
     inviter_id = getattr(inv, "invited_by_user_id", None)
     if inviter_id is None:
         return False  # Legacy: no inviter = treat as property lane
-    inviter = db.query(User).filter(User.id == inviter_id).first()
+    if users_by_id is not None and inviter_id in users_by_id:
+        inviter = users_by_id[inviter_id]
+    else:
+        inviter = db.query(User).filter(User.id == inviter_id).first()
     if not inviter:
         return False
     return inviter.role == UserRole.tenant
@@ -58,21 +66,40 @@ def relationship_owner_user_id_for_invitation(inv: Invitation) -> int | None:
     return getattr(inv, "owner_id", None)
 
 
-def relationship_owner_user_id_for_stay(db: Session, stay: Stay) -> int | None:
-    """Relationship owner for a stay: stay.invited_by_user_id, else invitation inviter, else stay.owner_id."""
+def relationship_owner_user_id_for_stay(
+    db: Session,
+    stay: Stay,
+    *,
+    invitations_by_id: dict[int, Invitation] | None = None,
+) -> int | None:
+    """Direct inviter for this stay (owner or manager who created the guest relationship).
+
+    When ``invitation_id`` is set, the linked ``Invitation`` is authoritative (``invited_by_user_id`` then
+    ``owner_id``), so managers who invited still match even if ``stay.invited_by_user_id`` drifted or was
+    populated from legacy paths. If there is no invitation row, fall back to ``stay.invited_by_user_id``
+    then ``stay.owner_id``.
+    """
+    inv_id = getattr(stay, "invitation_id", None)
+    if inv_id is not None:
+        inv = invitations_by_id.get(inv_id) if invitations_by_id is not None else None
+        if inv is None:
+            inv = db.query(Invitation).filter(Invitation.id == inv_id).first()
+        if inv is not None:
+            return relationship_owner_user_id_for_invitation(inv)
     uid = getattr(stay, "invited_by_user_id", None)
     if uid is not None:
         return uid
-    inv_id = getattr(stay, "invitation_id", None)
-    if inv_id is not None:
-        inv = db.query(Invitation).filter(Invitation.id == inv_id).first()
-        if inv:
-            return relationship_owner_user_id_for_invitation(inv)
     return getattr(stay, "owner_id", None)
 
 
-def viewer_is_relationship_owner_for_stay(db: Session, stay: Stay, viewer_user_id: int) -> bool:
-    rel = relationship_owner_user_id_for_stay(db, stay)
+def viewer_is_relationship_owner_for_stay(
+    db: Session,
+    stay: Stay,
+    viewer_user_id: int,
+    *,
+    invitations_by_id: dict[int, Invitation] | None = None,
+) -> bool:
+    rel = relationship_owner_user_id_for_stay(db, stay, invitations_by_id=invitations_by_id)
     return rel is not None and rel == viewer_user_id
 
 
@@ -81,17 +108,28 @@ def viewer_is_relationship_owner_for_invitation(inv: Invitation, viewer_user_id:
     return rel is not None and rel == viewer_user_id
 
 
-def is_tenant_lane_stay(db: Session, stay: Stay) -> bool:
+def is_tenant_lane_stay(
+    db: Session,
+    stay: Stay,
+    *,
+    invitations_by_id: dict[int, Invitation] | None = None,
+    users_by_id: dict[int, User] | None = None,
+) -> bool:
     """True if this stay belongs to the tenant lane (guest was invited by a tenant)."""
     inv_id = getattr(stay, "invitation_id", None)
     if inv_id is None:
         inviter_id = getattr(stay, "invited_by_user_id", None)
         if inviter_id is None:
             return False
-        inviter = db.query(User).filter(User.id == inviter_id).first()
+        if users_by_id is not None and inviter_id in users_by_id:
+            inviter = users_by_id[inviter_id]
+        else:
+            inviter = db.query(User).filter(User.id == inviter_id).first()
         return inviter is not None and inviter.role == UserRole.tenant
-    inv = db.query(Invitation).filter(Invitation.id == inv_id).first()
-    return inv is not None and is_tenant_lane_invitation(db, inv)
+    inv = invitations_by_id.get(inv_id) if invitations_by_id is not None else None
+    if inv is None:
+        inv = db.query(Invitation).filter(Invitation.id == inv_id).first()
+    return inv is not None and is_tenant_lane_invitation(db, inv, users_by_id=users_by_id)
 
 
 def get_tenant_lane_invitation_ids(db: Session, invitation_ids: list[int]) -> set[int]:

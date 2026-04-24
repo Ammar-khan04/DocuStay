@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, case
 from pydantic import BaseModel, Field, EmailStr, field_validator
 from app.database import get_db
-from app.utils.client_calendar import parse_client_calendar_date_header as _parse_guest_client_calendar_date_header, effective_today_for_invite_start
+from app.utils.client_calendar import (
+    parse_client_calendar_date_header as _parse_guest_client_calendar_date_header,
+    effective_today_for_invite_start,
+    effective_today_from_optional_client_date,
+)
 from app.models.user import User, UserRole
 from app.models.stay import Stay
 from app.models.demo_account import is_demo_user_id
@@ -37,6 +41,20 @@ def _property_address_line(prop: Property | None) -> str | None:
     if z:
         parts.append(str(z).strip())
     return ", ".join(parts) if parts else None
+
+
+def _owner_stay_state_fields(
+    db: Session,
+    stay: Stay | None,
+    invitation: Invitation | None,
+    *,
+    today: date | None = None,
+) -> dict[str, str]:
+    """Thin wrapper: all guest-stay dashboard state comes from ``state_resolver.resolve_guest_stay_state_fields``."""
+    from app.services.state_resolver import resolve_guest_stay_state_fields
+
+    return resolve_guest_stay_state_fields(db, stay=stay, invitation=invitation, today=today)
+
 
 from app.models.property_transfer_invitation import PropertyTransferInvitation
 from app.models.guest_pending_invite import GuestPendingInvite
@@ -62,6 +80,7 @@ from app.services.jle import resolve_jurisdiction
 from app.services.jurisdiction_sot import get_jurisdiction_for_property
 from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE, CATEGORY_PRESENCE, CATEGORY_DEAD_MANS_SWITCH, CATEGORY_FAILED_ATTEMPT, CATEGORY_BILLING, CATEGORY_SHIELD_MODE
 from app.services.event_ledger import (
+    build_ledger_display_resolution_context,
     create_ledger_event,
     ledger_event_to_display,
     ledger_record_disclosure_lines,
@@ -879,8 +898,12 @@ def owner_tenants(
             .order_by(TenantAssignment.created_at.desc())
             .all()
         )
+        tenant_user_ids = {ta.user_id for ta in assignments}
+        tenants_by_id = (
+            {u.id: u for u in db.query(User).filter(User.id.in_(tenant_user_ids)).all()} if tenant_user_ids else {}
+        )
         for ta in assignments:
-            tenant = db.query(User).filter(User.id == ta.user_id).first()
+            tenant = tenants_by_id.get(ta.user_id)
             unit = unit_map.get(ta.unit_id)
             prop = prop_map.get(unit.property_id) if unit else None
             today = date.today()
@@ -898,7 +921,7 @@ def owner_tenants(
                 start = start or inv.stay_start_date
                 end = end or inv.stay_end_date
                 inv_code = inv.invitation_code
-            resolved = resolve_tenant_state(db, tenant_assignment=ta, tenant_invitation=inv)
+            resolved = resolve_tenant_state(db, tenant_assignment=ta, tenant_invitation=inv, today=today)
             active = resolved.assignment_status == "active"
             overall_status = resolved.assignment_status  # pending | accepted | active | expired
             out.append({
@@ -935,21 +958,27 @@ def owner_tenants(
         .order_by(Invitation.created_at.desc())
         .all()
     )
+    tenant_inv_unit_ids = {inv.unit_id for inv in tenant_invs if inv.unit_id is not None}
+    units_with_any_assignment: set[int] = set()
+    if tenant_inv_unit_ids:
+        units_with_any_assignment = {
+            r[0]
+            for r in db.query(TenantAssignment.unit_id)
+            .filter(TenantAssignment.unit_id.in_(tenant_inv_unit_ids))
+            .distinct()
+            .all()
+        }
     for inv in tenant_invs:
         if is_tenant_lease_extension_kind(getattr(inv, "invitation_kind", None)):
             continue
         if getattr(inv, "status", None) == "accepted":
             continue
-        has_assignment = (
-            db.query(TenantAssignment)
-            .filter(TenantAssignment.unit_id == inv.unit_id)
-            .first()
-        ) if inv.unit_id else None
+        has_assignment = inv.unit_id in units_with_any_assignment if inv.unit_id else None
         if has_assignment and is_standard_tenant_invite_kind(getattr(inv, "invitation_kind", None)):
             continue
         unit = unit_map.get(inv.unit_id) if inv.unit_id else None
         prop = prop_map.get(inv.property_id)
-        resolved = resolve_tenant_state(db, tenant_assignment=None, tenant_invitation=inv)
+        resolved = resolve_tenant_state(db, tenant_assignment=None, tenant_invitation=inv, today=date.today())
         out.append({
             "id": -inv.id,
             "invitation_id": inv.id,
@@ -1062,6 +1091,7 @@ def _invitations_to_owner_views(
                 db,
                 tenant_assignment=matching_assignment,
                 tenant_invitation=inv,
+                today=date.today(),
             )
             inv_st = resolved_tenant.invite_status
             if inv_st in ("cancelled", "revoked"):
@@ -1464,11 +1494,13 @@ def owner_stays(
 
         invite_id_val = None
         token_state_val = None
+        inv_for_state: Invitation | None = None
         if getattr(s, "invitation_id", None):
-            inv = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
-            if inv:
-                invite_id_val = inv.invitation_code if show_guest_pii else None
-                token_state_val = getattr(inv, "token_state", None) or "BURNED"
+            inv_for_state = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
+            if inv_for_state:
+                invite_id_val = inv_for_state.invitation_code if show_guest_pii else None
+                token_state_val = getattr(inv_for_state, "token_state", None) or "BURNED"
+        state_fields = _owner_stay_state_fields(db, s, inv_for_state)
         out.append(
             OwnerStayView(
                 stay_id=s.id,
@@ -1496,6 +1528,7 @@ def owner_stays(
                 confirmation_deadline_at=confirmation_deadline_at if show_confirm_ui else None,
                 occupancy_confirmation_response=conf_resp,
                 property_deleted_at=getattr(prop, "deleted_at", None) if prop else None,
+                **state_fields,
             )
         )
 
@@ -1547,6 +1580,7 @@ def owner_stays(
         checked_out_dt = datetime.combine(end, dt_time.min, tzinfo=timezone.utc) if is_expired and end else None
         show_guest_pii = viewer_is_relationship_owner_for_invitation(inv, current_user.id)
         inv_guest_name = label_from_invitation(db, inv) if show_guest_pii else REDACTED_GUEST_AUTHORIZATION_LABEL
+        state_fields_inv = _owner_stay_state_fields(db, None, inv)
         out.append(
             OwnerStayView(
                 stay_id=-inv.id,
@@ -1574,6 +1608,7 @@ def owner_stays(
                 confirmation_deadline_at=None,
                 occupancy_confirmation_response=None,
                 property_deleted_at=getattr(prop, "deleted_at", None),
+                **state_fields_inv,
             )
         )
 
@@ -1688,11 +1723,13 @@ def manager_stays(
         )
         invite_id_val = None
         token_state_val = None
+        inv_for_state: Invitation | None = None
         if getattr(s, "invitation_id", None):
-            inv = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
-            if inv:
-                invite_id_val = inv.invitation_code if show_guest_pii else None
-                token_state_val = getattr(inv, "token_state", None) or "BURNED"
+            inv_for_state = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
+            if inv_for_state:
+                invite_id_val = inv_for_state.invitation_code if show_guest_pii else None
+                token_state_val = getattr(inv_for_state, "token_state", None) or "BURNED"
+        state_fields = _owner_stay_state_fields(db, s, inv_for_state)
         out.append(OwnerStayView(
             stay_id=s.id, property_id=s.property_id, invite_id=invite_id_val, token_state=token_state_val, invitation_only=False,
             guest_name=guest_name, property_name=property_name, stay_start_date=s.stay_start_date, stay_end_date=s.stay_end_date,
@@ -1701,6 +1738,7 @@ def manager_stays(
             usat_token_released_at=getattr(s, "usat_token_released_at", None), dead_mans_switch_enabled=dms_on,
             needs_occupancy_confirmation=needs_conf, show_occupancy_confirmation_ui=show_confirm_ui, confirmation_deadline_at=confirmation_deadline_at if show_confirm_ui else None, occupancy_confirmation_response=conf_resp,
             property_deleted_at=getattr(prop, "deleted_at", None) if prop else None,
+            **state_fields,
         ))
     invitation_ids_with_stay = {s.invitation_id for s in stays if getattr(s, "invitation_id", None) is not None}
     stay_key = {(s.property_id, s.stay_start_date, s.stay_end_date) for s in stays}
@@ -1734,6 +1772,7 @@ def manager_stays(
         checked_out_dt = datetime.combine(end, dt_time.min, tzinfo=timezone.utc) if is_expired and end else None
         show_guest_pii = viewer_is_relationship_owner_for_invitation(inv, current_user.id)
         inv_guest_name = label_from_invitation(db, inv) if show_guest_pii else REDACTED_GUEST_AUTHORIZATION_LABEL
+        state_fields_inv = _owner_stay_state_fields(db, None, inv)
         out.append(OwnerStayView(
             stay_id=-inv.id, property_id=inv.property_id, invite_id=inv.invitation_code if show_guest_pii else None, token_state=token_state, invitation_only=True,
             guest_name=inv_guest_name, property_name=property_name, stay_start_date=start, stay_end_date=end,
@@ -1741,6 +1780,7 @@ def manager_stays(
             revoked_at=None, checked_in_at=None, checked_out_at=checked_out_dt, cancelled_at=None, usat_token_released_at=None,
             dead_mans_switch_enabled=bool(getattr(inv, "dead_mans_switch_enabled", 0)), needs_occupancy_confirmation=False, show_occupancy_confirmation_ui=False, confirmation_deadline_at=None, occupancy_confirmation_response=None,
             property_deleted_at=getattr(prop, "deleted_at", None),
+            **state_fields_inv,
         ))
     return out
 
@@ -1893,6 +1933,11 @@ def _perform_stay_revoke(
             severity="info",
             stay_id=stay.id,
             meta={"vacate_by": vacate_by_iso, "guest_name": guest_name},
+            stay_id_for_guest_privacy=stay.id,
+            message_for_non_relationship_owner=(
+                f"A guest stay authorization was revoked at {property_name}. Guest must vacate by {vacate_by_iso}."
+            ),
+            meta_for_non_relationship_owner={"vacate_by": vacate_by_iso},
         )
     else:
         create_alert_for_user(
@@ -2104,10 +2149,19 @@ def initiate_removal(
         meta={"revoked_at": now.strftime("%Y-%m-%d %H:%M UTC")},
     )
     create_alert_for_owner_and_managers(
-        db, stay.property_id, "removal_initiated",
+        db,
+        stay.property_id,
+        "removal_initiated",
         "Removal initiated",
         f"You initiated formal removal for {guest_name} at {property_name}. USAT token revoked. Guest and owner notified.",
-        severity="info", stay_id=stay.id, meta={"guest_name": guest_name},
+        severity="info",
+        stay_id=stay.id,
+        meta={"guest_name": guest_name},
+        stay_id_for_guest_privacy=stay.id,
+        message_for_non_relationship_owner=(
+            f"A formal removal was initiated for a guest stay at {property_name}. USAT token revoked. Guest and owner notified."
+        ),
+        meta_for_non_relationship_owner={},
     )
     db.commit()
 
@@ -2153,6 +2207,10 @@ def confirm_occupancy_status(
     now = datetime.now(timezone.utc)
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "").strip() or None
+    guest_display_name = label_for_stay(db, stay)
+    property_display_name = (prop.name or "").strip() or (
+        f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property"
+    )
 
     if action == "vacated":
         stay.checked_out_at = now
@@ -2172,9 +2230,10 @@ def confirm_occupancy_status(
                     for u in [db.query(User).filter(User.id == a.user_id).first()]
                     if u and (u.email or "").strip()
                 ]
-                property_name = (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property")
                 try:
-                    send_shield_mode_turned_off_notification(owner_email, manager_emails, property_name, turned_off_by="system (unit vacated)")
+                    send_shield_mode_turned_off_notification(
+                        owner_email, manager_emails, property_display_name, turned_off_by="system (unit vacated)"
+                    )
                 except Exception:
                     pass
                 addr = _format_property_address_for_log(prop)
@@ -2251,17 +2310,31 @@ def confirm_occupancy_status(
                 for u in [db.query(User).filter(User.id == a.user_id).first()]
                 if u and (u.email or "").strip()
             ]
-            guest_name = label_for_stay(db, stay)
-            property_name = (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property")
             try:
-                send_dms_turned_off_notification(owner_email, manager_emails, property_name, guest_name, stay.stay_end_date.isoformat(), reason="unit vacated")
+                send_dms_turned_off_notification(
+                    owner_email,
+                    manager_emails,
+                    property_display_name,
+                    guest_display_name,
+                    stay.stay_end_date.isoformat(),
+                    reason="unit vacated",
+                )
             except Exception:
                 pass
         create_alert_for_owner_and_managers(
-            db, stay.property_id, "vacated",
+            db,
+            stay.property_id,
+            "vacated",
             "Unit vacated",
-            f"Stay for {guest_name} at {property_name} was confirmed as vacated. Occupancy status set to Vacant.",
-            severity="info", stay_id=stay.id, meta={"guest_name": guest_name},
+            f"Stay for {guest_display_name} at {property_display_name} was confirmed as vacated. Occupancy status set to Vacant.",
+            severity="info",
+            stay_id=stay.id,
+            meta={"guest_name": guest_display_name},
+            stay_id_for_guest_privacy=stay.id,
+            message_for_non_relationship_owner=(
+                f"A guest stay at {property_display_name} was confirmed as vacated. Occupancy status set to Vacant."
+            ),
+            meta_for_non_relationship_owner={},
         )
         db.commit()
         return {"status": "success", "message": "Unit marked as vacated.", "occupancy_status": "vacant"}
@@ -2317,10 +2390,15 @@ def confirm_occupancy_status(
                 for u in [db.query(User).filter(User.id == a.user_id).first()]
                 if u and (u.email or "").strip()
             ]
-            guest_name = label_for_stay(db, stay)
-            property_name = (prop.name or "").strip() or (f"{prop.city}, {prop.state}".strip(", ") if (prop.city or prop.state) else "Property")
             try:
-                send_dms_turned_off_notification(owner_email, manager_emails, property_name, guest_name, new_end.isoformat(), reason="lease extended beyond 48h")
+                send_dms_turned_off_notification(
+                    owner_email,
+                    manager_emails,
+                    property_display_name,
+                    guest_display_name,
+                    new_end.isoformat(),
+                    reason="lease extended beyond 48h",
+                )
             except Exception:
                 pass
         prop.occupancy_status = OccupancyStatus.occupied.value
@@ -2348,10 +2426,19 @@ def confirm_occupancy_status(
         )
         db.commit()
         create_alert_for_owner_and_managers(
-            db, stay.property_id, "renewed",
+            db,
+            stay.property_id,
+            "renewed",
             "Lease renewed",
-            f"Stay for {guest_name} at {property_name} was renewed to {new_end.isoformat()}. Occupancy status remains Occupied.",
-            severity="info", stay_id=stay.id, meta={"guest_name": guest_name, "new_lease_end_date": new_end.isoformat()},
+            f"Stay for {guest_display_name} at {property_display_name} was renewed to {new_end.isoformat()}. Occupancy status remains Occupied.",
+            severity="info",
+            stay_id=stay.id,
+            meta={"guest_name": guest_display_name, "new_lease_end_date": new_end.isoformat()},
+            stay_id_for_guest_privacy=stay.id,
+            message_for_non_relationship_owner=(
+                f"A guest stay at {property_display_name} was renewed to {new_end.isoformat()}. Occupancy status remains Occupied."
+            ),
+            meta_for_non_relationship_owner={"new_lease_end_date": new_end.isoformat()},
         )
         db.commit()
         return {"status": "success", "message": "Lease renewed.", "occupancy_status": "occupied", "new_lease_end_date": new_end.isoformat()}
@@ -2377,10 +2464,19 @@ def confirm_occupancy_status(
         meta={"occupancy_status_previous": prev_status, "occupancy_status_new": OccupancyStatus.occupied.value, "action": "holdover"},
     )
     create_alert_for_owner_and_managers(
-        db, stay.property_id, "holdover",
+        db,
+        stay.property_id,
+        "holdover",
         "Holdover confirmed",
-        f"Stay for {guest_name} at {property_name} was confirmed as holdover (guest still in unit). Occupancy status set to Occupied.",
-        severity="info", stay_id=stay.id, meta={"guest_name": guest_name},
+        f"Stay for {guest_display_name} at {property_display_name} was confirmed as holdover (guest still in unit). Occupancy status set to Occupied.",
+        severity="info",
+        stay_id=stay.id,
+        meta={"guest_name": guest_display_name},
+        stay_id_for_guest_privacy=stay.id,
+        message_for_non_relationship_owner=(
+            f"A guest stay at {property_display_name} was confirmed as holdover (guest still in unit). Occupancy status set to Occupied."
+        ),
+        meta_for_non_relationship_owner={},
     )
     db.commit()
     return {"status": "success", "message": "Holdover confirmed.", "occupancy_status": "occupied"}
@@ -2615,7 +2711,12 @@ def _guest_stay_exists_for_invitation(db: Session, guest_user_id: int, inv: Invi
     return db.query(Stay).filter(and_(*overlap_filters)).first() is not None
 
 
-def _guest_agreement_archive_stay_views(db: Session, current_user: User) -> list[GuestStayView]:
+def _guest_agreement_archive_stay_views(
+    db: Session,
+    current_user: User,
+    *,
+    calendar_today: date | None = None,
+) -> list[GuestStayView]:
     """Signed guest agreements with no Stay row (e.g. pending invite expired before accept-invite). Keeps permanent history + PDF access."""
     if current_user.role != UserRole.guest:
         return []
@@ -2683,6 +2784,7 @@ def _guest_agreement_archive_stay_views(db: Session, current_user: User) -> list
                 unit_label_val = unit_row.unit_label
         arch_assigned = _user_display_name_for_dashboard(db, inv.owner_id)
         arch_accepted = (sig.guest_full_name or sig.guest_email or "").strip() or None
+        state_fields_arch = _owner_stay_state_fields(db, None, inv, today=calendar_today)
         out.append(
             GuestStayView(
                 stay_id=0,
@@ -2714,6 +2816,7 @@ def _guest_agreement_archive_stay_views(db: Session, current_user: User) -> list
                 residence_assigned_by_name=arch_assigned,
                 stay_accepted_by_name=arch_accepted,
                 property_deleted_at=getattr(prop, "deleted_at", None) if prop else None,
+                **state_fields_arch,
             )
         )
     return out
@@ -2804,6 +2907,9 @@ def guest_stays(
     """Guest view: stays where this user is the guest. Tenants must not use this endpoint — guest stays they host appear under /dashboard/tenant/guest-history."""
     if current_user.role == UserRole.tenant:
         return []
+    guest_calendar_today = effective_today_from_optional_client_date(
+        _parse_guest_client_calendar_date_header(x_client_calendar_date)
+    )
     if current_user.role == UserRole.guest:
         _maybe_materialize_guest_approaching_end_ledger(
             db,
@@ -2852,11 +2958,13 @@ def guest_stays(
             unit_row = db.query(Unit).filter(Unit.id == s.unit_id).first()
             if unit_row:
                 unit_label_val = unit_row.unit_label
+        inv_for_state: Invitation | None = None
         if getattr(s, "invitation_id", None):
-            inv = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
-            if inv:
-                invite_id_val = inv.invitation_code
-                token_state_val = getattr(inv, "token_state", None) or "BURNED"
+            inv_for_state = db.query(Invitation).filter(Invitation.id == s.invitation_id).first()
+            if inv_for_state:
+                invite_id_val = inv_for_state.invitation_code
+                token_state_val = getattr(inv_for_state, "token_state", None) or "BURNED"
+        state_fields = _owner_stay_state_fields(db, s, inv_for_state, today=guest_calendar_today)
         ext_pending = (
             db.query(GuestExtensionRequest)
             .filter(GuestExtensionRequest.stay_id == s.id, GuestExtensionRequest.status == "pending")
@@ -2864,7 +2972,7 @@ def guest_stays(
         )
         can_request_extension = bool(
             is_tenant_lane_stay(db, s)
-            and getattr(s, "checked_in_at", None)
+            and state_fields.get("stay_status") == "checked_in"
             and not checked_out_at
             and not cancelled_at
             and not revoked_at
@@ -2904,9 +3012,10 @@ def guest_stays(
                 residence_assigned_by_name=assigned_nm,
                 stay_accepted_by_name=accepted_nm,
                 property_deleted_at=getattr(prop, "deleted_at", None) if prop else None,
+                **state_fields,
             )
         )
-    out.extend(_guest_agreement_archive_stay_views(db, current_user))
+    out.extend(_guest_agreement_archive_stay_views(db, current_user, calendar_today=guest_calendar_today))
     out.sort(
         key=lambda v: (
             v.approved_stay_end_date,
@@ -2970,6 +3079,7 @@ def guest_logs(
         term = f"%{search.strip()}%"
         q = q.filter((EventLedger.action_type.ilike(term)) | (cast(EventLedger.meta, String).ilike(term)))
     rows = q.order_by(desc(EventLedger.created_at)).limit(200).all()
+    ledger_ctx = build_ledger_display_resolution_context(db, rows)
     prop_ids = {r.property_id for r in rows if r.property_id}
     props = {}
     if prop_ids:
@@ -2977,8 +3087,8 @@ def guest_logs(
             props[p.id] = _format_property_address_for_log(p)
     out = []
     for r in rows:
-        cat, title, msg = ledger_event_to_display(r, db)
-        actor_email = get_actor_email(db, r.actor_user_id)
+        cat, title, msg = ledger_event_to_display(r, db, resolution_context=ledger_ctx)
+        actor_email = get_actor_email(db, r.actor_user_id, resolution_context=ledger_ctx)
         disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(
@@ -3627,38 +3737,62 @@ def _guest_invite_frontend_url(invitation_code: str, *, is_demo: bool = False) -
     return f"{base}/#demo/invite/{code}" if is_demo else f"{base}/#invite/{code}"
 
 
-def _guest_extension_request_to_view(db: Session, row: GuestExtensionRequest) -> TenantGuestExtensionRequestView | None:
-    stay = db.query(Stay).filter(Stay.id == row.stay_id).first()
-    if not stay:
-        return None
-    prop = db.query(Property).filter(Property.id == row.property_id).first()
-    guest_u = db.query(User).filter(User.id == row.guest_user_id).first()
-    property_name = (prop.name if prop else None) or (f"{prop.city}, {prop.state}" if prop and (prop.city or prop.state) else None) or "Property"
-    guest_name = ((guest_u.full_name or "").strip() or (guest_u.email or "").strip() or "Guest") if guest_u else "Guest"
-    guest_email = (guest_u.email or "").strip() if guest_u else ""
-    unit_id = getattr(stay, "unit_id", None)
-    unit_label = None
-    if unit_id:
-        ur = db.query(Unit).filter(Unit.id == unit_id).first()
-        if ur:
-            unit_label = ur.unit_label
-    return TenantGuestExtensionRequestView(
-        id=row.id,
-        stay_id=row.stay_id,
-        property_id=row.property_id,
-        property_name=property_name,
-        unit_id=unit_id,
-        unit_label=unit_label,
-        guest_name=guest_name,
-        guest_email=guest_email,
-        stay_start_date=stay.stay_start_date,
-        stay_end_date=stay.stay_end_date,
-        message=row.message,
-        status=row.status,
-        created_at=row.created_at,
-        responded_at=row.responded_at,
-        tenant_note=row.tenant_note,
-    )
+def _guest_extension_requests_views_batch(
+    db: Session, rows: list[GuestExtensionRequest]
+) -> list[TenantGuestExtensionRequestView]:
+    """Build tenant guest-extension request views with batched Stay/Property/User/Unit loads."""
+    if not rows:
+        return []
+    stay_ids = {r.stay_id for r in rows}
+    prop_ids = {r.property_id for r in rows}
+    guest_ids = {r.guest_user_id for r in rows}
+    stays = {s.id: s for s in db.query(Stay).filter(Stay.id.in_(stay_ids)).all()} if stay_ids else {}
+    props = {p.id: p for p in db.query(Property).filter(Property.id.in_(prop_ids)).all()} if prop_ids else {}
+    guests = {u.id: u for u in db.query(User).filter(User.id.in_(guest_ids)).all()} if guest_ids else {}
+    unit_ids: set[int] = set()
+    for sid in stay_ids:
+        s = stays.get(sid)
+        if s is not None:
+            uid = getattr(s, "unit_id", None)
+            if uid is not None:
+                unit_ids.add(uid)
+    units = {u.id: u for u in db.query(Unit).filter(Unit.id.in_(unit_ids)).all()} if unit_ids else {}
+    out: list[TenantGuestExtensionRequestView] = []
+    for row in rows:
+        stay = stays.get(row.stay_id)
+        if not stay:
+            continue
+        prop = props.get(row.property_id)
+        guest_u = guests.get(row.guest_user_id)
+        property_name = (prop.name if prop else None) or (f"{prop.city}, {prop.state}" if prop and (prop.city or prop.state) else None) or "Property"
+        guest_name = ((guest_u.full_name or "").strip() or (guest_u.email or "").strip() or "Guest") if guest_u else "Guest"
+        guest_email = (guest_u.email or "").strip() if guest_u else ""
+        unit_id = getattr(stay, "unit_id", None)
+        unit_label = None
+        if unit_id is not None:
+            ur = units.get(unit_id)
+            if ur:
+                unit_label = ur.unit_label
+        out.append(
+            TenantGuestExtensionRequestView(
+                id=row.id,
+                stay_id=row.stay_id,
+                property_id=row.property_id,
+                property_name=property_name,
+                unit_id=unit_id,
+                unit_label=unit_label,
+                guest_name=guest_name,
+                guest_email=guest_email,
+                stay_start_date=stay.stay_start_date,
+                stay_end_date=stay.stay_end_date,
+                message=row.message,
+                status=row.status,
+                created_at=row.created_at,
+                responded_at=row.responded_at,
+                tenant_note=row.tenant_note,
+            )
+        )
+    return out
 
 
 @router.get("/tenant/guest-extension-requests", response_model=list[TenantGuestExtensionRequestView])
@@ -3679,12 +3813,7 @@ def tenant_list_guest_extension_requests(
         .limit(100)
         .all()
     )
-    out: list[TenantGuestExtensionRequestView] = []
-    for r in rows:
-        v = _guest_extension_request_to_view(db, r)
-        if v:
-            out.append(v)
-    return out
+    return _guest_extension_requests_views_batch(db, rows)
 
 
 @router.post("/guest/stays/{stay_id}/request-extension")
@@ -4116,17 +4245,20 @@ def _tenant_property_transfer_notice(
     return f"The property was transferred to {label}."
 
 
-def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -> dict:
+def _tenant_unit_item(
+    db: Session,
+    ta: TenantAssignment,
+    current_user: "User",
+    *,
+    calendar_today: date | None = None,
+) -> dict:
     """Build one unit item for tenant_unit response. Use invitation accepted by THIS user (match guest_email) to avoid showing another tenant's dates."""
     unit = db.query(Unit).filter(Unit.id == ta.unit_id).first()
-    from app.services.state_resolver import resolve_tenant_lease_lifecycle, resolve_tenant_state
+    from app.services.state_resolver import resolve_tenant_lease_state_fields
 
     if not unit:
-        resolved = resolve_tenant_state(db, tenant_assignment=ta, tenant_invitation=None)
-        lifecycle_state = resolve_tenant_lease_lifecycle(
-            tenant_assignment=ta,
-            tenant_invitation=None,
-            db=db,
+        state = resolve_tenant_lease_state_fields(
+            db, tenant_assignment=ta, tenant_invitation=None, today=calendar_today
         )
         return {
             "unit": None, "property": None, "invite_id": None, "token_state": None,
@@ -4142,9 +4274,9 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
             "co_tenants": [],
             "property_deleted_at": None,
             "property_owner_transfer_notice": None,
-            "invite_status": resolved.invite_status,
-            "assignment_status": resolved.assignment_status,
-            "lifecycle_state": lifecycle_state,
+            "invite_status": state["invite_status"],
+            "assignment_status": state["assignment_status"],
+            "lifecycle_state": state["lifecycle_state"],
         }
     prop = db.query(Property).filter(Property.id == unit.property_id).first()
     address = ", ".join(filter(None, [prop.street, prop.city, prop.state])) if prop else ""
@@ -4152,11 +4284,8 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
     tenant_inv = find_invitation_matching_tenant_assignment(
         db, ta, user_email_lower=user_email or None
     )
-    resolved = resolve_tenant_state(db, tenant_assignment=ta, tenant_invitation=tenant_inv)
-    lifecycle_state = resolve_tenant_lease_lifecycle(
-        tenant_assignment=ta,
-        tenant_invitation=tenant_inv,
-        db=db,
+    state = resolve_tenant_lease_state_fields(
+        db, tenant_assignment=ta, tenant_invitation=tenant_inv, today=calendar_today
     )
     invite_id = tenant_inv.invitation_code if tenant_inv else None
     token_state = getattr(tenant_inv, "token_state", None) if tenant_inv else None
@@ -4222,17 +4351,23 @@ def _tenant_unit_item(db: Session, ta: TenantAssignment, current_user: "User") -
         "co_tenants": co_tenants,
         "property_deleted_at": p_del.isoformat() if p_del else None,
         "property_owner_transfer_notice": transfer_notice,
-        "invite_status": resolved.invite_status,
-        "assignment_status": resolved.assignment_status,
-        "lifecycle_state": lifecycle_state,
+        "invite_status": state["invite_status"],
+        "assignment_status": state["assignment_status"],
+        "lifecycle_state": state["lifecycle_state"],
     }
 
 
-def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user: "User") -> dict | None:
+def _tenant_unit_item_from_invitation(
+    db: Session,
+    inv: Invitation,
+    current_user: "User",
+    *,
+    calendar_today: date | None = None,
+) -> dict | None:
     """Build unit item from a tenant invitation (for pending invitations addressed to this tenant)."""
     if not inv.unit_id:
         return None
-    from app.services.state_resolver import resolve_tenant_lease_lifecycle, resolve_tenant_state
+    from app.services.state_resolver import resolve_tenant_lease_state_fields
     unit = db.query(Unit).filter(Unit.id == inv.unit_id).first()
     if not unit:
         return None
@@ -4248,11 +4383,8 @@ def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user
     lease_cohort_id, co_tenants, cohort_member_count = _lease_cohort_context_for_pending_invitation(db, inv, current_user)
     p_del = getattr(prop, "deleted_at", None)
     transfer_notice = _tenant_property_transfer_notice(db, prop, getattr(inv, "created_at", None))
-    resolved = resolve_tenant_state(db, tenant_assignment=None, tenant_invitation=inv)
-    lifecycle_state = resolve_tenant_lease_lifecycle(
-        tenant_assignment=None,
-        tenant_invitation=inv,
-        db=db,
+    state = resolve_tenant_lease_state_fields(
+        db, tenant_assignment=None, tenant_invitation=inv, today=calendar_today
     )
     return {
         "unit": {"id": unit.id, "unit_label": unit.unit_label, "occupancy_status": get_unit_display_occupancy_status(db, unit)},
@@ -4276,9 +4408,9 @@ def _tenant_unit_item_from_invitation(db: Session, inv: Invitation, current_user
         "co_tenants": co_tenants,
         "property_deleted_at": p_del.isoformat() if p_del else None,
         "property_owner_transfer_notice": transfer_notice,
-        "invite_status": resolved.invite_status,
-        "assignment_status": resolved.assignment_status,
-        "lifecycle_state": lifecycle_state,
+        "invite_status": state["invite_status"],
+        "assignment_status": state["assignment_status"],
+        "lifecycle_state": state["lifecycle_state"],
     }
 
 
@@ -4291,8 +4423,12 @@ _GUEST_STAYS_LIMIT = 500
 def tenant_unit(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_tenant),
+    x_client_calendar_date: str | None = Header(None, alias="X-Client-Calendar-Date"),
 ):
     """Return all of the tenant's assigned units plus pending tenant invitations addressed to them. Only filter: user_id (tenant id). No limit—all assignments are returned (up to _TENANT_UNIT_LIMIT)."""
+    tenant_calendar_today = effective_today_from_optional_client_date(
+        _parse_guest_client_calendar_date_header(x_client_calendar_date)
+    )
     assignments = (
         db.query(TenantAssignment)
         .join(Unit)
@@ -4301,7 +4437,7 @@ def tenant_unit(
         .limit(_TENANT_UNIT_LIMIT)
         .all()
     )
-    units = [_tenant_unit_item(db, ta, current_user) for ta in assignments]
+    units = [_tenant_unit_item(db, ta, current_user, calendar_today=tenant_calendar_today) for ta in assignments]
     user_email = (current_user.email or "").strip().lower()
     if user_email:
         pending_invs = (
@@ -4321,7 +4457,7 @@ def tenant_unit(
                 continue
             if find_tenant_assignment_matching_invitation(db, current_user.id, inv):
                 continue
-            item = _tenant_unit_item_from_invitation(db, inv, current_user)
+            item = _tenant_unit_item_from_invitation(db, inv, current_user, calendar_today=tenant_calendar_today)
             if item:
                 units.append(item)
     return {"units": units}
@@ -4929,6 +5065,7 @@ def tenant_guest_history(
             getattr(inv_for_stay, "unit_id", None) if inv_for_stay else None
         )
         stay_unit_label = _unit_label_if_multi_unit(db, s.property_id, unit_id_for_label)
+        state_fields = _owner_stay_state_fields(db, s, inv_for_stay)
         out.append(OwnerStayView(
             stay_id=s.id, property_id=s.property_id, invite_id=invite_id_val, token_state=token_state_val, invitation_only=False,
             guest_name=guest_name, property_name=property_name, unit_label=stay_unit_label, stay_start_date=s.stay_start_date, stay_end_date=s.stay_end_date,
@@ -4937,6 +5074,7 @@ def tenant_guest_history(
             usat_token_released_at=getattr(s, "usat_token_released_at", None), dead_mans_switch_enabled=dms_on,
             needs_occupancy_confirmation=needs_conf, show_occupancy_confirmation_ui=show_confirm_ui, confirmation_deadline_at=confirmation_deadline_at if show_confirm_ui else None, occupancy_confirmation_response=conf_resp,
             property_deleted_at=getattr(prop, "deleted_at", None) if prop else None,
+            **state_fields,
         ))
     invitation_ids_with_stay = {s.invitation_id for s in stays if getattr(s, "invitation_id", None) is not None}
     q = db.query(Invitation).filter(
@@ -4964,6 +5102,7 @@ def tenant_guest_history(
         is_expired = token_state == "EXPIRED"
         checked_out_dt = datetime.combine(end, dt_time.min, tzinfo=timezone.utc) if is_expired and end else None
         inv_only_label = _unit_label_if_multi_unit(db, inv.property_id, getattr(inv, "unit_id", None))
+        state_fields_inv = _owner_stay_state_fields(db, None, inv)
         out.append(OwnerStayView(
             stay_id=-inv.id, property_id=inv.property_id, invite_id=inv.invitation_code, token_state=token_state, invitation_only=True,
             guest_name=label_from_invitation(db, inv), property_name=property_name, unit_label=inv_only_label, stay_start_date=start, stay_end_date=end,
@@ -4971,6 +5110,7 @@ def tenant_guest_history(
             revoked_at=None, checked_in_at=None, checked_out_at=checked_out_dt, cancelled_at=None, usat_token_released_at=None,
             dead_mans_switch_enabled=bool(getattr(inv, "dead_mans_switch_enabled", 0)), needs_occupancy_confirmation=False, show_occupancy_confirmation_ui=False, confirmation_deadline_at=None, occupancy_confirmation_response=None,
             property_deleted_at=getattr(prop, "deleted_at", None),
+            **state_fields_inv,
         ))
     # Cancelled invitations (tenant/owner cancelled before guest accepted): no Stay row — show in ended list
     cancelled_invs = (
@@ -5001,6 +5141,7 @@ def tenant_guest_history(
         ts = (getattr(inv, "token_state", None) or "REVOKED").upper()
         cancelled_ts = inv.created_at if getattr(inv, "created_at", None) else datetime.now(timezone.utc)
         cancelled_inv_label = _unit_label_if_multi_unit(db, inv.property_id, getattr(inv, "unit_id", None))
+        state_fields_cancel = _owner_stay_state_fields(db, None, inv)
         out.append(OwnerStayView(
             stay_id=-inv.id, property_id=inv.property_id, invite_id=inv.invitation_code, token_state=ts, invitation_only=True,
             guest_name=label_from_invitation(db, inv), property_name=property_name, unit_label=cancelled_inv_label, stay_start_date=start, stay_end_date=end,
@@ -5008,6 +5149,7 @@ def tenant_guest_history(
             revoked_at=None, checked_in_at=None, checked_out_at=None, cancelled_at=cancelled_ts, usat_token_released_at=None,
             dead_mans_switch_enabled=bool(getattr(inv, "dead_mans_switch_enabled", 0)), needs_occupancy_confirmation=False, show_occupancy_confirmation_ui=False, confirmation_deadline_at=None, occupancy_confirmation_response=None,
             property_deleted_at=getattr(prop, "deleted_at", None),
+            **state_fields_cancel,
         ))
     return out
 
@@ -6012,10 +6154,13 @@ def owner_logs(
             return r.meta.get("property_address") or r.meta.get("property_name")
         return None
 
+    ledger_ctx = build_ledger_display_resolution_context(db, rows)
     out = []
     for r in rows:
-        cat, title, msg = ledger_event_to_display(r, db)
-        actor_email = get_actor_email(db, r.actor_user_id)
+        cat, title, msg = ledger_event_to_display(
+            r, db, viewer_user_id=current_user.id, resolution_context=ledger_ctx
+        )
+        actor_email = get_actor_email(db, r.actor_user_id, resolution_context=ledger_ctx)
         disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(
@@ -6102,10 +6247,13 @@ def manager_logs(
         for p in db.query(Property).filter(Property.id.in_(prop_ids)).all():
             props[p.id] = _format_property_address_for_log(p)
 
+    ledger_ctx = build_ledger_display_resolution_context(db, rows)
     out = []
     for r in rows:
-        cat, title, msg = ledger_event_to_display(r, db)
-        actor_email = get_actor_email(db, r.actor_user_id)
+        cat, title, msg = ledger_event_to_display(
+            r, db, viewer_user_id=current_user.id, resolution_context=ledger_ctx
+        )
+        actor_email = get_actor_email(db, r.actor_user_id, resolution_context=ledger_ctx)
         disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(
@@ -6193,6 +6341,7 @@ def tenant_logs(
         term = f"%{search.strip()}%"
         q = q.filter((EventLedger.action_type.ilike(term)) | (cast(EventLedger.meta, String).ilike(term)))
     rows = q.order_by(desc(EventLedger.created_at)).limit(500).all()
+    ledger_ctx = build_ledger_display_resolution_context(db, rows)
     prop_ids = {r.property_id for r in rows if r.property_id}
     props = {}
     if prop_ids:
@@ -6200,8 +6349,10 @@ def tenant_logs(
             props[p.id] = _format_property_address_for_log(p)
     out = []
     for r in rows:
-        cat, title, msg = ledger_event_to_display(r, db)
-        actor_email = get_actor_email(db, r.actor_user_id)
+        cat, title, msg = ledger_event_to_display(
+            r, db, viewer_user_id=current_user.id, resolution_context=ledger_ctx
+        )
+        actor_email = get_actor_email(db, r.actor_user_id, resolution_context=ledger_ctx)
         disc = ledger_record_disclosure_lines(r, display_title=title)
         out.append(
             OwnerAuditLogEntry(

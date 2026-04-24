@@ -20,31 +20,34 @@ This Limited Power of Attorney and Agent Authorization ("Authorization") is made
 
 **2. Recitals**
 WHEREAS, Principal owns or is the duly authorized property manager for the real properties listed in the Principal's DocuStay account (the "Properties"); and
-WHEREAS, Principal desires to appoint Agent for the sole and limited purpose of acting as Principal's attorney-in-fact to create, maintain, and present documentation related to the occupancy and status of the Properties.
+WHEREAS, Principal desires to appoint Agent for the sole and limited purpose of providing a technology-enabled system to record, maintain, and present documentation reflecting user-directed activity and stated authorizations relating to the occupancy and status of the Properties, without making any legal determinations or representations as to the legal effect of such documentation.
 
 **3. Grant of Limited Power of Attorney**
-Principal hereby appoints Agent as Principal's true and lawful attorney-in-fact, to act in Principal's name, place, and stead for the limited purposes and with the limited powers set forth in this Authorization.
+Principal appoints Agent as attorney-in-fact solely in a ministerial, non-discretionary capacity for the limited powers in Section 4.
 
-**4. Enumerated Limited Powers**
-Generate occupancy documentation; maintain status ledger; assemble documentation packages; and act as third-party record keeper.
+**4. Enumerated Limited Powers (summary)**
+Record and compile occupancy-related documentation from users; maintain an append-only status ledger; assemble packages on request; provide system-generated records and metadata without certifying legal accuracy or enforceability.
 
 **5. Limitations on Authority**
-DocuStay has no authority to lease/sell property, manage funds, conduct legal actions, bind unrelated financial obligations, or act as broker/legal representative.
+Agent may not lease, collect funds, conduct legal proceedings, bind unrelated obligations, act as broker or legal representative, or determine tenant/guest/licensee status under law. Agent's role is ministerial only (Section 5.1).
 
-**6. Term and Revocation**
-Effective on electronic execution; remains active until revoked by written notice via platform or email to michael@docustay.online.
+**6. No Legal Determination**
+Platform records reflect user activity and stated authorizations; they are not legal conclusions or a substitute for compliant agreements or counsel (Section 6.1: no agency or fiduciary relationship).
 
-**7. Durability**
-This is a durable Power of Attorney and does not terminate upon incapacity.
+**7. Term and Revocation**
+Effective on electronic execution; prior records may be retained under append-only architecture after revocation. Notice via platform or email to michael@docustay.online.
 
-**8. Governing Law**
+**8. Durability**
+Durable Power of Attorney; Agent's authority continues if Principal becomes incapacitated.
+
+**9. Governing Law**
 State of Washington.
 
-**9. Indemnification and Limitation of Liability**
-Principal indemnifies Agent for good-faith performance; liability is limited as stated in the Authorization.
+**10.–11. Indemnification and third-party reliance**
+Principal indemnifies and holds Agent harmless as stated in the full Authorization; sharing records with third parties is at Principal's risk.
 
-**10. Acknowledgment and Signature**
-By signing, Principal confirms authority to grant this Authorization and agrees electronic signature is legally equivalent to a manual signature.
+**12. Acknowledgment and Signature**
+By signing, Principal confirms authority to grant this Authorization; electronic signature is the legal equivalent of a manual signature.
 
 PRINCIPAL:
 Signature: [Electronic Signature]
@@ -141,7 +144,7 @@ export default function OwnerPOASignModal(props: {
         if (d?.signature_id != null) onSignatureIdKnown?.(d.signature_id);
       })
       .catch((e) => {
-        const friendly = getOwnerSignupErrorFriendly((e as Error)?.message ?? "Could not load Master POA document.");
+        const friendly = getOwnerSignupErrorFriendly((e as Error)?.message ?? "Could not load authorization document.");
         setLoadError(friendly.message);
         notify("error", friendly.message);
       })
@@ -189,11 +192,11 @@ export default function OwnerPOASignModal(props: {
         window.open(res.sign_url, "_blank", "noopener");
         notify("success", "We've opened Dropbox Sign in a new tab. Complete signing there, then return here and click Complete Verification below.");
       } else {
-        notify("success", "Master POA sent to Dropbox Sign. Check your email to complete signing, then return here and click Complete Verification below.");
+        notify("success", "Authorization document sent to Dropbox Sign. Check your email to complete signing, then return here and click Complete Verification below.");
       }
       onClose();
     } catch (e) {
-      const friendly = getOwnerSignupErrorFriendly((e as Error)?.message ?? "Could not sign Master POA.");
+      const friendly = getOwnerSignupErrorFriendly((e as Error)?.message ?? "Could not sign authorization document.");
       setSignError(friendly.message);
       notify("error", friendly.message);
     } finally {
@@ -256,7 +259,7 @@ export default function OwnerPOASignModal(props: {
           <div className="lg:col-span-3">
             <div className="border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm flex flex-col max-h-[70vh]">
               <div className="px-4 py-3 border-b border-slate-200 shrink-0">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Master POA — Documentation &amp; records</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Owner authorization — Read &amp; sign</p>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <div className="px-6 py-5 max-w-prose mx-auto">

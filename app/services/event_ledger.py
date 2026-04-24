@@ -20,6 +20,8 @@ import enum
 import json
 import re
 from datetime import date, datetime, timezone
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import func
@@ -357,7 +359,7 @@ _ACTION_DISPLAY: dict[str, tuple[str, str]] = {
     ACTION_BILLING_SUBSCRIPTION_STARTED: ("billing", "Subscription started (free trial)"),
     ACTION_BILLING_INVOICE_PAYMENT_FAILED: ("billing", "Payment failed"),
     ACTION_AGREEMENT_SIGNED: ("guest_signature", "Agreement signed"),
-    ACTION_MASTER_POA_SIGNED: ("status_change", "Master POA signed"),
+    ACTION_MASTER_POA_SIGNED: ("status_change", "Owner authorization signed"),
     ACTION_AGREEMENT_SIGN_FAILED: ("failed_attempt", "Agreement sign failed"),
     ACTION_VERIFY_ATTEMPT_VALID: ("verify_attempt", "Verify attempt – valid"),
     ACTION_VERIFY_ATTEMPT_FAILED: ("failed_attempt", "Verify attempt – failed"),
@@ -428,30 +430,104 @@ def _humanize_iso_timestamps(text: str) -> str:
     return _ISO_TIMESTAMP_RE.sub(_repl, text)
 
 
+@dataclass
+class LedgerDisplayResolutionContext:
+    """Preloaded ORM rows + email resolution cache for ledger→audit display (avoids per-row queries)."""
+
+    users_by_id: dict[int, Any] = field(default_factory=dict)
+    stays_by_id: dict[int, Any] = field(default_factory=dict)
+    invitations_by_id: dict[int, Any] = field(default_factory=dict)
+    email_name_cache: dict[tuple[str, int | None], str] = field(default_factory=dict)
+
+
+def build_ledger_display_resolution_context(db: Session, rows: Sequence[EventLedger]) -> LedgerDisplayResolutionContext:
+    """Load Users, Stays, and Invitations referenced by ledger rows in a bounded number of queries."""
+    from app.models.invitation import Invitation
+    from app.models.stay import Stay
+    from app.models.user import User
+
+    actor_ids: set[int] = set()
+    stay_ids: set[int] = set()
+    invitation_ids: set[int] = set()
+    for entry in rows:
+        aid = getattr(entry, "actor_user_id", None)
+        if aid is not None:
+            actor_ids.add(aid)
+        sid = getattr(entry, "stay_id", None)
+        if sid is not None:
+            stay_ids.add(sid)
+        iid = getattr(entry, "invitation_id", None)
+        if iid is not None:
+            invitation_ids.add(iid)
+
+    stays_by_id: dict[int, Any] = {}
+    if stay_ids:
+        for s in db.query(Stay).filter(Stay.id.in_(stay_ids)).all():
+            stays_by_id[s.id] = s
+            inv_s = getattr(s, "invitation_id", None)
+            if inv_s is not None:
+                invitation_ids.add(inv_s)
+            ib = getattr(s, "invited_by_user_id", None)
+            if ib is not None:
+                actor_ids.add(ib)
+
+    invitations_by_id: dict[int, Any] = {}
+    if invitation_ids:
+        for inv in db.query(Invitation).filter(Invitation.id.in_(invitation_ids)).all():
+            invitations_by_id[inv.id] = inv
+            iby = getattr(inv, "invited_by_user_id", None)
+            if iby is not None:
+                actor_ids.add(iby)
+
+    users_by_id: dict[int, Any] = {}
+    if actor_ids:
+        for u in db.query(User).filter(User.id.in_(actor_ids)).all():
+            users_by_id[u.id] = u
+
+    return LedgerDisplayResolutionContext(
+        users_by_id=users_by_id,
+        stays_by_id=stays_by_id,
+        invitations_by_id=invitations_by_id,
+    )
+
+
 def _display_name_for_email(
     db: Session,
     email: str,
     *,
     invitation_id: int | None = None,
+    resolution_context: LedgerDisplayResolutionContext | None = None,
 ) -> str:
     """Resolve a mailbox string to a person label for audit display (never returns the email)."""
     em = (email or "").strip()
     if not em:
         return "Guest"
+    cache_key = (em.lower(), invitation_id)
+    if resolution_context is not None and cache_key in resolution_context.email_name_cache:
+        return resolution_context.email_name_cache[cache_key]
+
     from app.models.invitation import Invitation
     from app.models.user import User
 
     if invitation_id is not None:
-        inv_row = db.query(Invitation).filter(Invitation.id == invitation_id).first()
+        inv_row = None
+        if resolution_context is not None:
+            inv_row = resolution_context.invitations_by_id.get(invitation_id)
+        if inv_row is None:
+            inv_row = db.query(Invitation).filter(Invitation.id == invitation_id).first()
         if inv_row and (inv_row.guest_email or "").strip().lower() == em.lower():
             gn = (inv_row.guest_name or "").strip()
             if gn:
+                if resolution_context is not None:
+                    resolution_context.email_name_cache[cache_key] = gn
                 return gn
 
     u = db.query(User).filter(func.lower(User.email) == em.lower()).first()
     if u:
         fn = (u.full_name or "").strip()
         if fn:
+            if resolution_context is not None:
+                resolution_context.email_name_cache[cache_key] = fn
             return fn
     inv = (
         db.query(Invitation)
@@ -462,17 +538,26 @@ def _display_name_for_email(
     if inv:
         gn = (inv.guest_name or "").strip()
         if gn:
+            if resolution_context is not None:
+                resolution_context.email_name_cache[cache_key] = gn
             return gn
+    if resolution_context is not None:
+        resolution_context.email_name_cache[cache_key] = "Guest"
     return "Guest"
 
 
-def _scrub_emails_for_timeline_display(db: Session, text: str) -> str:
+def _scrub_emails_for_timeline_display(
+    db: Session,
+    text: str,
+    *,
+    resolution_context: LedgerDisplayResolutionContext | None = None,
+) -> str:
     """Replace embedded emails in timeline title/message with display names when resolvable."""
     if not text:
         return text
 
     def repl(m: re.Match[str]) -> str:
-        return _display_name_for_email(db, m.group(0))
+        return _display_name_for_email(db, m.group(0), invitation_id=None, resolution_context=resolution_context)
 
     return _EMAIL_IN_TEXT_RE.sub(repl, text)
 
@@ -611,24 +696,123 @@ GUEST_ALLOWED_ACTIONS: set[str] = {
 }
 
 
-def get_actor_email(db: Session, actor_user_id: int | None) -> str | None:
+def get_actor_email(
+    db: Session,
+    actor_user_id: int | None,
+    *,
+    resolution_context: LedgerDisplayResolutionContext | None = None,
+) -> str | None:
     """API field name is legacy; returns actor display name for logs/alerts (never raw mailbox)."""
-    return get_actor_display_name(db, actor_user_id)
+    return get_actor_display_name(db, actor_user_id, resolution_context=resolution_context)
 
 
-def get_actor_display_name(db: Session, actor_user_id: int | None) -> str | None:
+def get_actor_display_name(
+    db: Session,
+    actor_user_id: int | None,
+    *,
+    resolution_context: LedgerDisplayResolutionContext | None = None,
+) -> str | None:
     """Resolve actor full name for ledger / timeline display (never falls back to email)."""
     if not actor_user_id:
         return None
     from app.models.user import User
-    u = db.query(User).filter(User.id == actor_user_id).first()
+
+    if resolution_context is not None and actor_user_id in resolution_context.users_by_id:
+        u = resolution_context.users_by_id[actor_user_id]
+    else:
+        u = db.query(User).filter(User.id == actor_user_id).first()
     if not u:
         return None
     fn = (u.full_name or "").strip()
     return fn or "User"
 
 
-def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tuple[str, str, str]:
+def _redact_guest_identity_in_timeline(
+    db: Session,
+    entry: EventLedger,
+    viewer_user_id: int,
+    category: str,
+    title: str,
+    message: str,
+    *,
+    resolution_context: LedgerDisplayResolutionContext | None = None,
+) -> tuple[str, str, str]:
+    """Strip guest-identifying strings from timeline copy when viewer is not the direct relationship owner."""
+    from app.models.invitation import Invitation
+    from app.models.stay import Stay
+    from app.services.privacy_lanes import (
+        REDACTED_GUEST_AUTHORIZATION_LABEL,
+        is_tenant_lane_invitation,
+        is_tenant_lane_stay,
+        viewer_is_relationship_owner_for_invitation,
+        viewer_is_relationship_owner_for_stay,
+    )
+
+    meta = entry.meta if isinstance(entry.meta, dict) else {}
+    should_redact = False
+    users_by_id = resolution_context.users_by_id if resolution_context is not None else None
+    invitations_by_id = resolution_context.invitations_by_id if resolution_context is not None else None
+    stays_by_id = resolution_context.stays_by_id if resolution_context is not None else None
+
+    if entry.stay_id is not None:
+        st = None
+        if stays_by_id is not None:
+            st = stays_by_id.get(entry.stay_id)
+        if st is None:
+            st = db.query(Stay).filter(Stay.id == entry.stay_id).first()
+        if not st:
+            return category, title, message
+        if st.guest_id == viewer_user_id:
+            return category, title, message
+        if is_tenant_lane_stay(db, st, invitations_by_id=invitations_by_id, users_by_id=users_by_id):
+            return category, title, message
+        should_redact = not viewer_is_relationship_owner_for_stay(
+            db, st, viewer_user_id, invitations_by_id=invitations_by_id
+        )
+    elif entry.invitation_id is not None:
+        inv = None
+        if invitations_by_id is not None:
+            inv = invitations_by_id.get(entry.invitation_id)
+        if inv is None:
+            inv = db.query(Invitation).filter(Invitation.id == entry.invitation_id).first()
+        if not inv:
+            return category, title, message
+        if is_tenant_lane_invitation(db, inv, users_by_id=users_by_id):
+            return category, title, message
+        if viewer_is_relationship_owner_for_invitation(inv, viewer_user_id):
+            return category, title, message
+        if not (meta.get("guest_name") or meta.get("guest_full_name") or meta.get("guest_email")):
+            return category, title, message
+        should_redact = True
+    else:
+        return category, title, message
+
+    if not should_redact:
+        return category, title, message
+
+    redacted_title = title
+    redacted_msg = message
+    for key in ("guest_name", "guest_full_name"):
+        val = (meta.get(key) or "").strip()
+        if val:
+            redacted_title = redacted_title.replace(val, REDACTED_GUEST_AUTHORIZATION_LABEL)
+            redacted_msg = redacted_msg.replace(val, REDACTED_GUEST_AUTHORIZATION_LABEL)
+    ge = (meta.get("guest_email") or "").strip()
+    if ge:
+        redacted_msg = redacted_msg.replace(ge, "")
+        redacted_title = redacted_title.replace(ge, "")
+    redacted_msg = " ".join(redacted_msg.split())
+    redacted_title = " ".join(redacted_title.split())
+    return category, redacted_title, redacted_msg
+
+
+def ledger_event_to_display(
+    entry: EventLedger,
+    db: Session | None = None,
+    *,
+    viewer_user_id: int | None = None,
+    resolution_context: LedgerDisplayResolutionContext | None = None,
+) -> tuple[str, str, str]:
     """Map ledger entry to (category, title, message) for OwnerAuditLogEntry / LiveLogEntry.
     When db is provided and message is generic, appends ' by <actor name>' for attribution.
     Timelines avoid showing raw email addresses; names are preferred, then neutral labels (Guest / User).
@@ -644,7 +828,7 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
     has_custom_message = bool(meta.get("message"))
 
     if cat == "presence" and db and entry.actor_user_id:
-        actor_name = get_actor_display_name(db, entry.actor_user_id)
+        actor_name = get_actor_display_name(db, entry.actor_user_id, resolution_context=resolution_context)
         if actor_name:
             title = f"{title} — {actor_name}"
 
@@ -656,7 +840,9 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
             msg = f"Signed by {name}"
         elif email:
             signer = (
-                _display_name_for_email(db, email, invitation_id=entry.invitation_id)
+                _display_name_for_email(
+                    db, email, invitation_id=entry.invitation_id, resolution_context=resolution_context
+                )
                 if db
                 else "Guest"
             )
@@ -677,7 +863,9 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
         if gn:
             invitee = gn
         elif ge_raw and db:
-            invitee = _display_name_for_email(db, ge_raw, invitation_id=entry.invitation_id)
+            invitee = _display_name_for_email(
+                db, ge_raw, invitation_id=entry.invitation_id, resolution_context=resolution_context
+            )
         elif ge_raw:
             invitee = ge_raw
         if invitee and prop_nm:
@@ -700,13 +888,13 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
         msg = title
     # User attribution: only append to generic messages so custom body stays separate from actor line
     if action != ACTION_AGREEMENT_SIGNED and not has_custom_message and db and entry.actor_user_id:
-        actor_name = get_actor_display_name(db, entry.actor_user_id)
+        actor_name = get_actor_display_name(db, entry.actor_user_id, resolution_context=resolution_context)
         if actor_name and f"by {actor_name}" not in msg:
             msg = f"{msg} by {actor_name}"
 
     if db:
-        title = _scrub_emails_for_timeline_display(db, title)
-        msg = _scrub_emails_for_timeline_display(db, msg)
+        title = _scrub_emails_for_timeline_display(db, title, resolution_context=resolution_context)
+        msg = _scrub_emails_for_timeline_display(db, msg, resolution_context=resolution_context)
 
     title = _scrub_dms_word_from_display(title)
     msg = _scrub_dms_word_from_display(msg)
@@ -715,6 +903,11 @@ def ledger_event_to_display(entry: EventLedger, db: Session | None = None) -> tu
     msg = _humanize_iso_timestamps(msg)
 
     msg = append_ledger_disclosure_to_message(msg, entry, display_title=title)
+
+    if db is not None and viewer_user_id is not None:
+        cat, title, msg = _redact_guest_identity_in_timeline(
+            db, entry, viewer_user_id, cat, title, msg, resolution_context=resolution_context
+        )
 
     return (cat, title, msg)
 

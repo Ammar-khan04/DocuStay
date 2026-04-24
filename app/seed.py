@@ -137,11 +137,20 @@ ALL_GROUPS = [_GROUP_A, _GROUP_B, _GROUP_C, _GROUP_D]
 
 # ---------------------------------------------------------------------------
 # Section 3 clause text per state (stored in DB, used in guest acknowledgments)
+# Aligned with docs/DocuStay_Guest_Acknowledgment_Guidance.docx (revocable-license framing; not a legal determination).
 # ---------------------------------------------------------------------------
+_S3_GUIDANCE_MIDDLE = (
+    "The legal characterization of any occupancy may depend on applicable law and the specific facts of the stay. "
+    "Applicable law may vary, and certain jurisdictions may recognize tenancy or other occupancy rights based on the duration or nature of a stay. "
+    "The Guest acknowledges that this document reflects the parties' intended arrangement, not a legal determination. "
+)
+
 _S3_THRESHOLD_TMPL = (
     "**3. Acknowledgment of Guest Status ({name}):** "
     "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-    "is that of a temporary guest and does not constitute a tenancy. You understand that under {statute} "
+    "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+    + _S3_GUIDANCE_MIDDLE
+    + "You understand that under {statute} "
     "and applicable common law, a continuous stay of {days} days or more may lead to the establishment "
     "of tenant rights. This acknowledgment serves as a clear record of your temporary status for the "
     "duration specified herein. You agree that you have no right to occupy the Property beyond the "
@@ -151,7 +160,9 @@ _S3_THRESHOLD_TMPL = (
 _S3_BEHAVIOR_TMPL = (
     "**3. Acknowledgment of Guest Status ({name}):** "
     "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-    "is that of a temporary guest and does not constitute a tenancy. You understand that under {statute}, "
+    "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+    + _S3_GUIDANCE_MIDDLE
+    + "You understand that under {statute}, "
     "tenancy is determined by behavior rather than a fixed number of days. Actions such as contributing to "
     "rent or utilities, receiving mail at the Property, or possessing a key without the owner present may "
     "trigger tenant rights. This acknowledgment serves as a clear record of your temporary, non-tenant "
@@ -162,7 +173,9 @@ _S3_BEHAVIOR_TMPL = (
 _S3_LEASE_TMPL = (
     "**3. Acknowledgment of Guest Status ({name}):** "
     "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-    "is that of a temporary guest and does not constitute a tenancy. You understand that in {name}, the "
+    "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+    + _S3_GUIDANCE_MIDDLE
+    + "You understand that in {name}, the "
     "nature of occupancy is primarily defined by the agreement between the parties. This document serves "
     "as that agreement, establishing your status as a temporary guest for the duration specified herein. "
     "You agree that you have no right to occupy the Property beyond the authorized period without a new, "
@@ -178,22 +191,27 @@ def _build_section_3_clauses() -> dict[str, str]:
     c["CA"] = (
         "**3. Acknowledgment of Transient Occupancy (California):** "
         "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-        "is that of a temporary guest and does not constitute a tenancy. You understand that under California "
-        "Civil Code Sections 1940.1 and 1946.5, a guest who stays more than 14 consecutive days or more than "
-        "14 days in any 6-month period may acquire tenant rights. This acknowledgment serves as a clear "
-        "record of your temporary status for the duration specified herein. You agree that you have no right "
-        "to occupy the Property beyond the authorized period without a new, written authorization from the "
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        "The legal characterization of any occupancy may depend on applicable law and the specific facts of the stay. "
+        "Certain jurisdictions, including California, may recognize tenancy or other occupancy rights based on the duration or nature of a stay. "
+        "The Guest acknowledges that applicable law may vary and that this document reflects the parties' intended arrangement, "
+        "not a legal determination. "
+        "You understand that under California Civil Code Sections 1940.1 and 1946.5, a guest who stays more than fourteen (14) consecutive days "
+        "or more than fourteen (14) days within any six-month period may acquire tenant rights (and, where applicable, more than seven (7) consecutive nights in the owner's personal residence). "
+        "This acknowledgment serves as a clear record of your temporary status for the duration specified herein. "
+        "You agree that you have no right to occupy the Property beyond the authorized period without a new, written authorization from the "
         "Property Owner/Manager."
     )
     c["FL"] = (
-        "**3. Acknowledgment of Status under Florida Law:** "
+        "**Acknowledgment of Status under Florida Law:** "
         "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-        "is that of a temporary guest and does not constitute a tenancy. You understand that under Florida "
-        "Statute Section 82.036 (HB 621) and applicable common law, a guest who stays more than 14 "
-        "consecutive days or more than 14 days in any 6-month period may acquire tenant rights. This "
-        "acknowledgment serves as a clear record of your temporary status for the duration specified herein. "
-        "You agree that you have no right to occupy the Property beyond the authorized period without a new, "
-        "written authorization from the Property Owner/Manager."
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        "The legal characterization of any occupancy may depend on applicable law and the specific facts of the stay. "
+        "Certain jurisdictions, including Florida, may recognize tenancy or other occupancy rights based on the duration or nature of a stay. "
+        "The Guest acknowledges that applicable law may vary and that this document reflects the parties' intended arrangement, "
+        "not a legal determination. This acknowledgment serves as a clear record of your temporary status for the duration specified herein. "
+        "You agree that you have no right to occupy the Property beyond the authorized period without a new, written authorization "
+        "from the Property Owner/Manager."
     )
     for sc, name, statute in [
         ("CO", "Colorado", "Colorado Revised Statutes Section 38-12-301"),
@@ -208,8 +226,12 @@ def _build_section_3_clauses() -> dict[str, str]:
     c["NY"] = (
         "**3. Acknowledgment of Occupancy Limits (New York):** "
         "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-        "is that of a temporary guest and does not constitute a tenancy. You understand that under New York "
-        "Real Property Actions and Proceedings Law (RPAPL) Section 711, a continuous stay of 30 days or more "
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        "The legal characterization of any occupancy may depend on applicable law and the specific facts of the stay. "
+        "Certain jurisdictions, including New York, may recognize tenancy or other occupancy rights based on the duration or nature of a stay. "
+        "The Guest acknowledges that applicable law may vary and that this document reflects the parties' intended arrangement, "
+        "not a legal determination. "
+        "You understand that under New York Real Property Actions and Proceedings Law (RPAPL) Section 711, a continuous stay of thirty (30) days or more "
         "may lead to the establishment of tenant rights. This acknowledgment serves as a clear record of "
         "your temporary status for the duration specified herein. You agree that you have no right to occupy "
         "the Property beyond the authorized period without a new, written authorization from the Property "
@@ -241,7 +263,9 @@ def _build_section_3_clauses() -> dict[str, str]:
     c["AZ"] = (
         "**3. Acknowledgment of Guest Status (Arizona):** "
         "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-        "is that of a temporary guest and does not constitute a tenancy. You understand that under Arizona "
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        + _S3_GUIDANCE_MIDDLE
+        + "You understand that under Arizona "
         "Revised Statutes Section 33-14 and the Arizona Department of Revenue short-term lodging regulations, "
         "a stay of 29 days or more may trigger transient lodging tax obligations and tenant rights. This "
         "acknowledgment serves as a clear record of your temporary status for the duration specified herein. "
@@ -251,7 +275,9 @@ def _build_section_3_clauses() -> dict[str, str]:
     c["MT"] = (
         "**3. Acknowledgment of Guest Status (Montana):** "
         "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-        "is that of a temporary guest and does not constitute a tenancy. You understand that under Montana "
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        + _S3_GUIDANCE_MIDDLE
+        + "You understand that under Montana "
         "Code Section 70-24-103, a continuous stay of 7 days or more without a written agreement may lead to "
         "the establishment of tenant rights. This acknowledgment serves as a clear record of your temporary "
         "status for the duration specified herein. You agree that you have no right to occupy the Property "
@@ -268,16 +294,20 @@ def _build_section_3_clauses() -> dict[str, str]:
     c["OR"] = (
         "**3. Acknowledgment of Guest Status (Oregon):** "
         "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-        "is that of a temporary guest under a Temporary Occupancy Agreement as defined by Oregon Revised "
-        "Statutes Section 90.275. This document serves as that agreement, establishing your status as a "
-        "temporary guest for the duration specified herein. You agree that you have no right to occupy the "
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        + _S3_GUIDANCE_MIDDLE
+        + "You understand that your stay may be documented as a Temporary Occupancy Agreement as described under Oregon Revised "
+        "Statutes Section 90.275. This document serves as a record of the parties' intended arrangement for the duration specified herein. "
+        "You agree that you have no right to occupy the "
         "Property beyond the authorized period without a new, written authorization from the Property "
         "Owner/Manager, which would constitute a new Temporary Occupancy Agreement under ORS 90.275."
     )
     c["WA"] = (
         "**3. Acknowledgment of Guest Status (Washington):** "
         "By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
-        "is that of a temporary guest and does not constitute a tenancy. You understand that under Washington "
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        + _S3_GUIDANCE_MIDDLE
+        + "You understand that under Washington "
         "Revised Code Section 9A.52.105, the nature of occupancy is primarily defined by the agreement "
         "between the parties. This document serves as that agreement, establishing your status as a temporary "
         "guest for the duration specified herein. You agree that you have no right to occupy the Property "

@@ -22,6 +22,7 @@ import { groupLiveTenantRowsByCohort } from '../utils/leaseCohortGroups';
 import { formatCalendarDate, formatDateTimeLocal, getTodayLocal, parseForDisplay } from '../utils/dateUtils';
 import { scrubAuditLogStateChangeParagraph } from '../utils/auditLogMessage';
 import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../utils/propertyInvitationSummary';
+import { JURISDICTION_CONTEXT_DISCLAIMER } from '../utils/jurisdictionUiCopy';
 
 function stayIsTenant(stay: Pick<LiveCurrentGuestInfo, 'stay_kind'>): boolean {
   return (stay.stay_kind ?? 'guest').toLowerCase() === 'tenant';
@@ -227,6 +228,31 @@ function LiveAuditActorAttribution({ entry }: { entry: LiveLogEntry }) {
   );
 }
 
+/** Shown under condensed and full audit timelines on the live page. */
+function LiveAuditTimelineRecordFootnote() {
+  return (
+    <p className="mt-4 pt-4 border-t border-violet-100 text-xs text-slate-600 leading-relaxed">
+      This audit timeline is a chronological record of user-provided information and system-logged events. It is not a
+      statement of the legal situation at the property.
+    </p>
+  );
+}
+
+/** Top-of-page framing for the public live / verification view. */
+function LivePageRecordFramingBanner() {
+  return (
+    <div
+      role="note"
+      className="rounded-xl border border-indigo-200/90 bg-indigo-50/90 px-4 py-3 sm:px-5 sm:py-3.5 shadow-sm print:border-slate-300 print:bg-slate-50"
+    >
+      <p className="text-sm text-slate-800 leading-relaxed">
+        This record reflects user-provided information and system-generated logs. It is not a legal determination of
+        occupancy status, tenancy, or rights. DocuStay does not verify, adjudicate, or enforce legal claims.
+      </p>
+    </div>
+  );
+}
+
 function normalizeLooseName(s: string): string {
   return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -378,13 +404,24 @@ function calendarDateInLeaseWindow(todayYmd: string, startYmd: string, endYmd: s
   return true;
 }
 
-/** True when today falls in an inclusive calendar lease window for this viewer (tenant). */
-function tenantHasActiveLeaseForLivePage(
+/** Manager: viewer email matches a property manager row on this live payload (active assignment on file). */
+function managerHasActivePropertyAssignment(viewer: UserSession, managers: LivePropertyManagerInfo[]): boolean {
+  if (viewer.user_type !== 'PROPERTY_MANAGER') return false;
+  const ve = normalizeEmail(viewer.email);
+  if (!ve) return false;
+  return managers.some((m) => normalizeEmail(m.email) === ve);
+}
+
+/**
+ * Tenant: ACTIVE lease only — today within [start_date, end_date] on an assignment row for this viewer,
+ * or the same window on a matching checked-in tenant stay (single-unit / no assignment row).
+ */
+function tenantHasActiveLeaseOnLivePage(
   viewer: UserSession,
   todayYmd: string,
   tenantAssignmentRows: LiveTenantAssignmentInfo[],
-  invitations: LiveInvitationSummary[],
   activeOccupants: LiveCurrentGuestInfo[],
+  invitations: LiveInvitationSummary[],
 ): boolean {
   const inWin = (start: string | null | undefined, end: string | null | undefined) =>
     calendarDateInLeaseWindow(todayYmd, start ?? '', end);
@@ -393,29 +430,37 @@ function tenantHasActiveLeaseForLivePage(
   }
   const tenantStays = activeOccupants.filter(stayIsTenant);
   const matchingStay = tenantStays.find((s) => guestStayMatchesViewer(s, invitations, viewer));
-  if (matchingStay && inWin(matchingStay.stay_start_date, matchingStay.stay_end_date)) return true;
-  const inv = pickViewerInvitation(
-    invitations,
-    viewer,
-    'tenant',
-    matchingStay?.invitation_code ?? null,
-  );
-  if (inv && inWin(inv.stay_start_date, inv.stay_end_date)) return true;
-  return false;
+  return !!(matchingStay && inWin(matchingStay.stay_start_date, matchingStay.stay_end_date));
+}
+
+/** Guest: today within [stay_start_date, stay_end_date] on a matching current stay (authorization window only). */
+function guestHasActiveStayOnLivePage(
+  viewer: UserSession,
+  todayYmd: string,
+  activeOccupants: LiveCurrentGuestInfo[],
+  invitations: LiveInvitationSummary[],
+): boolean {
+  const guestStays = activeOccupants.filter((g) => !stayIsTenant(g));
+  const matchingStay = guestStays.find((s) => guestStayMatchesViewer(s, invitations, viewer));
+  if (!matchingStay) return false;
+  return calendarDateInLeaseWindow(todayYmd, matchingStay.stay_start_date, matchingStay.stay_end_date);
 }
 
 /**
- * Quick Decision "Authorization state": tenants → ACTIVE when they have an active lease on this
- * property (today within assignment or matching stay/invite dates); guests unchanged (invite + window);
- * owners → ACTIVE when USAT released.
+ * Quick Decision / tenant card "Property authorization (page)": single resolver.
+ * - Owner (verified, own property live link): ACTIVE for this snapshot.
+ * - Manager: ACTIVE iff listed on this property’s manager roster (payload = active assignment on file).
+ * - Tenant: ACTIVE iff lease window start <= today <= end on viewer’s assignment or occupying tenant stay.
+ * - Guest: ACTIVE iff a matching current stay has start <= today <= end (invite token not used for this gate).
  */
-function resolveLivePageAuthorizationDisplay(
+function resolveLivePagePropertyAuthorizationDisplay(
   viewer: UserSession | null,
   invitations: LiveInvitationSummary[],
   activeOccupants: LiveCurrentGuestInfo[],
   ctx: {
     todayYmd: string;
     tenantAssignmentRows: LiveTenantAssignmentInfo[];
+    propertyManagers: LivePropertyManagerInfo[];
     ownerViewingOwnLivePage: boolean;
   },
 ): string {
@@ -423,39 +468,30 @@ function resolveLivePageAuthorizationDisplay(
 
   if (viewer.user_type === 'PROPERTY_OWNER') {
     if (!ctx.ownerViewingOwnLivePage) return '-';
-    // Live slug only serves non-deleted properties. Owner self-view is authorized for this record
-    // regardless of USAT staged/released (token gates utility handoff, not owner identity on the page).
     return 'ACTIVE';
   }
 
+  if (viewer.user_type === 'PROPERTY_MANAGER') {
+    return managerHasActivePropertyAssignment(viewer, ctx.propertyManagers) ? 'ACTIVE' : 'NONE';
+  }
+
   if (viewer.user_type === 'TENANT') {
-    return tenantHasActiveLeaseForLivePage(
+    return tenantHasActiveLeaseOnLivePage(
       viewer,
       ctx.todayYmd,
       ctx.tenantAssignmentRows,
-      invitations,
       activeOccupants,
+      invitations,
     )
       ? 'ACTIVE'
       : 'NONE';
   }
 
-  if (viewer.user_type !== 'GUEST') return '-';
+  if (viewer.user_type === 'GUEST') {
+    return guestHasActiveStayOnLivePage(viewer, ctx.todayYmd, activeOccupants, invitations) ? 'ACTIVE' : 'NONE';
+  }
 
-  const guestStays = activeOccupants.filter((g) => !stayIsTenant(g));
-  const matchingStay = guestStays.find((s) => guestStayMatchesViewer(s, invitations, viewer));
-  const inv = pickViewerInvitation(invitations, viewer, 'guest', matchingStay?.invitation_code ?? null);
-  const base = inv ? mapInvitationToAuthorizationLabel(inv) : '-';
-  if (base === '-') return '-';
-  const windows: Array<{ start: string; end: string | null }> = [];
-  if (matchingStay) {
-    windows.push({ start: matchingStay.stay_start_date, end: matchingStay.stay_end_date });
-  }
-  if (inv) {
-    windows.push({ start: inv.stay_start_date, end: inv.stay_end_date });
-  }
-  const inLease = windows.some((w) => calendarDateInLeaseWindow(ctx.todayYmd, w.start, w.end));
-  return inLease ? base : 'NONE';
+  return '-';
 }
 
 function liveAuthBadgeClasses(label: string): string {
@@ -493,7 +529,7 @@ type TenantDashboardUnitLeaseRow = {
 /**
  * For a tenant viewing their property live link: enrich public payload rows with co-tenants from the
  * tenant dashboard lease payload (same source as TenantDashboard). Display-only; does not affect
- * Quick Decision authorization state (`resolveLivePageAuthorizationDisplay`: owner on own live link → ACTIVE; tenant = active lease → ACTIVE).
+ * Quick Decision authorization (`resolveLivePagePropertyAuthorizationDisplay`: owner self-view → ACTIVE; tenant = in-window lease/stay; guest = in-window stay; manager = on roster).
  */
 function buildDisplayTenantAssignmentsForTenantLivePage(
   apiRows: LiveTenantAssignmentInfo[],
@@ -870,9 +906,10 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
         displayTenantAssignments.length,
       )
     : apiOccupancySummaryDetail;
-  const authLabel = resolveLivePageAuthorizationDisplay(viewerSession, invitations, activeGuests, {
+  const authLabel = resolveLivePagePropertyAuthorizationDisplay(viewerSession, invitations, activeGuests, {
     todayYmd: getTodayLocal(),
     tenantAssignmentRows: displayTenantAssignments,
+    propertyManagers: propertyManagersForAuthority,
     ownerViewingOwnLivePage,
   });
   const occupancyRecordAssertion = `Record indicates the stored occupancy field for this property is reported as "${statusLabel}" at the time this page was generated (see context below).`;
@@ -924,6 +961,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-white to-slate-100/60 print:bg-white print:min-h-0">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 print:py-6 print:max-w-none">
+        <LivePageRecordFramingBanner />
         {/* Meta bar: record, timestamp, link, print */}
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm bg-white/90 backdrop-blur rounded-xl border border-indigo-100 px-4 py-3 shadow-sm print:bg-white print:border-slate-200">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-600">
@@ -941,7 +979,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               disabled={poaOpening}
               className="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-indigo-200 bg-white text-indigo-700 text-sm font-semibold hover:bg-indigo-50 shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {poaOpening ? 'Opening…' : 'View property POA (PDF)'}
+              {poaOpening ? 'Opening…' : 'View owner authorization (PDF)'}
             </button>
             <button
               type="button"
@@ -1088,31 +1126,33 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
         </header>
 
-        {/* Authority layer – POA and jurisdiction (moved up for context) */}
+        {/* Owner authorization on file + jurisdiction (moved up for context) */}
         <section className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden print:rounded print:shadow-none print:border">
           <div className="px-6 py-3.5 bg-gradient-to-r from-indigo-50 to-slate-50 border-b border-indigo-100/80 print:bg-slate-50">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-800">Authority</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-800">Owner authorization on file</h2>
           </div>
           <div className="p-6 sm:p-8 space-y-4">
             <p className="text-slate-700">
               {hasPoaOnRecord ? (
                 <>
-                  This property is documented under a signed <strong>Master Power of Attorney (POA)</strong>.
+                  DocuStay&apos;s record for this property includes <strong>signed owner authorization documentation</strong> (the
+                  executed file is available below).
                 </>
               ) : (
                 <>
-                  DocuStay uses a <strong>Master Power of Attorney (POA)</strong> so the property owner can grant documentation
-                  authority. <span className="text-slate-600">If the owner has completed signing, you can open the PDF below; otherwise you&apos;ll see a short notice.</span>
+                  When the property owner completes <strong>authorization signing</strong>, DocuStay can retain the signed file as
+                  part of its records. <span className="text-slate-600">If signing is complete, you can open the PDF below; otherwise you may see a short notice.</span>
                 </>
               )}
             </p>
             {poa_signed_at && (
               <p className="text-slate-700">
-                POA signed: <strong>{formatCalendarDate(poa_signed_at)}</strong>. Owner: <strong>{owner.full_name ?? '—'}</strong>.
+                Authorization signed: <strong>{formatCalendarDate(poa_signed_at)}</strong>. Owner: <strong>{owner.full_name ?? '—'}</strong>.
               </p>
             )}
             <p className="text-slate-600 text-sm">
-              DocuStay operates under the granted documentation authority of the owner. Records are immutable and append-only.
+              DocuStay maintains append-only records based on authorization and activity the property owner and users provide in the
+              platform. DocuStay does not exercise independent legal authority.
             </p>
             <div className="space-y-2 print:hidden">
               <button
@@ -1121,7 +1161,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                 disabled={poaOpening}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {poaOpening ? 'Opening…' : 'View POA (PDF)'}
+                {poaOpening ? 'Opening…' : 'View owner authorization (PDF)'}
               </button>
               {hasPoaOnRecord ? (
                 <p className="text-sm text-slate-600">
@@ -1129,12 +1169,12 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                 </p>
               ) : (
                 <p className="text-sm text-slate-500">
-                  If the PDF does not open, the owner may still need to complete Master POA in DocuStay (Settings or onboarding).
+                  If the PDF does not open, the owner may still need to complete authorization signing in DocuStay (Settings or onboarding).
                 </p>
               )}
             </div>
             <p className="text-xs text-slate-500 print:block hidden print:text-slate-600">
-              Use &quot;View property POA (PDF)&quot; in the browser before printing if you need the POA file; print view does not attach the PDF.
+              Use &quot;View owner authorization (PDF)&quot; in the browser before printing if you need the authorization file; print view does not attach the PDF.
             </p>
             <div className="pt-4 border-t border-slate-200">
               <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600/90">Property identifier</p>
@@ -1149,25 +1189,22 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             </div>
             {jurisdiction_wrap && jurisdiction_wrap.applicable_statutes?.length > 0 && (
               <div className="pt-4 border-t border-slate-200">
-                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600/90">Applicable law ({jurisdiction_wrap.state_name})</p>
-                <ul className="mt-2 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600/90">Legal context — {jurisdiction_wrap.state_name}</p>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed border border-slate-200 bg-slate-50/80 rounded-lg px-3 py-2">
+                  {JURISDICTION_CONTEXT_DISCLAIMER}
+                </p>
+                <ul className="mt-3 space-y-2">
                   {jurisdiction_wrap.applicable_statutes.map((s, i) => (
                     <li key={i} className="text-sm text-slate-700">
                       <span className="font-medium text-slate-900">{s.citation}</span>
-                      {s.plain_english && <span className="block text-slate-600 mt-0.5">{s.plain_english}</span>}
+                      {s.plain_english && (
+                        <span className="block text-slate-500 mt-0.5 text-xs leading-relaxed">
+                          Reference summary (informational): {s.plain_english}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
-                {jurisdiction_wrap.removal_guest_text && (
-                  <p className="text-slate-600 text-sm mt-2">
-                    <span className="font-medium text-slate-700">Guest removal: </span>{jurisdiction_wrap.removal_guest_text}
-                  </p>
-                )}
-                {jurisdiction_wrap.removal_tenant_text && (
-                  <p className="text-slate-600 text-sm mt-0.5">
-                    <span className="font-medium text-slate-700">Tenant eviction: </span>{jurisdiction_wrap.removal_tenant_text}
-                  </p>
-                )}
               </div>
             )}
           </div>
@@ -1243,7 +1280,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Authority chain</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Record trail</p>
               <ul className="list-disc pl-5 space-y-0.5 text-sm text-slate-700">
                 <li>
                   Owner verified: {owner.full_name ?? '—'}
@@ -1252,7 +1289,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                   ) : null}
                 </li>
                 {poa_signed_at && (
-                  <li>Master POA executed: {formatCalendarDate(poa_signed_at)}</li>
+                  <li>Owner authorization signed: {formatCalendarDate(poa_signed_at)}</li>
                 )}
                 {propertyManagersForAuthority.map((m, idx) => (
                   <li key={`${m.email}-${idx}`}>
@@ -1311,12 +1348,22 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             </div>
             {jurisdiction_wrap && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Jurisdiction</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Legal context</p>
                 <p className="font-semibold text-slate-700">{jurisdiction_wrap.state_name}</p>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed border border-slate-200 bg-slate-50/80 rounded-lg px-3 py-2">
+                  {JURISDICTION_CONTEXT_DISCLAIMER}
+                </p>
                 {jurisdiction_wrap.applicable_statutes?.length > 0 && (
-                  <ul className="list-disc pl-5 mt-1 space-y-0.5 text-sm text-slate-600">
+                  <ul className="list-disc pl-5 mt-2 space-y-0.5 text-sm text-slate-600">
                     {jurisdiction_wrap.applicable_statutes.map((s, i) => (
-                      <li key={i}>{s.citation}{s.plain_english ? `: ${s.plain_english}` : ''}</li>
+                      <li key={i}>
+                        <span className="font-medium text-slate-800">{s.citation}</span>
+                        {s.plain_english ? (
+                          <span className="block text-slate-500 text-xs mt-0.5 not-italic">
+                            Reference summary (informational): {s.plain_english}
+                          </span>
+                        ) : null}
+                      </li>
                     ))}
                   </ul>
                 )}
@@ -1544,24 +1591,25 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
             </div>
             {jurisdiction_wrap && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Jurisdiction</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Legal context</p>
                 <p className="font-semibold text-slate-700">{jurisdiction_wrap.state_name}</p>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed border border-slate-200 bg-slate-50/80 rounded-lg px-3 py-2">
+                  {JURISDICTION_CONTEXT_DISCLAIMER}
+                </p>
                 {jurisdiction_wrap.applicable_statutes?.length > 0 && (
-                  <ul className="list-disc pl-5 mt-1 space-y-0.5 text-sm text-slate-600">
+                  <ul className="list-disc pl-5 mt-2 space-y-0.5 text-sm text-slate-600">
                     {jurisdiction_wrap.applicable_statutes.map((s, i) => (
                       <li key={i}>
-                        {s.citation}
-                        {s.plain_english ? `: ${s.plain_english}` : ''}
+                        <span className="font-medium text-slate-800">{s.citation}</span>
+                        {s.plain_english ? (
+                          <span className="block text-slate-500 text-xs mt-0.5">
+                            Reference summary (informational): {s.plain_english}
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
                 )}
-                {jurisdiction_wrap.removal_tenant_text ? (
-                  <p className="text-slate-600 text-sm mt-2">
-                    <span className="font-medium text-slate-700">Tenant eviction: </span>
-                    {jurisdiction_wrap.removal_tenant_text}
-                  </p>
-                ) : null}
               </div>
             )}
             <p className="text-sm text-slate-700 pt-1">
@@ -1591,7 +1639,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
           </div>
           <div className="p-6 sm:p-8">
             <ul className="space-y-2 text-sm text-slate-700">
-              <li><span className="font-medium text-slate-900">POA signed</span> – {poaTimestampFormatted ?? '—'}</li>
+              <li><span className="font-medium text-slate-900">Owner authorization signed</span> – {poaTimestampFormatted ?? '—'}</li>
               <li><span className="font-medium text-slate-900">Property onboarded</span> – {propertyOnboardedAt ?? '—'}</li>
               <li>
                 <span className="font-medium text-slate-900">Status changes</span> –
@@ -1606,6 +1654,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                   : ' —'}
               </li>
             </ul>
+            <LiveAuditTimelineRecordFootnote />
           </div>
         </section>
 
@@ -1746,6 +1795,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                 ))}
               </ul>
             )}
+            <LiveAuditTimelineRecordFootnote />
           </div>
         </section>
 
@@ -1780,7 +1830,7 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
 
         <footer className="pt-6 pb-10 text-center border-t border-indigo-100 print:pt-2 print:pb-4 print:border-0">
           <p className="text-xs text-slate-500 leading-relaxed max-w-5xl mx-auto">
-            Record indicates this page is a read-only snapshot of DocuStay data as of the timestamp above. It does not certify legal rights, occupancy, or authority. Where agreements or POAs are referenced, the underlying signed files are separate artifacts; this view summarizes what DocuStay stored at generation time. Audit entries below are append-only rows (they are not edited or removed through this interface after creation).
+            Record indicates this page is a read-only snapshot of DocuStay data as of the timestamp above. It does not certify legal rights, occupancy, or authority. Where agreements or owner authorization documents are referenced, the underlying signed files are separate artifacts; this view summarizes what DocuStay stored at generation time. Audit entries below are append-only rows (they are not edited or removed through this interface after creation).
           </p>
           <p className="text-xs text-slate-600 font-medium">DocuStay · Live evidence page · Read-only</p>
           <p className="text-xs text-slate-400 mt-1">Record {record_id} · {formatDateTimeLocal(generated_at)}</p>

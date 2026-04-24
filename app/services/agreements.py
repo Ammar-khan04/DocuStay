@@ -126,28 +126,39 @@ This acceptance documents your status as the tenant/resident of the unit. DocuSt
 IP Address: ______________________
 """
 
-# Shared sections 1, 2, 4, 5 (same for all jurisdictions)
+# Shared sections (Guest Acknowledgment guidance — same framing for all jurisdictions)
 def _section1_authority() -> str:
-    return """**1. Acknowledgment of Authority:** You acknowledge that the Property Owner has granted a limited Power of Attorney to DocuStay, a third-party documentation platform, authorizing it to maintain records of property status, including your occupancy as a guest."""
+    return """**Acknowledgment of Authority:** You acknowledge that the Property Owner has granted a limited Power of Attorney to DocuStay, a third-party documentation platform, authorizing it to maintain records of property status, including your occupancy as a guest."""
 
 def _section2_revocable_license() -> str:
-    return """**2. Grant of Revocable License:** You acknowledge that your authorization to be on the property is a **revocable license** and does not create a tenancy or any other interest in the property. This license is personal to you and may not be assigned or transferred. You may not sublet any part of the property."""
+    return """**Grant of Revocable License:** You acknowledge that your authorization to be on the property is a revocable license and does not create a tenancy or any other interest in the property. This license is personal to you and may not be assigned or transferred. You may not sublet any part of the property."""
 
 def _section4_no_hold_over(checkout: str) -> str:
-    return f"""**4. No Right to Hold Over:** You have no right to remain on the property after {checkout} (the "End Date" of your authorized stay). Holding over may subject you to legal action."""
+    return f"""**No Right to Hold Over:** You have no right to remain on the property after {checkout} (the "End Date" of your authorized stay). Any continued occupancy beyond the authorized period may be addressed by the Property Owner in accordance with applicable law."""
 
 def _section5_revocation() -> str:
-    return """**5. Revocation:** You acknowledge that this license is revocable at the will of the Property Owner. The Owner may terminate your occupancy at any time, for any reason, without notice."""
+    return """**Revocation:** You acknowledge that this license is revocable at the will of the Property Owner. The Owner may terminate your occupancy subject to applicable law and any required notice provisions."""
 
-def _section3_fallback(statute_citation: str) -> str:
-    """Fallback Section 3 when no pre-written clause is stored in the DB."""
-    # Do not use f-string for statute_citation — DB citations may contain `{` / `}` and break formatting.
+def _section_platform_role() -> str:
+    return """**Platform Role.** Guest acknowledges that DocuStay is a third-party recordkeeping platform and does not determine legal rights, enforce occupancy decisions, or provide legal advice."""
+
+def _section3_fallback(statute_citation: str, *, state_name: str | None = None) -> str:
+    """Fallback Section 3 when no pre-written clause is stored in the DB (guidance-aligned)."""
+    including = f", including {state_name}," if (state_name or "").strip() else ""
+    # Do not use f-string for statute_citation — citations may contain `{` / `}` and break formatting.
     return (
-        "**3. Acknowledgment of Guest Status:** You acknowledge that your stay does not exceed the "
-        "maximum permitted guest stay under applicable state and local law. Under "
+        "**Acknowledgment of Guest Status:** By signing this document, you explicitly acknowledge and agree that your occupancy at the Property "
+        "is that of a temporary guest and is intended to reflect a temporary, revocable license to occupy and not a lease. "
+        "The legal characterization of any occupancy may depend on applicable law and the specific facts of the stay. "
+        "Certain jurisdictions"
+        + including
+        + " may recognize tenancy or other occupancy rights based on the duration or nature of a stay. "
+        "The Guest acknowledges that applicable law may vary and that this document reflects the parties' intended arrangement, "
+        "not a legal determination. This acknowledgment serves as a clear record of your temporary status for the duration specified herein. "
+        "You agree that you have no right to occupy the Property beyond the authorized period without a new, written authorization from the Property Owner/Manager. "
+        "You understand that under "
         + statute_citation
-        + ", a written lease is required for tenancy. You agree that any stay beyond "
-        "the permitted guest period requires a separate, written lease agreement with the Property Owner."
+        + ", a written lease may be required for tenancy; that reference is informational context only, not legal advice."
     )
 
 def _disclaimer_phrase(region_code: str, state_name: str) -> str:
@@ -181,10 +192,10 @@ def _build_guest_acknowledgment(
     if jinfo.section_3_clause:
         section3 = jinfo.section_3_clause
     else:
-        section3 = _section3_fallback(statute_citation)
+        section3 = _section3_fallback(statute_citation, state_name=(state_name or "").strip() or None)
 
     disclaimer_law = _disclaimer_phrase(rc, state_name)
-    section6 = f"""**6. Disclaimer:** This document is a record of your authorized occupancy as a guest under a revocable license. It is not a lease and does not grant you any rights of a tenant under {disclaimer_law}. DocuStay is not a law firm and does not provide legal advice."""
+    section6 = f"""**Disclaimer:** This document is a record of your authorized occupancy as a guest under a revocable license. It is not a lease and does not grant you any rights of a tenant under {disclaimer_law}. DocuStay is not a law firm and does not provide legal advice."""
 
     # section3 comes from DB (jurisdiction clause) and may contain `{` / `}` — never interpolate it inside an f-string.
     head = f"""**{GUEST_ACK_TITLE}**
@@ -203,6 +214,8 @@ def _build_guest_acknowledgment(
 {_section4_no_hold_over(checkout)}
 
 {_section5_revocation()}
+
+{_section_platform_role()}
 
 {section6}
 
@@ -244,8 +257,8 @@ def _build_guest_acknowledgment_fallback(
 ) -> str:
     """Fallback when no jurisdiction: generic Guest Acknowledgment with applicable state and local law."""
     prop_display = (property_address or "[Address, Unit]").strip()
-    section3 = _section3_fallback("applicable state and local law")
-    section6 = """**6. Disclaimer:** This document is a record of your authorized occupancy as a guest under a revocable license. It is not a lease and does not grant you any rights of a tenant under applicable state and local law. DocuStay is not a law firm and does not provide legal advice."""
+    section3 = _section3_fallback("applicable state and local law", state_name=None)
+    section6 = """**Disclaimer:** This document is a record of your authorized occupancy as a guest under a revocable license. It is not a lease and does not grant you any rights of a tenant under applicable state and local law. DocuStay is not a law firm and does not provide legal advice."""
 
     return f"""**{GUEST_ACK_TITLE}**
 
@@ -262,6 +275,8 @@ def _build_guest_acknowledgment_fallback(
 {_section4_no_hold_over(checkout)}
 
 {_section5_revocation()}
+
+{_section_platform_role()}
 
 {section6}
 
@@ -422,22 +437,22 @@ This Limited Power of Attorney and Agent Authorization ("Authorization") is made
 
 WHEREAS, Principal owns or is the duly authorized property manager for the real properties listed in the Principal's DocuStay account (the "Properties"); and
 
-WHEREAS, Principal desires to appoint Agent for the sole and limited purpose of acting as Principal's attorney-in-fact to create, maintain, and present documentation related to the occupancy and status of the Properties.
+WHEREAS, Principal desires to appoint Agent for the sole and limited purpose of providing a technology-enabled system to record, maintain, and present documentation reflecting user-directed activity and stated authorizations relating to the occupancy and status of the Properties, without making any legal determinations or representations as to the legal effect of such documentation.
 
 NOW, THEREFORE, in consideration of the premises and the mutual covenants contained herein, the parties agree as follows:
 
 **3. Grant of Limited Power of Attorney**
 
-Principal hereby appoints Agent as Principal's true and lawful attorney-in-fact, to act in Principal's name, place, and stead for the limited purposes and with the limited powers set forth in Section 4 below.
+Principal hereby appoints Agent as Principal's true and lawful attorney-in-fact, to act in Principal's name, place, and stead solely in a ministerial, non-discretionary capacity for the limited purposes and with the limited powers set forth in Section 4 below.
 
 **4. Enumerated Limited Powers**
 
 Agent's authority shall be strictly limited to the following acts with respect to the Properties:
 
-• (a) Generate Occupancy Documentation: To create, prepare, and maintain records documenting the occupancy status of the Properties, including but not limited to generating Guest Acknowledgment and Revocable License to Occupy forms for individuals authorized by the Principal to be on a Property.
-• (b) Maintain Status Ledger: To maintain a time-stamped, append-only ledger of property status events, including but not limited to periods of vacancy, occupancy by authorized guests, and maintenance periods as directed by the Principal.
-• (c) Assemble Documentation Packages: To assemble and present, upon Principal's request, documentation packages containing records of property status, guest acknowledgments, and occupancy history for a given Property.
-• (d) Act as Third-Party Record Keeper: To act as a third-party custodian of the records generated hereunder and to certify, upon request from Principal or a third party authorized by Principal, the contents and authenticity of said records.
+• **Generate Occupancy Documentation:** To record, compile, and maintain documentation reflecting occupancy-related information as provided by the Principal or other authorized users.
+• **Maintain Status Ledger:** To maintain a time-stamped, append-only ledger of property status events, including but not limited to periods of vacancy, occupancy by authorized guests, and maintenance periods as directed by the Principal.
+• **Assemble Documentation Packages:** To assemble and present, upon Principal's request, documentation packages containing records of property status, guest acknowledgments, and occupancy history for a given Property.
+• **Act as Third-Party Record Keeper:** To provide records generated by the platform in the ordinary course of its operation, together with associated metadata and audit logs reflecting system activity. Agent's provision of such records is limited to the transmission of system-generated data and does not constitute certification, authentication, or verification of the legal accuracy, completeness, or enforceability of such records.
 
 **5. Limitations on Authority**
 
@@ -448,24 +463,44 @@ This Authorization is strictly limited to the powers enumerated in Section 4. Fo
 • Initiate or conduct any legal proceeding, including eviction actions, on behalf of Principal.
 • Bind the Principal to any contract or financial obligation not directly related to the enumerated powers.
 • Act as a property manager, real estate broker, or legal representative.
+• Determine or represent whether any individual is a tenant, guest, licensee, or unauthorized occupant under applicable law.
 
-**6. Term and Revocation**
+**5.1 No Independent Authority; Ministerial Role.** Agent's role is strictly ministerial and administrative. Agent shall not exercise independent judgment or discretion and shall act solely to record, maintain, and present information as directed by the Principal or as generated through user activity within the platform. Agent shall not interpret, evaluate, or make determinations regarding the legal significance of any recorded information.
 
-This Authorization shall become effective upon the date of its electronic execution by the Principal and shall remain in full force and effect until it is revoked. Principal may revoke this Authorization at any time by providing written notice to the Agent via the DocuStay platform or via email to michael@docustay.online. Revocation will be effective upon Agent's acknowledgment of receipt.
+**6. No Legal Determination**
 
-**7. Durability**
+Agent does not determine, adjudicate, or represent the legal status of any occupancy, tenancy, or property rights. All records generated through the platform reflect system-logged activity and user-provided information only and are intended to document stated authorizations and historical events. Such records do not constitute legal conclusions, do not establish enforceable rights, and do not replace the need for legally compliant agreements or independent legal advice.
+
+**6.1 No Agency or Fiduciary Relationship.** Nothing in this Authorization shall be deemed to create any agency, fiduciary, property management, brokerage, or legal representation relationship between Agent and Principal or any third party. Agent acts solely as a neutral technology provider facilitating documentation.
+
+**7. Term and Revocation**
+
+This Authorization shall become effective upon the date of its electronic execution by the Principal and shall remain in full force and effect until it is revoked. Revocation shall not affect the retention of previously generated records maintained as part of the platform's append-only system architecture. Principal may revoke this Authorization at any time by providing written notice to the Agent via the DocuStay platform or via email to michael@docustay.online. Revocation will be effective upon Agent's acknowledgment of receipt.
+
+**8. Durability**
 
 This shall be a durable Power of Attorney. The authority of the Agent shall not terminate if the Principal becomes incapacitated.
 
-**8. Governing Law**
+**9. Governing Law**
 
 This Authorization shall be governed by and construed in accordance with the laws of the State of Washington, without regard to its conflict of law principles.
 
-**9. Indemnification and Limitation of Liability**
+**10. Indemnification and Limitation of Liability**
 
-Principal agrees to indemnify and hold Agent harmless from any and all claims, damages, or liabilities arising from Agent's good-faith performance of its duties under this Authorization. Agent's liability for any act or omission shall be limited to the amount of fees paid by Principal to Agent in the preceding twelve (12) months.
+Principal agrees to indemnify, defend, and hold Agent harmless from and against any and all claims, damages, liabilities, costs, and expenses (including reasonable attorneys' fees) arising out of or related to:
 
-**10. Acknowledgment and Signature**
+• The accuracy or completeness of information provided by Principal or other users;
+• Any use or reliance on platform-generated records;
+• Any dispute relating to occupancy, tenancy, or property rights; or
+• Any third-party interpretation or use of documentation generated through the Services.
+
+**Third-Party Reliance.** Principal acknowledges that any sharing of platform-generated records with third parties is done at Principal's direction and risk. Agent shall have no liability arising from third-party interpretation, reliance, or use of such records.
+
+**11. Third-Party Reliance and Use**
+
+Principal acknowledges that any sharing of platform-generated records with third parties is done at Principal's direction and risk. Agent makes no representations regarding how any third party, including courts, law enforcement, or governmental authorities, will interpret or rely upon such records. Any reliance on platform-generated documentation is at the sole risk of the Principal or such third party.
+
+**12. Acknowledgment and Signature**
 
 By signing below, Principal acknowledges that they have read, understood, and agree to the terms of this Limited Power of Attorney and Agent Authorization. Principal affirms that they are either the legal owner of the Properties or a property manager with the full legal authority to grant this Authorization.
 

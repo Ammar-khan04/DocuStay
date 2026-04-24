@@ -196,21 +196,25 @@ export function getOwnerSignupErrorFriendly(
       redirectTo: null,
     };
   }
-  if (raw.includes("master poa signature") && raw.includes("already used")) {
+  if (raw.includes("already used") && raw.includes("another account") && raw.includes("signature")) {
     return {
-      message: "This Master POA signature was already used for another account. Please sign the document again to create a new signature.",
+      message: "This authorization signature was already used for another account. Please sign the document again to create a new signature.",
       redirectTo: null,
     };
   }
   if (raw.includes("email does not match") || raw.includes("signature email")) {
     return {
-      message: "The email on the Master POA doesn't match your account. Please sign using the same email you registered with.",
+      message: "The email on the authorization document doesn't match your account. Please sign using the same email you registered with.",
       redirectTo: null,
     };
   }
-  if (raw.includes("invalid master poa") || (raw.includes("invalid") && raw.includes("poa"))) {
+  if (
+    raw.includes("invalid owner authorization") ||
+    raw.includes("invalid master poa") ||
+    (raw.includes("invalid") && raw.includes("poa"))
+  ) {
     return {
-      message: "We couldn't use this signature. Please sign the Master POA again.",
+      message: "We couldn't use this signature. Please sign the authorization document again.",
       redirectTo: null,
     };
   }

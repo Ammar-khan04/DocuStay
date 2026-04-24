@@ -16,6 +16,24 @@ def parse_client_calendar_date_header(raw: str | None) -> date | None:
         return None
 
 
+def clamp_calendar_date_to_utc_window(parsed: date) -> date:
+    """Clamp a client-supplied calendar day to UTC today ±1 day (anti-spoof)."""
+    utc_today = datetime.now(timezone.utc).date()
+    lo, hi = utc_today - timedelta(days=1), utc_today + timedelta(days=1)
+    if parsed < lo:
+        return lo
+    if parsed > hi:
+        return hi
+    return parsed
+
+
+def effective_today_from_optional_client_date(parsed: date | None) -> date:
+    """UTC calendar ``today``, or ``parsed`` clamped to the same ±1 day window as invite-start rules."""
+    if parsed is None:
+        return datetime.now(timezone.utc).date()
+    return clamp_calendar_date_to_utc_window(parsed)
+
+
 def effective_today_for_invite_start(
     request: Request,
     *,
@@ -36,9 +54,4 @@ def effective_today_for_invite_start(
     parsed = parse_client_calendar_date_header(raw if raw else None)
     if parsed is None:
         return utc_today
-    lo, hi = utc_today - timedelta(days=1), utc_today + timedelta(days=1)
-    if parsed < lo:
-        return lo
-    if parsed > hi:
-        return hi
-    return parsed
+    return clamp_calendar_date_to_utc_window(parsed)

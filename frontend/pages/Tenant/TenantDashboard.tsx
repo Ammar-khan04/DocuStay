@@ -28,6 +28,15 @@ import {
   localDateInputToUtcStartIso,
   parseForDisplay,
 } from '../../utils/dateUtils';
+import {
+  filterOpenGuestStaysForDashboard,
+  guestStayLifecycleForDisplay,
+  guestLifecycleIsTerminal,
+  guestStayRowDisplay,
+  GUEST_STAY_INLINE_BADGE_CLASS,
+  isGuestStayPhysicallyCheckedIn,
+} from '../../utils/guestStayState';
+import { JURISDICTION_CONTEXT_DISCLAIMER } from '../../utils/jurisdictionUiCopy';
 
 type TenantTab = 'stays' | 'property' | 'invitations' | 'logs' | 'documents' | 'help';
 
@@ -82,22 +91,6 @@ function leaseCalendarYmd(isoOrYmd: string | null | undefined): string | null {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Inclusive local calendar window; open-ended when end is null/empty. */
-function tenantLeaseInCalendarWindow(todayYmd: string, start: string | null, end: string | null, cancelled: boolean): boolean {
-  if (cancelled) return false;
-  const sd = leaseCalendarYmd(start);
-  if (!sd) return false;
-  const td = leaseCalendarYmd(todayYmd) || todayYmd;
-  if (td < sd) return false;
-  const ed = leaseCalendarYmd(end);
-  if (ed && td > ed) return false;
-  return true;
-}
-
-function tenantLeaseAcceptedOnCard(card: TenantUnitCard): boolean {
-  return !card.pending_acceptance;
-}
-
 type TenantLeaseLifecycleState =
   | 'PENDING_STAGED'
   | 'PENDING_INVITED'
@@ -107,14 +100,8 @@ type TenantLeaseLifecycleState =
   | 'OWNER_RESIDENT'
   | 'CANCELLED';
 
-function resolveTenantLeaseLifecycle(todayYmd: string, card: TenantUnitCard): TenantLeaseLifecycleState {
-  const assignment = (card.assignment_status || '').trim().toLowerCase();
-  // Match backend: resolve_tenant_lease_assignment_status wins over lifecycle_state when both are present.
-  if (assignment === 'active') return 'ACTIVE';
-  if (assignment === 'expired') return 'EXPIRED';
-  if (assignment === 'accepted') return 'ACCEPTED';
-  if (assignment === 'pending') return 'PENDING_INVITED';
-
+/** Badge/filter state: trust ``GET /dashboard/tenant/unit`` resolver fields only (no client calendar lifecycle). */
+function resolveTenantLeaseLifecycle(_todayYmd: string, card: TenantUnitCard): TenantLeaseLifecycleState {
   const backendState = (card.lifecycle_state || '').trim().toUpperCase();
   if (
     backendState === 'PENDING_STAGED' ||
@@ -127,20 +114,59 @@ function resolveTenantLeaseLifecycle(todayYmd: string, card: TenantUnitCard): Te
   ) {
     return backendState as TenantLeaseLifecycleState;
   }
-
+  const assignment = (card.assignment_status || '').trim().toLowerCase();
+  if (assignment === 'active') return 'ACTIVE';
+  if (assignment === 'expired') return 'EXPIRED';
+  if (assignment === 'accepted') return 'ACCEPTED';
+  if (assignment === 'pending') return 'PENDING_INVITED';
   const invite = (card.invite_status || '').trim().toLowerCase();
   if (invite === 'cancelled' || invite === 'revoked') return 'CANCELLED';
   if (invite === 'expired') return 'EXPIRED';
-  if (invite === 'accepted' && tenantLeaseAcceptedOnCard(card)) {
-    if (tenantLeaseInCalendarWindow(todayYmd, card.stay_start_date, card.stay_end_date, false)) return 'ACTIVE';
-    const sd = leaseCalendarYmd(card.stay_start_date);
-    const td = leaseCalendarYmd(todayYmd) || todayYmd;
-    if (sd && td < sd) return 'ACCEPTED';
-    return 'EXPIRED';
-  }
-  if (invite === 'accepted') return 'ACCEPTED';
-  if (invite === 'pending') return 'PENDING_INVITED';
   return 'PENDING_STAGED';
+}
+
+/** Staged / invite-pending leases are not listed for tenants until the assignment is accepted or active. */
+function isTenantLeaseHiddenFromDashboard(todayYmd: string, card: TenantUnitCard): boolean {
+  const s = resolveTenantLeaseLifecycle(todayYmd, card);
+  return s === 'PENDING_STAGED' || s === 'PENDING_INVITED';
+}
+
+function tenantDashboardRowToUnitCard(u: {
+  unit: { id: number; unit_label: string; occupancy_status: string } | null;
+  property: { id: number; name: string; address: string } | null;
+  invite_id: string | null;
+  token_state: string | null;
+  stay_start_date: string | null;
+  stay_end_date: string | null;
+  invite_status?: 'pending' | 'accepted' | 'cancelled' | 'revoked' | 'expired' | 'unknown';
+  assignment_status?: 'none' | 'pending' | 'accepted' | 'active' | 'expired';
+  lifecycle_state?: TenantLeaseLifecycleState | null;
+  pending_acceptance?: boolean;
+  lease_cohort_id?: string | null;
+  cohort_member_count?: number | null;
+  co_tenants?: Array<{ name?: string | null; email?: string | null }>;
+  property_deleted_at?: string | null;
+}): TenantUnitCard | null {
+  if (!u.unit || !u.property) return null;
+  return {
+    lease_key: buildTenantLeaseKey(u),
+    unit_id: u.unit.id,
+    invite_id: u.invite_id,
+    lifecycle_state: (u.lifecycle_state as TenantLeaseLifecycleState | undefined) ?? null,
+    invite_status: u.invite_status,
+    assignment_status: u.assignment_status,
+    unit_label: u.unit.unit_label,
+    property_name: u.property.name || 'Property',
+    property_address: u.property.address || '',
+    stay_start_date: u.stay_start_date,
+    stay_end_date: u.stay_end_date,
+    token_state: u.token_state,
+    pending_acceptance: u.pending_acceptance === true,
+    lease_cohort_id: u.lease_cohort_id,
+    cohort_member_count: u.cohort_member_count,
+    co_tenants: u.co_tenants,
+    property_deleted_at: u.property_deleted_at ?? null,
+  };
 }
 
 function leaseLifecycleBadge(state: TenantLeaseLifecycleState): { label: TenantLeaseLifecycleState; cls: string } {
@@ -170,26 +196,30 @@ function buildTenantLeaseKey(unit: {
 /** True if this tenant-invited guest row is a real Stay that can be revoked (kill switch). */
 function tenantCanRevokeGuestStay(h: OwnerStayView): boolean {
   if (h.invitation_only || h.stay_id <= 0) return false;
-  if (h.revoked_at || h.checked_out_at || h.cancelled_at) return false;
-  return true;
+  return guestStayRowDisplay(h).showRevoke;
 }
 
-/** Ended guest authorization label: revoke vs cancel vs checkout vs expired invite (no stay). */
+/** Ended guest authorization: align with state_resolver lifecycle + physical terminals. */
 function endedGuestAuthorizationBadge(h: OwnerStayView): { label: string; className: string } {
   const ts = (h.token_state || '').toUpperCase();
+  const lc = guestStayLifecycleForDisplay(h);
   if (h.revoked_at) {
-    return { label: 'Revoked', className: 'bg-amber-50 text-amber-800 border border-amber-200' };
+    return { label: 'Revoked', className: GUEST_STAY_INLINE_BADGE_CLASS.revoked };
   }
   if (h.cancelled_at) {
-    return { label: h.invitation_only ? 'Invitation cancelled' : 'Cancelled', className: 'bg-slate-100 text-slate-700 border border-slate-200' };
+    return { label: h.invitation_only ? 'Invitation cancelled' : 'Cancelled', className: GUEST_STAY_INLINE_BADGE_CLASS.cancelled };
+  }
+  if (guestLifecycleIsTerminal(lc)) {
+    const label = lc === 'CANCELLED' ? 'Cancelled' : 'Expired';
+    return { label, className: lc === 'CANCELLED' ? GUEST_STAY_INLINE_BADGE_CLASS.cancelled : GUEST_STAY_INLINE_BADGE_CLASS.expired };
   }
   if (h.invitation_only && ts === 'EXPIRED' && h.checked_out_at) {
-    return { label: 'Expired', className: 'bg-slate-100 text-slate-600 border border-slate-200' };
+    return { label: 'Expired', className: GUEST_STAY_INLINE_BADGE_CLASS.expired };
   }
   if (h.checked_out_at) {
-    return { label: 'Checked out', className: 'bg-slate-100 text-slate-600 border border-slate-200' };
+    return { label: 'Checked out', className: GUEST_STAY_INLINE_BADGE_CLASS.expired };
   }
-  return { label: 'Ended', className: 'bg-slate-100 text-slate-600 border border-slate-200' };
+  return { label: 'Ended', className: GUEST_STAY_INLINE_BADGE_CLASS.expired };
 }
 
 /** Signed doc row for a pending invite the tenant sent (matches invitation code). */
@@ -260,20 +290,17 @@ function buildTenantGuestAuthRows(
       (inv.status === 'pending' || inv.status === 'ongoing' || inv.status === 'active' || inv.status === 'accepted') &&
       !inv.is_expired
   );
-  const activeStays = historyForProperty.filter(
-    (h) =>
-      !h.invitation_only &&
-      !h.checked_out_at &&
-      !h.revoked_at &&
-      !h.cancelled_at
+  const openRealStays = filterOpenGuestStaysForDashboard(historyForProperty).filter(
+    (h) => !h.invitation_only && h.stay_id > 0
   );
+  const activeStayIds = new Set(openRealStays.map((s) => s.stay_id));
   // Any real Stay for an invite (including revoked/checked out) means "pending invite" row must not duplicate it.
   const usedCodes = new Set<string>();
   for (const h of historyForProperty) {
     if (h.invitation_only || h.stay_id <= 0 || !h.invite_id) continue;
     usedCodes.add(h.invite_id.trim().toUpperCase());
   }
-  const active: TenantGuestAuthActiveRow[] = activeStays.map((stay) => ({
+  const active: TenantGuestAuthActiveRow[] = openRealStays.map((stay) => ({
     kind: 'accepted' as const,
     key: `stay-${stay.stay_id}`,
     stay,
@@ -287,7 +314,14 @@ function buildTenantGuestAuthRows(
     const db = b.kind === 'accepted' ? b.stay.stay_start_date : b.inv.stay_start_date;
     return db.localeCompare(da);
   });
-  const ended = historyForProperty.filter((h) => h.checked_out_at || h.revoked_at || h.cancelled_at);
+  const ended = historyForProperty.filter((h) => {
+    if (!h.invitation_only && h.stay_id > 0) return !activeStayIds.has(h.stay_id);
+    if (h.invitation_only) {
+      const lc = guestStayLifecycleForDisplay(h);
+      return guestLifecycleIsTerminal(lc) || !!h.checked_out_at || !!h.cancelled_at || !!h.revoked_at;
+    }
+    return false;
+  });
   return { active, ended };
 }
 
@@ -658,26 +692,31 @@ const TenantDashboard: React.FC<{
       });
   }, [loadData, notify, openConfirmInviteModal]);
 
-  // When unit data loads, set selected unit to the first one if we have it
+  // When unit data loads, set selected unit to the first visible lease if we have none selected
   useEffect(() => {
-    const first = unitsData.find((u) => u.unit && u.property);
-    if (first?.unit && first?.property && !selectedUnit) {
-      setSelectedUnit({
-        lease_key: buildTenantLeaseKey(first),
-        unit_id: first.unit.id,
-        invite_id: first.invite_id,
-        lifecycle_state: (first.lifecycle_state as TenantLeaseLifecycleState | undefined) ?? null,
-        invite_status: first.invite_status,
-        assignment_status: first.assignment_status,
-        unit_label: first.unit.unit_label,
-        property_name: first.property.name || 'Property',
-        property_address: first.property.address || '',
-        stay_start_date: first.stay_start_date,
-        stay_end_date: first.stay_end_date,
-        token_state: first.token_state,
-        pending_acceptance: first.pending_acceptance === true,
-      });
+    if (selectedUnit) return;
+    const todayY = getTodayStr();
+    const first = unitsData.find((u) => {
+      const card = tenantDashboardRowToUnitCard(u);
+      return card != null && !isTenantLeaseHiddenFromDashboard(todayY, card);
+    });
+    if (first?.unit && first?.property) {
+      const card = tenantDashboardRowToUnitCard(first);
+      if (card) setSelectedUnit(card);
     }
+  }, [unitsData, selectedUnit]);
+
+  // Clear selection if the current lease is staged/pending-only in the latest payload (not shown in the list)
+  useEffect(() => {
+    if (!selectedUnit) return;
+    const row = unitsData.find((u) => buildTenantLeaseKey(u) === selectedUnit.lease_key);
+    if (!row) {
+      setSelectedUnit(null);
+      return;
+    }
+    const card = tenantDashboardRowToUnitCard(row);
+    const todayY = getTodayStr();
+    if (!card || isTenantLeaseHiddenFromDashboard(todayY, card)) setSelectedUnit(null);
   }, [unitsData, selectedUnit]);
 
   // Fetch presence for the selected unit (here/away per property)
@@ -874,29 +913,14 @@ const TenantDashboard: React.FC<{
     );
   }
 
-  const isEmpty = unitsData.length === 0 && stays.length === 0 && pendingInvites.length === 0;
-  const unitCards: TenantUnitCard[] = unitsData
-    .filter((u) => u.unit && u.property)
-    .map((u) => ({
-      lease_key: buildTenantLeaseKey(u),
-      unit_id: u.unit!.id,
-      invite_id: u.invite_id,
-      lifecycle_state: (u.lifecycle_state as TenantLeaseLifecycleState | undefined) ?? null,
-      invite_status: u.invite_status,
-      assignment_status: u.assignment_status,
-      unit_label: u.unit!.unit_label,
-      property_name: u.property!.name || 'Property',
-      property_address: u.property!.address || '',
-      stay_start_date: u.stay_start_date,
-      stay_end_date: u.stay_end_date,
-      token_state: u.token_state,
-      pending_acceptance: u.pending_acceptance === true,
-      lease_cohort_id: u.lease_cohort_id,
-      cohort_member_count: u.cohort_member_count,
-      co_tenants: u.co_tenants,
-      property_deleted_at: u.property_deleted_at ?? null,
-    }));
   const today = getTodayStr();
+  const visibleTenantUnitRows = unitsData.filter((u) => {
+    const card = tenantDashboardRowToUnitCard(u);
+    return card != null && !isTenantLeaseHiddenFromDashboard(today, card);
+  });
+  const isEmpty = visibleTenantUnitRows.length === 0 && stays.length === 0 && pendingInvites.length === 0;
+  const unitCards: TenantUnitCard[] = visibleTenantUnitRows
+    .map((u) => tenantDashboardRowToUnitCard(u)!);
   const selectedUnitData = selectedUnit ? unitsData.find((u) => buildTenantLeaseKey(u) === selectedUnit.lease_key) : null;
   const unitDetailGuestAuthBundle =
     selectedUnitData?.property?.id != null
@@ -1215,7 +1239,7 @@ const TenantDashboard: React.FC<{
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-slate-800">Power of Attorney (POA)</h3>
+                    <h3 className="text-sm font-semibold text-slate-800">Owner authorization (POA)</h3>
                     {verificationRecord?.poa_signed_at ? (
                       <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
@@ -1238,7 +1262,7 @@ const TenantDashboard: React.FC<{
                           window.open(resolveBackendMediaUrl(verificationRecord.poa_url!), '_blank', 'noopener,noreferrer')
                         }
                       >
-                        View POA (file)
+                        View authorization (file)
                       </Button>
                     )}
                     {selectedUnitData?.live_slug && (
@@ -1252,13 +1276,13 @@ const TenantDashboard: React.FC<{
                           });
                         }}
                       >
-                        View POA (public PDF)
+                        View authorization (public PDF)
                       </Button>
                     )}
                   </div>
                   {!verificationRecord?.poa_url && !selectedUnitData?.live_slug && (
                     <p className="text-xs text-slate-500">
-                      The property owner&apos;s Power of Attorney is not linked here yet. Use verification or ask your host when it is on file.
+                      The property owner&apos;s signed authorization is not linked here yet. Use verification or ask your host when it is on file.
                     </p>
                   )}
                 </div>
@@ -1272,15 +1296,15 @@ const TenantDashboard: React.FC<{
                           <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-slate-800">{ga.guest_name}</span>
-                              {ga.token_state && (
+                              {ga.token_state && ga.token_state !== 'BURNED' && (
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
-                                  ga.token_state === 'BURNED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
                                   ga.token_state === 'REVOKED' ? 'bg-red-50 text-red-700 border border-red-200' :
                                   ga.token_state === 'EXPIRED' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
                                   ga.token_state === 'CANCELLED' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                  ga.token_state === 'STAGED' ? 'bg-sky-50 text-sky-800 border border-sky-200' :
                                   'bg-slate-100 text-slate-600 border border-slate-200'
                                 }`}>
-                                  {ga.token_state === 'BURNED' ? 'Active' : ga.token_state === 'STAGED' ? 'Pending' : ga.token_state}
+                                  {ga.token_state === 'STAGED' ? 'Pending' : ga.token_state}
                                 </span>
                               )}
                             </div>
@@ -1394,9 +1418,9 @@ const TenantDashboard: React.FC<{
                   </p>
                 )}
                 <div className="pt-3 border-t border-slate-100">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Master Power of Attorney</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Owner authorization on file</p>
                   <p className="text-sm text-slate-600 mb-3">
-                    The owner-signed Master POA is system-wide documentation authority for this property—not tied to your role. You can open it whenever it is on file.
+                    DocuStay retains a record of owner-provided authorization for this property (not tied to your role). You can open the signed file when it is available.
                   </p>
                   {(() => {
                     const liveSlug = (selectedUnitData?.live_slug ?? '').trim() || null;
@@ -1406,7 +1430,7 @@ const TenantDashboard: React.FC<{
                       <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 mt-2 space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
-                            <p className="text-sm font-medium text-slate-800">Power of Attorney (POA)</p>
+                            <p className="text-sm font-medium text-slate-800">Owner authorization (POA)</p>
                             {signedAt ? (
                               <p className="text-xs text-slate-500">Signed on {formatDateTimeLocal(signedAt)}</p>
                             ) : (
@@ -1427,7 +1451,7 @@ const TenantDashboard: React.FC<{
                                   )
                                 }
                               >
-                                View POA (file)
+                                View authorization (file)
                               </Button>
                             )}
                             {liveSlug && (
@@ -1441,14 +1465,14 @@ const TenantDashboard: React.FC<{
                                   });
                                 }}
                               >
-                                View POA (public PDF)
+                                View authorization (public PDF)
                               </Button>
                             )}
                           </div>
                         </div>
                         {!hasMediaPoa && !liveSlug && (
                           <p className="text-xs text-slate-500">
-                            No POA link is available here yet. Your host or property contact can complete verification, or try again after the property publishes a live page.
+                            No authorization file link is available here yet. Your host or property contact can complete verification, or try again after the property publishes a live page.
                           </p>
                         )}
                       </div>
@@ -1729,11 +1753,11 @@ const TenantDashboard: React.FC<{
                     Guest visits
                   </h4>
                   {filteredStays.map((s) => {
-                    const isStayActive = !!(s.checked_in_at && s.approved_stay_start_date <= today && s.approved_stay_end_date >= today);
+                    const isStayActive = !!(isGuestStayPhysicallyCheckedIn(s) && s.approved_stay_start_date <= today && s.approved_stay_end_date >= today);
                     const isStayFuture = s.approved_stay_start_date > today;
-                    const isStayUpcoming = !s.checked_in_at && !s.checked_out_at && !s.cancelled_at && s.approved_stay_start_date <= today && s.approved_stay_end_date >= today;
+                    const isStayUpcoming = !isGuestStayPhysicallyCheckedIn(s) && !s.checked_out_at && !s.cancelled_at && s.approved_stay_start_date <= today && s.approved_stay_end_date >= today;
                     const canCheckIn = isStayUpcoming;
-                    const hasCheckedIn = !!(s.checked_in_at != null && s.checked_in_at !== '');
+                    const hasCheckedIn = isGuestStayPhysicallyCheckedIn(s);
                     const canCheckout = (hasCheckedIn || s.revoked_at != null) && !s.checked_out_at && !s.cancelled_at && s.approved_stay_end_date >= today;
                     const canCancel = isStayFuture && !s.cancelled_at;
                     const isSelected = selectedStay?.stay_id === s.stay_id;
@@ -1828,7 +1852,7 @@ const TenantDashboard: React.FC<{
       {/* Full-width detail when a guest visit is selected (Lease & guests tab; user is the invited guest) */}
       {selectedStay && stayFilter !== 'future_invites' && (() => {
         const stay = selectedStay;
-        const detailHasCheckedIn = !!(stay.checked_in_at != null && stay.checked_in_at !== '');
+        const detailHasCheckedIn = isGuestStayPhysicallyCheckedIn(stay);
         const stayDLeft = daysLeft(stay.approved_stay_end_date);
         const stayTotalDays = Math.max(1, Math.ceil((new Date(stay.approved_stay_end_date).getTime() - new Date(stay.approved_stay_start_date).getTime()) / (1000 * 60 * 60 * 24)));
         const stayElapsedDays = Math.max(0, stayTotalDays - stayDLeft);
@@ -1890,13 +1914,14 @@ const TenantDashboard: React.FC<{
                     <>
                       <span className="text-slate-400">·</span>
                       <span className="text-slate-500 text-sm font-mono">Invite ID: {stay.invite_id}</span>
-                      {stay.token_state && (
+                      {stay.token_state && stay.token_state !== 'BURNED' && (
                         <span className={`ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${
-                          stay.token_state === 'BURNED' ? 'bg-[#28A745] text-white' :
                           stay.token_state === 'EXPIRED' ? 'bg-slate-100 text-slate-600' :
-                          stay.token_state === 'REVOKED' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                          stay.token_state === 'REVOKED' ? 'bg-amber-50 text-amber-700' :
+                          stay.token_state === 'STAGED' ? 'bg-sky-50 text-sky-800 border border-sky-200' :
+                          'bg-slate-100 text-slate-600'
                         }`}>
-                          {stay.token_state === 'BURNED' ? 'Active' : stay.token_state === 'STAGED' ? 'Pending' : stay.token_state === 'EXPIRED' ? 'Expired' : stay.token_state === 'REVOKED' ? 'Revoked' : stay.token_state}
+                          {stay.token_state === 'STAGED' ? 'Pending' : stay.token_state === 'EXPIRED' ? 'Expired' : stay.token_state === 'REVOKED' ? 'Revoked' : stay.token_state}
                         </span>
                       )}
                     </>
@@ -1941,7 +1966,7 @@ const TenantDashboard: React.FC<{
                       });
                     }}
                   >
-                    View property POA (PDF)
+                    View owner authorization (PDF)
                   </Button>
                 )}
                 {stay.invite_id && (
@@ -2049,7 +2074,7 @@ const TenantDashboard: React.FC<{
       {/* Unit detail when a unit is selected */}
       {selected && selectedUnitData && !selectedStay && stayFilter !== 'future_invites' && (
         <div className="flex-1 min-w-0 space-y-6 overflow-y-auto">
-          {/* Hero: Current stay card - same layout as reference (badge, address, Invite ID, BURNED, CHECK-IN/OUT, Stay progress, Open live link, Verify QR, Check in) */}
+          {/* Hero: lease badge, address, Invite ID, dates, progress, actions */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6 md:p-8 shadow-sm">
             {selectedUnitData.property_deleted_at ? (
               <div className="mb-6">
@@ -2093,21 +2118,10 @@ const TenantDashboard: React.FC<{
                   })()
                 : 100;
               const leaseHeadlineBadge = leaseLifecycleBadge(selectedLeaseState);
-              /** BURNED = invite accepted/signed, not necessarily “occupancy active”; only show Active inside the lease window. */
-              const invTs = (selectedUnitData.token_state || '').toUpperCase();
-              let inviteTokenLabel: string;
-              let inviteTokenCls: string;
-              const inviteLifecycleBadge = leaseLifecycleBadge(selectedLeaseState);
-              inviteTokenLabel = inviteLifecycleBadge.label;
-              inviteTokenCls = inviteLifecycleBadge.cls;
-              if (!selectedUnitData.invite_id && invTs) {
-                inviteTokenLabel = selectedLeaseState;
-                inviteTokenCls = inviteLifecycleBadge.cls;
-              }
               return (
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
                   <div className="min-w-0">
-                    {/* Target: single horizontal line — UPCOMING / Cancelled · address (FL) · Invite ID: INV-XXX · REVOKED */}
+                    {/* Lease lifecycle badge + address + Invite ID (no duplicate token pill — BURNED duplicates headline). */}
                     <div className="flex items-center gap-2 mb-4 flex-nowrap overflow-x-hidden min-h-[2rem]">
                       <span className={`inline-flex items-center shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold uppercase tracking-wide ${leaseHeadlineBadge.cls}`}>
                         {leaseHeadlineBadge.label}
@@ -2123,11 +2137,6 @@ const TenantDashboard: React.FC<{
                             <span className="text-slate-500">Invite ID: </span>
                             <span className="text-slate-600 font-medium font-mono">{selectedUnitData.invite_id}</span>
                           </span>
-                          {selectedUnitData.token_state && (
-                            <span className={`shrink-0 ml-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${inviteTokenCls}`}>
-                              {inviteTokenLabel}
-                            </span>
-                          )}
                         </>
                       )}
                     </div>
@@ -2185,7 +2194,7 @@ const TenantDashboard: React.FC<{
                           });
                         }}
                       >
-                        View property POA (PDF)
+                        View owner authorization (PDF)
                       </Button>
                     )}
                     {selectedUnitData.invite_id && (
@@ -2261,7 +2270,14 @@ const TenantDashboard: React.FC<{
                               {row.stay.unit_label ? (
                                 <span className="text-slate-500"> · Unit {row.stay.unit_label}</span>
                               ) : null}
-                              <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">Accepted</span>
+                              {(() => {
+                                const g = guestStayRowDisplay(row.stay);
+                                return (
+                                  <span className={`ml-1.5 px-1.5 py-0.5 rounded text-xs font-medium ${GUEST_STAY_INLINE_BADGE_CLASS[g.tone]}`}>
+                                    {g.statusLabel}
+                                  </span>
+                                );
+                              })()}
                             </div>
                             <div className="flex flex-wrap items-center gap-2 shrink-0">
                               {(() => {
@@ -2496,34 +2512,29 @@ const TenantDashboard: React.FC<{
                   </Button>
                 </div>
               </div>
-              {/* Applicable law from Jurisdiction SOT (same as guest dashboard and live property page) */}
+              {/* Jurisdiction reference (same source as guest dashboard and live property page; UI framing only) */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">
-                  APPLICABLE LAW {selectedUnitData?.jurisdiction_state_name || selectedUnitData?.region_code ? `(${(selectedUnitData?.jurisdiction_state_name ?? selectedUnitData?.region_code ?? 'State').toUpperCase()})` : ''}
+                  Legal context{selectedUnitData?.jurisdiction_state_name || selectedUnitData?.region_code ? ` — ${(selectedUnitData?.jurisdiction_state_name ?? selectedUnitData?.region_code ?? 'State').toUpperCase()}` : ''}
+                </p>
+                <p className="text-xs text-slate-500 mb-3 leading-relaxed border border-slate-200 bg-slate-50/80 rounded-lg px-3 py-2">
+                  {JURISDICTION_CONTEXT_DISCLAIMER}
                 </p>
                 {(selectedUnitData?.jurisdiction_statutes && selectedUnitData.jurisdiction_statutes.length > 0) ? (
-                  <>
-                    <ul className="mt-2 space-y-2">
-                      {selectedUnitData.jurisdiction_statutes.map((s, i) => (
-                        <li key={i} className="text-sm text-slate-700">
-                          <span className="font-medium text-slate-900">{s.citation}</span>
-                          {s.plain_english && <span className="block text-slate-600 mt-0.5">{s.plain_english}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                    {selectedUnitData.removal_guest_text && (
-                      <p className="text-slate-600 text-sm mt-2">
-                        <span className="font-medium text-slate-700">Guest removal: </span>{selectedUnitData.removal_guest_text}
-                      </p>
-                    )}
-                    {selectedUnitData.removal_tenant_text && (
-                      <p className="text-slate-600 text-sm mt-0.5">
-                        <span className="font-medium text-slate-700">Tenant eviction: </span>{selectedUnitData.removal_tenant_text}
-                      </p>
-                    )}
-                  </>
+                  <ul className="mt-2 space-y-2">
+                    {selectedUnitData.jurisdiction_statutes.map((s, i) => (
+                      <li key={i} className="text-sm text-slate-700">
+                        <span className="font-medium text-slate-900">{s.citation}</span>
+                        {s.plain_english && (
+                          <span className="block text-slate-500 mt-0.5 text-xs leading-relaxed">
+                            Reference summary (informational): {s.plain_english}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
-                  <p className="text-sm text-slate-500">Jurisdiction and statutes for this property are available from your host or on the live property page.</p>
+                  <p className="text-sm text-slate-500">Citation list for this property is available from your host or on the live property page.</p>
                 )}
               </div>
             </div>

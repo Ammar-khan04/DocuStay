@@ -5,7 +5,9 @@ const SECTIONS = [
   { id: 'service', label: 'The DocuStay Service' },
   { id: 'accounts', label: 'Account Registration and Responsibilities' },
   { id: 'use', label: 'Use of the Services' },
-  { id: 'disclaimer', label: 'Disclaimer of Legal Advice and Tenancy Determination' },
+  { id: 'disclaimer', label: 'Disclaimer of Legal Advice and No Tenancy Determination' },
+  { id: 'platform', label: 'Platform Role; No Agency or Fiduciary Relationship' },
+  { id: 'reliance', label: 'Reliance and Third-Party Use' },
   { id: 'liability', label: 'Limitation of Liability' },
   { id: 'termination', label: 'Account Suspension and Termination' },
   { id: 'general', label: 'General Provisions' },
@@ -28,7 +30,7 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
             </div>
             <div>
               <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Terms of Service</h1>
-              <p className="text-slate-400 text-sm mt-1">Last Updated: March 11, 2026</p>
+              <p className="text-slate-400 text-sm mt-1">Last Updated: April 24, 2026</p>
             </div>
           </div>
           <p className="text-slate-300 max-w-2xl text-sm md:text-base leading-relaxed">
@@ -65,8 +67,14 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">1</span>
                     The DocuStay Service
                   </h2>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    DocuStay provides a documentation and record-keeping platform for residential property use. The Services are designed to allow property owners, tenants, and authorized users (&quot;Users&quot;) to create, manage, and store records related to property status and the authorized presence of individuals at a property.
+                  </p>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    The Services include the generation and storage of guest acknowledgments, authorization records, and a chronological log of property-related events (the &quot;Event Ledger&quot;). These records are generated based on user-provided inputs and system-logged activity.
+                  </p>
                   <p className="text-slate-600 leading-relaxed">
-                    DocuStay provides a documentation and record-keeping platform for residential property. The Services are designed to allow property owners, tenants, and authorized managers (&quot;Users&quot;) to create, manage, and store records related to property status and the authorized presence of temporary guests. This includes generating and recording guest acknowledgments for defined periods and maintaining a chronological log of property status events.
+                    DocuStay operates solely as a neutral documentation and record-keeping system. The Services are not intended to establish, modify, or determine legal rights, occupancy status, tenancy status, or property interests.
                   </p>
                 </div>
               </section>
@@ -77,8 +85,11 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">2</span>
                     Account Registration and Responsibilities
                   </h2>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    You must be at least 18 years of age to create an account. You agree to provide accurate, current, and complete information and to maintain the security of your account credentials. You represent and warrant that you have the legal authority to provide information regarding the property, individuals, and authorizations entered into the platform.
+                  </p>
                   <p className="text-slate-600 leading-relaxed">
-                    You must be at least 18 years old to create an account. You agree to provide accurate and complete information upon registration. You are responsible for all activities that occur under your account, including maintaining the confidentiality of your password. You represent and warrant that you have the full legal authority to provide information regarding the properties and individuals you document on the platform.
+                    You acknowledge that DocuStay does not independently verify the accuracy of user-provided information and relies on Users for the completeness and correctness of all submitted data.
                   </p>
                 </div>
               </section>
@@ -89,8 +100,19 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">3</span>
                     Use of the Services
                   </h2>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    You agree to use the Services solely for their intended purpose as a documentation tool. You are solely responsible for:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-2 text-slate-600 leading-relaxed mb-4">
+                    <li>your compliance with applicable laws and regulations;</li>
+                    <li>the legality and enforceability of any agreements you enter into outside the platform; and</li>
+                    <li>the accuracy and completeness of the information you provide.</li>
+                  </ul>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    You agree not to use the Services for any unlawful, fraudulent, misleading, or unauthorized purpose.
+                  </p>
                   <p className="text-slate-600 leading-relaxed">
-                    You agree to use the Services only for their intended purpose as a documentation tool. You are solely responsible for your compliance with all applicable laws, regulations, and any agreements you may have with other parties (including leases, co-tenancy agreements, or guest agreements). You agree not to misuse the Services for any illegal, fraudulent, or unauthorized purpose.
+                    You further acknowledge that the creation of documentation through the Services does not, by itself, create legal authorization, tenancy rights, or enforceable occupancy status.
                   </p>
                 </div>
               </section>
@@ -99,13 +121,77 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm shadow-slate-200/50 p-6 md:p-8">
                   <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">4</span>
-                    Disclaimer of Legal Advice and Tenancy Determination
+                    Disclaimer of Legal Advice and No Tenancy Determination
                   </h2>
                   <p className="text-slate-600 leading-relaxed mb-4">
-                    DocuStay is a documentation platform, not a law firm. We do not provide legal advice, and your use of the Services does not create an attorney-client relationship. The information provided on the platform, including jurisdiction-specific renewal cycle recommendations and template documents, is for informational and documentation purposes only. It is not a substitute for advice from a qualified attorney licensed in your jurisdiction.
+                    DocuStay is not a law firm and does not provide legal advice. Your use of the Services does not create an attorney-client relationship.
+                  </p>
+                  <p className="text-slate-600 leading-relaxed mb-2">
+                    All information provided through the platform, including:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-1 text-slate-600 leading-relaxed mb-4">
+                    <li>jurisdiction-specific information,</li>
+                    <li>renewal cycle references,</li>
+                    <li>authorization records, and</li>
+                    <li>system-generated outputs,</li>
+                  </ul>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    is provided for informational and documentation purposes only and should not be relied upon as legal advice.
+                  </p>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    DocuStay does not determine, adjudicate, or represent the legal status of any occupant, guest, or tenant. The legal status of any individual in relation to a property is determined by applicable law and the specific facts of each situation, not by the records created within the platform.
+                  </p>
+                  <p className="text-slate-600 leading-relaxed mb-2">
+                    The creation or existence of any record within the Services:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-2 text-slate-600 leading-relaxed mb-4">
+                    <li>does not guarantee that an individual will not be deemed a tenant;</li>
+                    <li>does not establish legal authorization enforceable against third parties; and</li>
+                    <li>does not replace the need for legally compliant agreements or legal counsel.</li>
+                  </ul>
+                  <p className="text-slate-600 leading-relaxed">
+                    Platform records are intended to serve as evidence of user actions and stated intent only and are one of many factors a court or authority may consider.
+                  </p>
+                </div>
+              </section>
+
+              <section id="platform" className="scroll-mt-24">
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm shadow-slate-200/50 p-6 md:p-8">
+                  <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">5</span>
+                    Platform Role; No Agency or Fiduciary Relationship
+                  </h2>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    DocuStay acts solely as a neutral technology provider. Nothing in the Services creates:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-2 text-slate-600 leading-relaxed mb-4">
+                    <li>an agency relationship,</li>
+                    <li>a property management relationship,</li>
+                    <li>a fiduciary duty, or</li>
+                    <li>enforcement authority on the part of DocuStay.</li>
+                  </ul>
+                  <p className="text-slate-600 leading-relaxed">
+                    Any authority granted through user-generated documents, including any power of attorney, is created between Users and is not exercised independently by DocuStay. DocuStay does not act on behalf of Users in dealings with third parties, law enforcement, or governmental authorities.
+                  </p>
+                </div>
+              </section>
+
+              <section id="reliance" className="scroll-mt-24">
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm shadow-slate-200/50 p-6 md:p-8">
+                  <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">6</span>
+                    Reliance and Third-Party Use
+                  </h2>
+                  <p className="text-slate-600 leading-relaxed mb-2">You acknowledge that:</p>
+                  <ul className="list-disc pl-5 space-y-2 text-slate-600 leading-relaxed mb-4">
+                    <li>third parties may view or rely on documentation generated through the Services; and</li>
+                    <li>such reliance is outside the control of DocuStay.</li>
+                  </ul>
+                  <p className="text-slate-600 leading-relaxed mb-4">
+                    DocuStay makes no representations or warranties regarding how any third party, including courts, law enforcement, or administrative bodies, will interpret or rely upon platform records.
                   </p>
                   <p className="text-slate-600 leading-relaxed">
-                    The platform does not, and cannot, determine legal tenancy status. The creation of a guest authorization record through the Services does not guarantee that a guest will not be deemed a tenant by a court of law. The legal status of an occupant is determined by the specific facts of the situation and applicable law, not by the records created on this platform. The Services are intended to provide clear evidence of your intent and the agreements you have made, which is one of many factors a court may consider.
+                    You agree that any use of platform-generated documentation in disputes or proceedings is at your sole risk.
                   </p>
                 </div>
               </section>
@@ -113,13 +199,29 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
               <section id="liability" className="scroll-mt-24">
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm shadow-slate-200/50 p-6 md:p-8">
                   <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">5</span>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">7</span>
                     Limitation of Liability
                   </h2>
-                  <div className="rounded-xl bg-slate-100/80 border border-slate-200 p-4">
+                  <div className="rounded-xl bg-slate-100/80 border border-slate-200 p-4 space-y-3">
                     <p className="text-slate-700 text-sm leading-relaxed font-medium">
-                      TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, DOCUSTAY SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUES, WHETHER INCURRED DIRECTLY OR INDIRECTLY, OR ANY LOSS OF DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES, RESULTING FROM (A) YOUR ACCESS TO OR USE OF OR INABILITY TO ACCESS OR USE THE SERVICES; (B) ANY DISPUTE BETWEEN YOU AND A TENANT, GUEST, OR OTHER THIRD PARTY; (C) ANY RELIANCE PLACED BY YOU ON THE COMPLETENESS, ACCURACY, OR EXISTENCE OF ANY DOCUMENTATION OR JURISDICTIONAL INFORMATION PROVIDED BY THE SERVICES. IN NO EVENT SHALL DOCUSTAY&apos;S AGGREGATE LIABILITY EXCEED THE GREATER OF ONE HUNDRED U.S. DOLLARS (U.S. $100.00) OR THE AMOUNT YOU PAID DOCUSTAY, IF ANY, IN THE PAST SIX MONTHS FOR THE SERVICES GIVING RISE TO THE CLAIM.
+                      TO THE MAXIMUM EXTENT PERMITTED BY LAW, DOCUSTAY SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, USE, OR GOODWILL.
                     </p>
+                    <p className="text-slate-700 text-sm leading-relaxed font-medium">
+                      THIS INCLUDES, WITHOUT LIMITATION:
+                    </p>
+                    <ul className="list-disc pl-5 space-y-1 text-slate-700 text-sm leading-relaxed font-medium">
+                      <li>ANY DISPUTE BETWEEN USERS OR THIRD PARTIES;</li>
+                      <li>ANY DETERMINATION OF TENANCY OR OCCUPANCY STATUS;</li>
+                      <li>ANY ACTION TAKEN OR NOT TAKEN BASED ON PLATFORM RECORDS; OR</li>
+                      <li>ANY RELIANCE ON THE COMPLETENESS OR ACCURACY OF DOCUMENTATION GENERATED THROUGH THE SERVICES.</li>
+                    </ul>
+                    <p className="text-slate-700 text-sm leading-relaxed font-medium">
+                      IN NO EVENT SHALL DOCUSTAY&apos;S TOTAL LIABILITY EXCEED THE GREATER OF:
+                    </p>
+                    <ul className="list-disc pl-5 space-y-1 text-slate-700 text-sm leading-relaxed font-medium">
+                      <li>ONE HUNDRED U.S. DOLLARS ($100), OR</li>
+                      <li>THE AMOUNT PAID BY YOU TO DOCUSTAY IN THE SIX (6) MONTHS PRECEDING THE CLAIM.</li>
+                    </ul>
                   </div>
                 </div>
               </section>
@@ -127,23 +229,28 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
               <section id="termination" className="scroll-mt-24">
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm shadow-slate-200/50 p-6 md:p-8">
                   <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">6</span>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">8</span>
                     Account Suspension and Termination
                   </h2>
-                  <p className="text-slate-600 leading-relaxed">
-                    We reserve the right to suspend or terminate your account at any time for any reason, including, but not limited to, a violation of these Terms or if your use of the Services creates a risk or potential legal exposure for us. We will make reasonable efforts to notify you by the email address associated with your account.
+                  <p className="text-slate-600 leading-relaxed mb-3">
+                    We reserve the right to suspend or terminate accounts at any time where:
                   </p>
+                  <ul className="list-disc pl-5 space-y-2 text-slate-600 leading-relaxed">
+                    <li>there is a violation of these Terms;</li>
+                    <li>there is misuse of the platform; or</li>
+                    <li>continued use presents legal or operational risk.</li>
+                  </ul>
                 </div>
               </section>
 
               <section id="general" className="scroll-mt-24">
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm shadow-slate-200/50 p-6 md:p-8">
                   <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">7</span>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">9</span>
                     General Provisions
                   </h2>
                   <p className="text-slate-600 leading-relaxed">
-                    These Terms shall be governed by the laws of the State of Washington, without regard to its conflict of law provisions. These Terms constitute the entire agreement between you and DocuStay regarding the Services and supersede any prior agreements. We may revise these Terms from time to time, and the most current version will always be posted on our website. By continuing to use the Services after revisions become effective, you agree to be bound by the revised Terms.
+                    These Terms are governed by the laws of the State of Washington. DocuStay may update these Terms from time to time. Continued use of the Services constitutes acceptance of the revised Terms.
                   </p>
                 </div>
               </section>
@@ -151,7 +258,7 @@ const TermsOfService: React.FC<{ navigate: (v: string) => void }> = ({ navigate 
               <section id="contact" className="scroll-mt-24">
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm shadow-slate-200/50 p-6 md:p-8">
                   <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-sm font-bold">8</span>
+                    <span className="flex h-8 min-w-8 px-1 items-center justify-center rounded-lg bg-slate-100 text-slate-600 text-xs font-bold">10</span>
                     Contact Us
                   </h2>
                   <p className="text-slate-600 leading-relaxed mb-4">
