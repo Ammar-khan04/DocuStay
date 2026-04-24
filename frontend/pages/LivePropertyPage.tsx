@@ -360,18 +360,67 @@ function leaseCalendarYmd(isoOrYmd: string | null | undefined): string | null {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Use backend-resolved invitation lifecycle status directly. */
-function resolveInvitationDisplayStatus(inv: LiveInvitationSummary): 'pending' | 'accepted' | 'active' | 'expired' | 'cancelled' {
-  const st = (inv.status || 'pending').toLowerCase();
-  if (st === 'active') return 'active';
-  if (st === 'accepted') return 'accepted';
-  if (st === 'expired') return 'expired';
-  if (st === 'cancelled' || st === 'revoked') return 'cancelled';
-  return 'pending';
+/** Guest stays currently on the live payload (not checked out) → treat linked invite as accepted if the row lags. */
+function collectGuestOpenStayInvitationCodes(stays: LiveCurrentGuestInfo[]): Set<string> {
+  const out = new Set<string>();
+  for (const stay of stays) {
+    if (stayIsTenant(stay)) continue;
+    if (stay.checked_out_at) continue;
+    const c = (stay.invitation_code ?? '').trim().toUpperCase();
+    if (c) out.add(c);
+  }
+  return out;
 }
 
-function mapInvitationToAuthorizationLabel(inv: LiveInvitationSummary): string {
-  const resolved = resolveInvitationDisplayStatus(inv);
+function liveInvitationRecordAccepted(
+  inv: LiveInvitationSummary,
+  guestOpenStayInviteCodes: Set<string> | undefined,
+): boolean {
+  const st = (inv.status || '').toLowerCase();
+  const tok = (inv.token_state || '').trim().toUpperCase();
+  if (tok === 'REVOKED' || tok === 'CANCELLED' || st === 'cancelled' || st === 'revoked') return false;
+  if (tok === 'EXPIRED' || st === 'expired') return false;
+  if (st === 'accepted' || tok === 'BURNED') return true;
+  const code = (inv.invitation_code || '').trim().toUpperCase();
+  if (!inviteIsTenant(inv) && guestOpenStayInviteCodes && code && guestOpenStayInviteCodes.has(code)) return true;
+  return false;
+}
+
+/**
+ * Guest stay invitations: pending → not accepted; accepted → accepted and today < start;
+ * active → accepted and start <= today <= end (inclusive); expired after end.
+ * Tenant lease invitations on this page use the same calendar bands once accepted.
+ */
+function resolveInvitationDisplayStatus(
+  inv: LiveInvitationSummary,
+  todayYmd: string,
+  guestOpenStayInviteCodes?: Set<string>,
+): 'pending' | 'accepted' | 'active' | 'expired' | 'cancelled' {
+  const st = (inv.status || 'pending').toLowerCase();
+  const tok = (inv.token_state || '').trim().toUpperCase();
+  if (tok === 'REVOKED' || tok === 'CANCELLED' || st === 'cancelled' || st === 'revoked') return 'cancelled';
+  if (tok === 'EXPIRED' || st === 'expired') return 'expired';
+
+  if (!liveInvitationRecordAccepted(inv, guestOpenStayInviteCodes)) return 'pending';
+
+  const td = leaseCalendarYmd(todayYmd) || String(todayYmd).trim();
+  const start = leaseCalendarYmd(String(inv.stay_start_date));
+  if (!td || !start) return 'pending';
+  if (td < start) return 'accepted';
+
+  const endRaw = inv.stay_end_date;
+  const end = leaseCalendarYmd(endRaw == null || String(endRaw).trim() === '' ? null : String(endRaw));
+  if (end == null) return 'active';
+  if (td <= end) return 'active';
+  return 'expired';
+}
+
+function mapInvitationToAuthorizationLabel(
+  inv: LiveInvitationSummary,
+  todayYmd: string,
+  guestOpenStayInviteCodes?: Set<string>,
+): string {
+  const resolved = resolveInvitationDisplayStatus(inv, todayYmd, guestOpenStayInviteCodes);
   if (resolved === 'cancelled') return 'CANCELLED';
   if (resolved === 'active') return 'ACTIVE';
   if (resolved === 'accepted') return 'ACCEPTED';
@@ -379,12 +428,21 @@ function mapInvitationToAuthorizationLabel(inv: LiveInvitationSummary): string {
   return 'PENDING';
 }
 
-function liveInviteStatusDisplayLabel(inv: LiveInvitationSummary): string {
-  return resolveInvitationDisplayStatus(inv);
+function liveInviteStatusDisplayLabel(
+  inv: LiveInvitationSummary,
+  todayYmd: string,
+  guestOpenStayInviteCodes?: Set<string>,
+): string {
+  const s = resolveInvitationDisplayStatus(inv, todayYmd, guestOpenStayInviteCodes);
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function liveInviteStatusDisplayClass(inv: LiveInvitationSummary): string {
-  const s = resolveInvitationDisplayStatus(inv);
+function liveInviteStatusDisplayClass(
+  inv: LiveInvitationSummary,
+  todayYmd: string,
+  guestOpenStayInviteCodes?: Set<string>,
+): string {
+  const s = resolveInvitationDisplayStatus(inv, todayYmd, guestOpenStayInviteCodes);
   if (s === 'active') return 'bg-emerald-100 text-emerald-800';
   if (s === 'accepted') return 'bg-sky-100 text-sky-800';
   if (s === 'cancelled') return 'bg-orange-100 text-orange-900';
@@ -906,8 +964,10 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
         displayTenantAssignments.length,
       )
     : apiOccupancySummaryDetail;
+  const livePageTodayYmd = getTodayLocal();
+  const liveGuestOpenStayInviteCodes = collectGuestOpenStayInvitationCodes(activeGuests);
   const authLabel = resolveLivePagePropertyAuthorizationDisplay(viewerSession, invitations, activeGuests, {
-    todayYmd: getTodayLocal(),
+    todayYmd: livePageTodayYmd,
     tenantAssignmentRows: displayTenantAssignments,
     propertyManagers: propertyManagersForAuthority,
     ownerViewingOwnLivePage,
@@ -1719,14 +1779,14 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                         </td>
                         <td className="py-3 pr-4">
                           <span
-                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${liveInviteStatusDisplayClass(inv)}`}
+                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${liveInviteStatusDisplayClass(inv, livePageTodayYmd, liveGuestOpenStayInviteCodes)}`}
                           >
-                            {liveInviteStatusDisplayLabel(inv)}
+                            {liveInviteStatusDisplayLabel(inv, livePageTodayYmd, liveGuestOpenStayInviteCodes)}
                           </span>
                         </td>
                         <td className="py-3 pr-4">
                           {(() => {
-                            const label = mapInvitationToAuthorizationLabel(inv);
+                            const label = mapInvitationToAuthorizationLabel(inv, livePageTodayYmd, liveGuestOpenStayInviteCodes);
                             const cls = label === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800'
                               : label === 'ACCEPTED' ? 'bg-sky-100 text-sky-800'
                               : label === 'EXPIRED' ? 'bg-amber-100 text-amber-800'

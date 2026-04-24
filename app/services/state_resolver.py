@@ -330,7 +330,7 @@ def resolve_guest_stay_state_fields(
     invitation: Invitation | None,
     today: date | None = None,
 ) -> dict[str, str]:
-    """Single entry point for dashboard guest rows: lifecycle + stay + invite status (same rules as tenant lease).
+    """Single entry point for dashboard guest rows: lifecycle + stay + invite status (same rules as tenant lease.
 
     Pass ``today`` from ``X-Client-Calendar-Date`` (clamped) for guest-facing endpoints so ACTIVE/ACCEPTED
     matches the browser calendar; omit for server-default UTC calendar day.
@@ -339,6 +339,16 @@ def resolve_guest_stay_state_fields(
     lc = resolve_guest_stay_lifecycle(stay=stay, invitation=invitation, today=eff, db=db)
     inv_st = resolve_invite_status(invitation) if invitation is not None else "unknown"
     stay_st = resolve_stay_status(stay, today=eff) if stay is not None else "none"
+    if (
+        invitation is not None
+        and stay is not None
+        and inv_st == "pending"
+        and getattr(stay, "invitation_id", None) == invitation.id
+        and getattr(stay, "cancelled_at", None) is None
+        and getattr(stay, "revoked_at", None) is None
+        and getattr(stay, "checked_out_at", None) is None
+    ):
+        inv_st = "accepted"
     return {
         "lifecycle_state": lc,
         "stay_status": stay_st,
@@ -355,9 +365,12 @@ def resolve_guest_stay_lifecycle(
 ) -> UnifiedLifecycleStatus:
     """Owner/manager guest-stay lifecycle: same acceptance + calendar window SOT as tenant lease.
 
-    Uses ``resolve_unified_invitation_lifecycle`` when an invitation row exists (mirrors tenant
-    ``resolve_tenant_lease_lifecycle`` falling back to invitation rules). Physical stay terminals
-    (cancelled, revoked, checked out) win over invitation-derived ACTIVE.
+    When a physical Stay exists and is not in a terminal state, calendar + check-in drive
+    ACCEPTED/ACTIVE so the dashboard matches reality even if the Invitation row still shows
+    pending/ongoing with a STAGED token (e.g. right after signing, before token/status sync).
+
+    Invitation-only rows (no stay yet) still use ``resolve_unified_invitation_lifecycle``.
+    Physical stay terminals (cancelled, revoked, checked out) win before invitation rules.
     """
     today = today or date.today()
     if stay is not None:
@@ -367,9 +380,6 @@ def resolve_guest_stay_lifecycle(
             return "CANCELLED"
         if getattr(stay, "checked_out_at", None) is not None:
             return "EXPIRED"
-    if invitation is not None:
-        return resolve_unified_invitation_lifecycle(invitation, today=today, db=db)
-    if stay is not None:
         start = getattr(stay, "stay_start_date", None)
         end = getattr(stay, "stay_end_date", None)
         if getattr(stay, "checked_in_at", None) is not None:
@@ -387,6 +397,8 @@ def resolve_guest_stay_lifecycle(
         if start is not None and start > today:
             return "ACCEPTED"
         return "EXPIRED"
+    if invitation is not None:
+        return resolve_unified_invitation_lifecycle(invitation, today=today, db=db)
     return "PENDING_STAGED"
 
 

@@ -728,28 +728,43 @@ def guest_add_pending_invite(
             detail="This invitation was sent to a different email address. You cannot add an invitation intended for someone else.",
         )
 
-    # Reject if this invitation overlaps any existing stay for this guest (block before signing)
-    existing_stays = db.query(Stay).filter(Stay.guest_id == current_user.id).all()
-    for s in existing_stays:
-        if inv.stay_start_date < s.stay_end_date and inv.stay_end_date > s.stay_start_date:
-            create_log(
-                db,
-                CATEGORY_FAILED_ATTEMPT,
-                "Add pending invite: overlapping stay",
-                f"Guest attempted to add invitation {code} which overlaps with existing stay(s).",
-                property_id=inv.property_id,
-                invitation_id=inv.id,
-                actor_user_id=current_user.id,
-                actor_email=current_user.email,
-                ip_address=request.client.host if request.client else None,
-                user_agent=(request.headers.get("user-agent") or "").strip() or None,
-                meta={"invitation_code": code},
-            )
-            db.commit()
-            raise HTTPException(
-                status_code=400,
-                detail="This invitation overlaps with an existing stay. Only one stay can be accepted at a time.",
-            )
+    # Reject if this invitation overlaps an open stay on the same property/unit (same rules as accept-invite)
+    from app.services.guest_stay_overlap import list_open_overlapping_guest_stays
+
+    same_inv_stay = (
+        db.query(Stay)
+        .filter(Stay.guest_id == current_user.id, Stay.invitation_id == inv.id)
+        .first()
+    )
+    exclude_stay_id = same_inv_stay.id if same_inv_stay else None
+    overlapping = list_open_overlapping_guest_stays(
+        db,
+        guest_id=current_user.id,
+        property_id=inv.property_id,
+        unit_id=getattr(inv, "unit_id", None),
+        range_start=inv.stay_start_date,
+        range_end=inv.stay_end_date,
+        exclude_stay_id=exclude_stay_id,
+    )
+    if overlapping:
+        create_log(
+            db,
+            CATEGORY_FAILED_ATTEMPT,
+            "Add pending invite: overlapping stay",
+            f"Guest attempted to add invitation {code} which overlaps with existing open stay(s) on this unit.",
+            property_id=inv.property_id,
+            invitation_id=inv.id,
+            actor_user_id=current_user.id,
+            actor_email=current_user.email,
+            ip_address=request.client.host if request.client else None,
+            user_agent=(request.headers.get("user-agent") or "").strip() or None,
+            meta={"invitation_code": code},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="This invitation overlaps with an existing stay on this unit. Only one open stay can cover these dates here.",
+        )
 
     existing = (
         db.query(GuestPendingInvite)
