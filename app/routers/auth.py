@@ -100,6 +100,7 @@ from app.services.notifications import (
     send_shield_mode_turned_off_notification,
 )
 from app.services.dashboard_alerts import create_alert_for_owner_and_managers, create_alert_for_user
+from app.services.guest_stay_email_scope import owner_email_and_manager_emails_for_guest_stay_dms
 from app.dependencies import get_current_user, require_owner, require_guest, require_guest_or_tenant, get_pending_owner
 from app.models.guest import GuestProfile
 from app.models.manager_invitation import ManagerInvitation
@@ -2320,20 +2321,15 @@ def register_guest(request: Request, data: GuestRegister, db: Session = Depends(
         prop_for_shield = db.query(Property).filter(Property.id == inv.property_id).first()
         if not SHIELD_MODE_ALWAYS_ON and prop_for_shield and getattr(prop_for_shield, "shield_mode_enabled", 0) == 1:
             prop_for_shield.shield_mode_enabled = 0
-            owner_profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop_for_shield.owner_profile_id).first()
-            owner_user = db.query(User).filter(User.id == owner_profile.user_id).first() if owner_profile else None
-            owner_email = (owner_user.email or "").strip() if owner_user else ""
-            manager_emails = [
-                (u.email or "").strip()
-                for a in db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.property_id == prop_for_shield.id).all()
-                for u in [db.query(User).filter(User.id == a.user_id).first()]
-                if u and (u.email or "").strip()
-            ]
             property_name = (prop_for_shield.name or "").strip() or (f"{prop_for_shield.city}, {prop_for_shield.state}".strip(", ") if (prop_for_shield.city or prop_for_shield.state) else "Property")
-            try:
-                send_shield_mode_turned_off_notification(owner_email, manager_emails, property_name, turned_off_by="system (new guest accepted invitation)")
-            except Exception:
-                pass
+            shield_owner_email, shield_manager_emails = owner_email_and_manager_emails_for_guest_stay_dms(db, stay)
+            if shield_owner_email or shield_manager_emails:
+                try:
+                    send_shield_mode_turned_off_notification(
+                        shield_owner_email, shield_manager_emails, property_name, turned_off_by="system (new guest accepted invitation)"
+                    )
+                except Exception:
+                    pass
             ip_shield = request.client.host if request.client else None
             ua_shield = (request.headers.get("user-agent") or "").strip() or None
             create_ledger_event(
@@ -3075,20 +3071,15 @@ def accept_invite(
     _prop = db.query(Property).filter(Property.id == inv.property_id).first()
     if not SHIELD_MODE_ALWAYS_ON and _prop and getattr(_prop, "shield_mode_enabled", 0) == 1:
         _prop.shield_mode_enabled = 0
-        owner_profile = db.query(OwnerProfile).filter(OwnerProfile.id == _prop.owner_profile_id).first()
-        owner_user = db.query(User).filter(User.id == owner_profile.user_id).first() if owner_profile else None
-        owner_email = (owner_user.email or "").strip() if owner_user else ""
-        manager_emails = [
-            (u.email or "").strip()
-            for a in db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.property_id == _prop.id).all()
-            for u in [db.query(User).filter(User.id == a.user_id).first()]
-            if u and (u.email or "").strip()
-        ]
         property_name = (_prop.name or "").strip() or (f"{_prop.city}, {_prop.state}".strip(", ") if (_prop.city or _prop.state) else "Property")
-        try:
-            send_shield_mode_turned_off_notification(owner_email, manager_emails, property_name, turned_off_by="system (new guest accepted invitation)")
-        except Exception:
-            pass
+        shield_owner_email, shield_manager_emails = owner_email_and_manager_emails_for_guest_stay_dms(db, stay)
+        if shield_owner_email or shield_manager_emails:
+            try:
+                send_shield_mode_turned_off_notification(
+                    shield_owner_email, shield_manager_emails, property_name, turned_off_by="system (new guest accepted invitation)"
+                )
+            except Exception:
+                pass
         ip_shield = request.client.host if request.client else None
         ua_shield = (request.headers.get("user-agent") or "").strip() or None
         create_ledger_event(

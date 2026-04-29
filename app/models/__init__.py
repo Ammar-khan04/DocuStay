@@ -30,6 +30,7 @@ from app.models.notification_attempt import NotificationAttempt
 from app.models.bulk_upload_job import BulkUploadJob
 from app.models.guest_extension_request import GuestExtensionRequest
 from app.models.demo_account import DemoAccount
+from app.models.tenant_live_slug import TenantLiveSlug
 
 __all__ = [
     "User",
@@ -65,4 +66,5 @@ __all__ = [
     "BulkUploadJob",
     "GuestExtensionRequest",
     "DemoAccount",
+    "TenantLiveSlug",
 ]

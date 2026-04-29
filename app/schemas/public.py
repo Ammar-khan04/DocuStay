@@ -61,6 +61,13 @@ class LivePropertyInfo(BaseModel):
     invitation_accepted_count: int = 0
     invitation_active_count: int = 0
     invitation_cancelled_count: int = 0
+    unit_statuses: list["LiveUnitOccupancyStatus"] = []
+
+
+class LiveUnitOccupancyStatus(BaseModel):
+    """Per-unit occupancy status for live page header badges."""
+    unit_label: str
+    occupancy_status: str  # occupied | vacant | unconfirmed | unknown
 
 
 class LiveOwnerInfo(BaseModel):
@@ -190,6 +197,8 @@ class LivePropertyPagePayload(BaseModel):
     current_tenant_assignments: list[LiveTenantAssignmentInfo] = []
     tenant_summary_assignee: str | None = None
     tenant_summary_assignment_period: str | None = None
+    link_audience: str = "property"  # property | tenant
+    scoped_unit_labels: list[str] = []  # unit labels explicitly scoped by link audience (tenant links)
 
 
 # --- Verify portal (token = Invitation ID, no auth) ---

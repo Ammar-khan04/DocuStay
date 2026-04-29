@@ -20,7 +20,11 @@ from app.models.owner_poa_signature import OwnerPOASignature
 from app.models.agreement_signature import AgreementSignature
 from app.models.property_manager_assignment import PropertyManagerAssignment
 from app.services.agreements import agreement_content_to_pdf, fill_guest_signature_in_content, poa_content_with_signature
-from app.services.invitation_kinds import is_property_invited_tenant_signup_kind
+from app.services.invitation_kinds import (
+    is_property_invited_tenant_signup_kind,
+    normalize_invitation_kind,
+    TENANT_UNIT_LEASE_KINDS,
+)
 from app.services.tenant_lease_cohort import map_assignment_id_to_cohort_key
 from app.services.dropbox_sign import get_signed_pdf
 from app.services.invitation_agreement_ledger import emit_invitation_agreement_signed_if_dropbox_complete
@@ -35,10 +39,12 @@ from app.services.event_ledger import (
     ACTION_VERIFY_ATTEMPT_FAILED,
 )
 from app.services.property_live_ledger import merged_public_property_ledger_rows
+from app.services.tenant_live_slug import resolve_tenant_live_slug_row
 from app.services.ledger_actor_attribution import audit_actor_attribution
 from app.services.shield_mode_policy import effective_shield_mode_enabled
 from app.services.occupancy import (
     get_property_display_occupancy_status,
+    get_unit_display_occupancy_status,
     normalize_occupancy_status_for_display,
     count_effectively_occupied_units,
 )
@@ -59,6 +65,7 @@ from app.services.state_resolver import (
 from app.schemas.public import (
     LivePropertyPagePayload,
     LivePropertyInfo,
+    LiveUnitOccupancyStatus,
     LiveOwnerInfo,
     LivePropertyManagerInfo,
     LiveCurrentGuestInfo,
@@ -77,6 +84,70 @@ from app.schemas.public import (
     VerifyGuestAuthorization,
 )
 router = APIRouter(prefix="/public", tags=["public"])
+
+
+def _allowed_unit_labels_active_or_accepted_for_tenant(
+    db: Session, property_id: int, tenant_user_id: int, today: date
+) -> list[str]:
+    """Unit labels where this tenant has an active or accepted (future) lease — tenant live slug scope."""
+    from app.services.tenant_lease_window import find_invitation_matching_tenant_assignment, resolve_tenant_lease_assignment_status
+
+    rows = (
+        db.query(TenantAssignment)
+        .join(Unit, TenantAssignment.unit_id == Unit.id)
+        .filter(
+            Unit.property_id == property_id,
+            TenantAssignment.user_id == tenant_user_id,
+            TenantAssignment.start_date.isnot(None),
+            or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
+        )
+        .all()
+    )
+    tenant_user = db.query(User).filter(User.id == tenant_user_id).first()
+    em = (tenant_user.email or "").strip().lower() if tenant_user else ""
+    out: list[str] = []
+    for ta in rows:
+        unit = db.query(Unit).filter(Unit.id == ta.unit_id).first()
+        if not unit:
+            continue
+        inv = find_invitation_matching_tenant_assignment(db, ta, user_email_lower=em or None)
+        st = resolve_tenant_lease_assignment_status(ta, inv, today=today)
+        if st in ("active", "accepted"):
+            lab = (unit.unit_label or "").strip()
+            if lab and lab != "—":
+                out.append(lab)
+    return list(dict.fromkeys(out))
+
+
+def _invitation_matches_tenant_live_slug(inv: Invitation, email_lower: str, tenant_user_id: int) -> bool:
+    """Tenant-specific live slug: only this tenant's lease-lane invites (and guest invites they created)."""
+    nk = normalize_invitation_kind(getattr(inv, "invitation_kind", None))
+    if nk in TENANT_UNIT_LEASE_KINDS:
+        return (getattr(inv, "guest_email", None) or "").strip().lower() == email_lower
+    if nk == "guest":
+        return getattr(inv, "invited_by_user_id", None) == tenant_user_id
+    return False
+
+
+def _tenant_live_log_mentions_units(entry: LiveLogEntry, unit_labels_lower: set[str]) -> bool:
+    if not unit_labels_lower:
+        return False
+    blob = f"{entry.title or ''} {entry.message or ''}".lower()
+    return any(label in blob for label in unit_labels_lower)
+
+
+def _resolve_live_slug_context(db: Session, slug: str) -> tuple[Property | None, int | None]:
+    """Resolve slug to (property, tenant_user_id_for_tenant_slug)."""
+    prop = db.query(Property).filter(Property.live_slug == slug, Property.deleted_at.is_(None)).first()
+    if prop:
+        return prop, None
+    tenant_row = resolve_tenant_live_slug_row(db, slug)
+    if not tenant_row:
+        return None, None
+    prop2 = db.query(Property).filter(Property.id == tenant_row.property_id, Property.deleted_at.is_(None)).first()
+    if not prop2:
+        return None, None
+    return prop2, tenant_row.tenant_user_id
 
 
 def _is_active_stay(s: Stay) -> bool:
@@ -332,7 +403,7 @@ def _live_tenant_summary_for_logged_in_tenant(
     today: date,
 ) -> tuple[list[LiveTenantAssignmentInfo], str | None, str | None] | None:
     """
-    When the viewer is a tenant user with tenant_assignments on this property (active lease end),
+    When the viewer is a tenant user with tenant_assignments on this property (active or accepted/future lease),
     return their row(s) and summary strings for the live page tenant card (personalized view).
     """
     if not viewer or viewer.role != UserRole.tenant:
@@ -345,7 +416,6 @@ def _live_tenant_summary_for_logged_in_tenant(
             Unit.property_id == property_id,
             TenantAssignment.user_id == viewer.id,
             TenantAssignment.start_date.isnot(None),
-            TenantAssignment.start_date <= today,
             or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
         )
         .order_by(TenantAssignment.unit_id.asc(), TenantAssignment.created_at.desc())
@@ -362,8 +432,9 @@ def _live_tenant_summary_for_logged_in_tenant(
 
 def _live_occupying_tenants_for_property(db: Session, property_id: int, today: date) -> list[LiveTenantAssignmentInfo]:
     """
-    Tenants who currently occupy per get_units_occupancy_display priority: if a checked-in guest stay,
-    pending invite, or on-site manager fills the unit, the leaseholder tenant row is not shown for that unit.
+    Tenant lease rows for live page tenant sections:
+    - active/in-window assignments (occupying) per get_units_occupancy_display priority
+    - accepted/future assignments (start_date > today) so upcoming accepted leases are visible
     """
     from app.services.occupancy import get_units_occupancy_sources
     from app.services.unit_display_order import query_units_for_property_ordered
@@ -375,30 +446,35 @@ def _live_occupying_tenants_for_property(db: Session, property_id: int, today: d
         sources = get_units_occupancy_sources(db, unit_ids, guest_detail_unit_ids=None)
         units_by_id = {u.id: u for u in unit_rows}
         out: list[LiveTenantAssignmentInfo] = []
-        active_tas = (
+        live_tas = (
             db.query(TenantAssignment)
             .filter(
                 TenantAssignment.unit_id.in_(unit_ids),
                 TenantAssignment.start_date.isnot(None),
-                TenantAssignment.start_date <= today,
                 or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
             )
             .all()
         )
-        cohort_map = map_assignment_id_to_cohort_key(active_tas)
+        cohort_map = map_assignment_id_to_cohort_key(live_tas)
         cohort_sizes: dict[str, int] = {}
-        for _ta in active_tas:
+        for _ta in live_tas:
             ck = cohort_map.get(_ta.id)
             if ck:
                 cohort_sizes[ck] = cohort_sizes.get(ck, 0) + 1
         for u in unit_rows:
             uid = u.id
-            if sources.get(uid) != "tenant_assignment":
-                continue
-            unit_tas = [x for x in active_tas if x.unit_id == uid]
+            unit_tas = [x for x in live_tas if x.unit_id == uid]
             if not unit_tas:
                 continue
-            for ta in sorted(unit_tas, key=lambda t: (t.user_id or 0, t.id)):
+            in_window_tas = [x for x in unit_tas if x.start_date and x.start_date <= today]
+            future_tas = [x for x in unit_tas if x.start_date and x.start_date > today]
+            rows_for_unit = []
+            if sources.get(uid) == "tenant_assignment":
+                rows_for_unit.extend(in_window_tas)
+            rows_for_unit.extend(future_tas)
+            if not rows_for_unit:
+                continue
+            for ta in sorted(rows_for_unit, key=lambda t: (t.start_date or today, t.user_id or 0, t.id)):
                 ck = cohort_map.get(ta.id)
                 out.append(
                     _ta_to_live_tenant_row(
@@ -496,9 +572,17 @@ def get_live_property_page(
     if not slug or not slug.strip():
         raise HTTPException(status_code=404, detail="Not found")
     slug = slug.strip()
-    prop = db.query(Property).filter(Property.live_slug == slug, Property.deleted_at.is_(None)).first()
+    prop, tenant_slug_user_id = _resolve_live_slug_context(db, slug)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
+    link_audience = "tenant" if tenant_slug_user_id else "property"
+    effective_viewer = viewer
+    tenant_slug_email_lower = ""
+    if tenant_slug_user_id is not None:
+        tenant_slug_user = db.query(User).filter(User.id == tenant_slug_user_id).first()
+        if tenant_slug_user and tenant_slug_user.role == UserRole.tenant:
+            effective_viewer = tenant_slug_user
+            tenant_slug_email_lower = (tenant_slug_user.email or "").strip().lower()
 
     profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop.owner_profile_id).first()
     if not profile:
@@ -532,6 +616,13 @@ def get_live_property_page(
     from app.services.unit_display_order import query_units_for_property_ordered
 
     units_for_live = query_units_for_property_ordered(db, prop.id).all()
+    unit_statuses_for_live = [
+        LiveUnitOccupancyStatus(
+            unit_label=(u.unit_label or "").strip() or "—",
+            occupancy_status=get_unit_display_occupancy_status(db, u),
+        )
+        for u in units_for_live
+    ]
     display_occupancy = get_property_display_occupancy_status(db, prop, units_for_live)
     owner_occ_flag = bool(getattr(prop, "owner_occupied", False))
     is_multi = bool(getattr(prop, "is_multi_unit", False))
@@ -549,7 +640,15 @@ def get_live_property_page(
         invitation_counts_dict,
     )
 
-    inv_for_counts = filter_invitations_for_live_property_evidence(db, property_id=prop.id, viewer=viewer)
+    inv_for_counts = filter_invitations_for_live_property_evidence(
+        db, property_id=prop.id, viewer=effective_viewer
+    )
+    if tenant_slug_user_id is not None and tenant_slug_email_lower:
+        inv_for_counts = [
+            inv
+            for inv in inv_for_counts
+            if _invitation_matches_tenant_live_slug(inv, tenant_slug_email_lower, tenant_slug_user_id)
+        ]
     inv_count_fields = invitation_counts_dict(inv_for_counts, db)
     prop_info = LivePropertyInfo(
         name=prop.name,
@@ -569,6 +668,7 @@ def get_live_property_page(
         unit_count=unit_count_val,
         occupied_unit_count=occupied_units,
         vacant_unit_count=vacant_units,
+        unit_statuses=unit_statuses_for_live,
         **inv_count_fields,
     )
 
@@ -604,10 +704,17 @@ def get_live_property_page(
             poa_typed_signature = (poa_sig.typed_signature or "").strip() or None
 
     today = date.today()
+    allowed_tenant_live_units: list[str] = []
+    if tenant_slug_user_id is not None:
+        allowed_tenant_live_units = _allowed_unit_labels_active_or_accepted_for_tenant(
+            db, prop.id, tenant_slug_user_id, today
+        )
     current_stays_live = _current_active_stays_for_live(db, prop.id)
+    if tenant_slug_user_id is not None:
+        current_stays_live = []
 
     # Assigned tenant (Bearer): same personalization as the tenant card; include guest-stay ledger rows.
-    personalized = _live_tenant_summary_for_logged_in_tenant(db, prop.id, viewer, today)
+    personalized = _live_tenant_summary_for_logged_in_tenant(db, prop.id, effective_viewer, today)
 
     # Logs: property-scoped audit; guest-stay lane omitted unless viewer is that assigned tenant.
     log_rows = merged_public_property_ledger_rows(
@@ -639,6 +746,12 @@ def get_live_property_page(
                 state_change_on_record=disc.get("state_change_on_record"),
             )
         )
+    if tenant_slug_user_id is not None:
+        uset = {x.strip().lower() for x in allowed_tenant_live_units if x.strip()}
+        if uset:
+            logs = [lg for lg in logs if _tenant_live_log_mentions_units(lg, uset)]
+        else:
+            logs = []
 
     # Invitations for this property – invite states indicate stay status (STAGED→pending, BURNED→accepted/stay, EXPIRED→ended, REVOKED→cancelled)
     inv_rows = (
@@ -647,14 +760,20 @@ def get_live_property_page(
         .order_by(Invitation.created_at.desc())
         .limit(50)
     ).all()
+    if tenant_slug_user_id is not None and tenant_slug_email_lower:
+        inv_rows = [
+            inv
+            for inv in inv_rows
+            if _invitation_matches_tenant_live_slug(inv, tenant_slug_email_lower, tenant_slug_user_id)
+        ]
     # Tenants on the live page only see guest invitations they created (same scope as GET /dashboard/tenant/invitations);
     # tenant-lease invitations for the property remain visible so verification context is preserved.
-    if viewer is not None and getattr(viewer, "role", None) == UserRole.tenant:
+    if effective_viewer is not None and getattr(effective_viewer, "role", None) == UserRole.tenant:
         inv_rows = [
             inv
             for inv in inv_rows
             if (getattr(inv, "invitation_kind", None) or "guest").strip().lower() != "guest"
-            or getattr(inv, "invited_by_user_id", None) == viewer.id
+            or getattr(inv, "invited_by_user_id", None) == effective_viewer.id
         ]
     invitations = []
     for inv in inv_rows:
@@ -678,10 +797,14 @@ def get_live_property_page(
         )
 
     # Logged-in guests: hide tenant-lane rows from Invitation states (privacy / relevance).
-    if viewer is not None and viewer.role == UserRole.guest:
+    if effective_viewer is not None and effective_viewer.role == UserRole.guest:
         invitations = [
             inv for inv in invitations if not is_property_invited_tenant_signup_kind(inv.invitation_kind)
         ]
+
+    scoped_unit_labels: list[str] = []
+    if tenant_slug_user_id is not None:
+        scoped_unit_labels = list(allowed_tenant_live_units)
 
     current_tenant_assignments = _live_occupying_tenants_for_property(db, prop.id, today)
     tenant_summary_assignee, tenant_summary_assignment_period = _tenant_summary_strip(current_tenant_assignments)
@@ -692,6 +815,28 @@ def get_live_property_page(
         db, prop, display_occupancy, current_stays_live, current_tenant_assignments
     )
     prop_info = prop_info.model_copy(update={"occupancy_summary_detail": occ_summary})
+
+    if tenant_slug_user_id is not None:
+        owner_info = LiveOwnerInfo(full_name=owner_info.full_name, email="", phone=None)
+        property_managers = []
+        allowed_set = {x.strip() for x in allowed_tenant_live_units if x.strip()}
+        filtered_us = [u for u in prop_info.unit_statuses if (u.unit_label or "").strip() in allowed_set]
+        occ_ct = sum(
+            1 for u in filtered_us if (u.occupancy_status or "").lower() == OccupancyStatus.occupied.value
+        )
+        n = len(filtered_us)
+        prop_info = prop_info.model_copy(
+            update={
+                "name": None,
+                "tax_id": None,
+                "apn": None,
+                "unit_statuses": filtered_us,
+                "unit_count": max(1, n),
+                "is_multi_unit": n > 1,
+                "occupied_unit_count": occ_ct,
+                "vacant_unit_count": max(0, n - occ_ct) if n else 0,
+            }
+        )
 
     if current_stays_live:
         cg_rows = _live_guest_info_rows(db, slug, current_stays_live)
@@ -722,6 +867,8 @@ def get_live_property_page(
             current_tenant_assignments=current_tenant_assignments,
             tenant_summary_assignee=tenant_summary_assignee,
             tenant_summary_assignment_period=tenant_summary_assignment_period,
+            link_audience=link_audience,
+            scoped_unit_labels=scoped_unit_labels,
         )
 
     # No current guest: last stay (most recent ended) and upcoming
@@ -755,12 +902,16 @@ def get_live_property_page(
             )
     upcoming.sort(key=lambda x: x.stay_start_date)
 
+    if tenant_slug_user_id is not None:
+        last_stay = None
+        upcoming = []
+
     # Guest authorization on this page is about stays. Do not infer EXPIRED from property
     # occupancy alone — a new listing can be marked occupied or unknown while the tenant
     # invite is still pending and there are no guest stays yet.
     viewer_is_owner = False
-    if viewer is not None and getattr(viewer, "role", None) == UserRole.owner:
-        vprof = db.query(OwnerProfile).filter(OwnerProfile.user_id == viewer.id).first()
+    if effective_viewer is not None and getattr(effective_viewer, "role", None) == UserRole.owner:
+        vprof = db.query(OwnerProfile).filter(OwnerProfile.user_id == effective_viewer.id).first()
         viewer_is_owner = bool(vprof and vprof.id == prop.owner_profile_id)
     authorization_state = resolve_live_property_authorization_state(
         has_current_guest_stays=False,
@@ -790,6 +941,8 @@ def get_live_property_page(
         current_tenant_assignments=current_tenant_assignments,
         tenant_summary_assignee=tenant_summary_assignee,
         tenant_summary_assignment_period=tenant_summary_assignment_period,
+        link_audience=link_audience,
+        scoped_unit_labels=scoped_unit_labels,
     )
 
 
@@ -1345,7 +1498,7 @@ def get_live_signed_agreement_pdf(
     if not slug or not slug.strip():
         raise HTTPException(status_code=404, detail="Not found")
     slug = slug.strip()
-    prop = db.query(Property).filter(Property.live_slug == slug, Property.deleted_at.is_(None)).first()
+    prop, _tenant_slug_user_id = _resolve_live_slug_context(db, slug)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
     stay = db.query(Stay).filter(Stay.id == stay_id, Stay.property_id == prop.id).first()
@@ -1372,7 +1525,7 @@ def get_live_property_poa_pdf(slug: str, db: Session = Depends(get_db)):
     if not slug or not slug.strip():
         raise HTTPException(status_code=404, detail="Not found")
     slug = slug.strip()
-    prop = db.query(Property).filter(Property.live_slug == slug, Property.deleted_at.is_(None)).first()
+    prop, _tenant_slug_user_id = _resolve_live_slug_context(db, slug)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
     profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop.owner_profile_id).first()

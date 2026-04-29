@@ -475,6 +475,7 @@ const ManagerDashboard: React.FC<{
             loadInvitationsAndStays();
             window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
           }}
+          businessModeTenantInvitationCopy={false}
           introText="Pending invitations for properties you manage. Invitations expire if not accepted within the configured window."
         />
       )}

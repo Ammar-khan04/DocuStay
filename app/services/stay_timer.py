@@ -36,6 +36,7 @@ from app.services.notifications import (
     send_guest_authorization_dates_only_email,
 )
 from app.services.privacy_lanes import is_tenant_lane_stay, is_tenant_lane_invitation
+from app.services.guest_stay_email_scope import guest_stay_inviter_user_for_email
 from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE, CATEGORY_SHIELD_MODE, CATEGORY_DEAD_MANS_SWITCH
 from app.services.event_ledger import (
     create_ledger_event,
@@ -200,22 +201,26 @@ def send_overstay_alerts_and_log(db: Session) -> None:
                         property_name=property_name,
                     )
             else:
-                send_overstay_alert(
-                    owner.email,
-                    guest_name=guest_name,
-                    stay_end_date=end_str,
-                    region_code=stay.region_code or "",
-                    is_owner=True,
-                    property_name=property_name,
-                )
-                send_overstay_alert(
-                    guest.email,
-                    guest_name=guest_name,
-                    stay_end_date=end_str,
-                    region_code=stay.region_code or "",
-                    is_owner=False,
-                    property_name=property_name,
-                )
+                # Portfolio owner is not emailed for guest overstays; only the personal-host inviter (if any).
+                host = guest_stay_inviter_user_for_email(db, stay)
+                if host and (host.email or "").strip():
+                    send_overstay_alert(
+                        (host.email or "").strip(),
+                        guest_name=guest_name,
+                        stay_end_date=end_str,
+                        region_code=stay.region_code or "",
+                        is_owner=True,
+                        property_name=property_name,
+                    )
+                if (guest.email or "").strip():
+                    send_overstay_alert(
+                        guest.email,
+                        guest_name=guest_name,
+                        stay_end_date=end_str,
+                        region_code=stay.region_code or "",
+                        is_owner=False,
+                        property_name=property_name,
+                    )
         except Exception:
             pass
 
@@ -304,21 +309,22 @@ def send_legal_warnings_for_stay(stay: Stay, db: Session, statute_ref: str) -> N
 
     if not property_is_managed_by_docustay(db, stay.property_id):
         return
-    owner = db.query(User).filter(User.id == stay.owner_id).first()
     guest = db.query(User).filter(User.id == stay.guest_id).first()
-    if not owner or not guest:
+    if not guest:
         return
     guest_name = label_for_stay(db, stay)
 
     end_str = stay.stay_end_date.isoformat()
-    send_stay_legal_warning(
-        owner.email,
-        guest_name=guest_name,
-        stay_end_date=end_str,
-        region_code=stay.region_code,
-        statute_ref=statute_ref,
-        is_owner=True,
-    )
+    host = guest_stay_inviter_user_for_email(db, stay)
+    if host and (host.email or "").strip():
+        send_stay_legal_warning(
+            (host.email or "").strip(),
+            guest_name=guest_name,
+            stay_end_date=end_str,
+            region_code=stay.region_code,
+            statute_ref=statute_ref,
+            is_owner=True,
+        )
     send_stay_legal_warning(
         guest.email,
         guest_name=guest_name,

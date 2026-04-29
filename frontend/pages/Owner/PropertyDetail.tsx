@@ -1228,9 +1228,27 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                           );
                         })}
                       </div>
-                    ) : propertyUnitDisplayGroups ? (
+                    ) : (
                       <div className="space-y-8">
-                        {propertyUnitDisplayGroups.map((section) => (
+                        {(propertyUnitDisplayGroups && propertyUnitDisplayGroups.length > 0
+                          ? propertyUnitDisplayGroups
+                          : [
+                              {
+                                key: 'all_units',
+                                heading: 'Units',
+                                items: propertyUnits.map((u) => {
+                                  const poolRaw = tenantsPoolForUnitCard(
+                                    tenantsForThisProperty,
+                                    u.id,
+                                    u.unit_label || '1',
+                                    !!property.is_multi_unit,
+                                  );
+                                  const status = effectiveUnitOccupancyLower(u.occupancy_status, poolRaw);
+                                  return { u, status };
+                                }),
+                              },
+                            ]
+                        ).map((section) => (
                           <div key={section.key}>
                             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3 pb-2 border-b border-slate-200">
                               {section.heading}
@@ -1319,7 +1337,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                           </div>
                         ))}
                       </div>
-                    ) : null}
+                    )}
                   </Card>
                 )}
 

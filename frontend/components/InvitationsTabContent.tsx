@@ -51,8 +51,13 @@ export interface InvitationsTabContentProps {
   onResendInvitation?: (invitationId: number) => Promise<void>;
   /** Optional intro text below the tab (e.g. "Invitations you've sent...") */
   introText?: string;
-  /** Show or hide "Cancelled by guest" stays section inside Cancelled card. */
+  /** Show or hide cancelled short-term authorization stays inside Cancelled card. */
   showCancelledGuestStays?: boolean;
+  /**
+   * When true (owner or property manager **business** mode only), card blurbs describe tenant lease invitations only.
+   * Personal / mixed flows keep guest + 72-hour copy so the UI matches property-lane guest invites.
+   */
+  businessModeTenantInvitationCopy?: boolean;
 }
 
 export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
@@ -65,6 +70,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
   onResendInvitation,
   introText = "Invitations you've sent. Pending invitations are labeled as expired after 72 hours if not accepted.",
   showCancelledGuestStays = true,
+  businessModeTenantInvitationCopy = false,
 }) => {
   const cancelledInvitations = invitations.filter((i) => invitationDisplayStatus(i) === 'cancelled');
   const cancelledGuestStays = stays.filter((s) => s.cancelled_at);
@@ -97,15 +103,26 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
     }
   };
 
+  const pendingCardBlurb = businessModeTenantInvitationCopy
+    ? 'Tenant lease invitations not yet accepted (awaiting registration or acceptance).'
+    : 'Invites not yet accepted (within 72-hour window)';
+  const expiredCardTitle = businessModeTenantInvitationCopy ? 'Expired' : 'Expired invites';
+  const expiredCardBlurb = businessModeTenantInvitationCopy
+    ? 'Tenant lease invitations that are no longer open (lease window ended or invite closed on file).'
+    : 'Pending guest invites whose 72-hour window was exceeded (not accepted in time). Tenant invitations are not expired by DocuStay.';
+  const acceptedActiveBlurb = businessModeTenantInvitationCopy
+    ? 'Tenant lease invitations accepted on file. Accepted = lease start is still in the future; Active = today falls within the lease window shown for the invitation.'
+    : 'Invites accepted (invite used / stay created). Accepted = lease start is still in the future; Active = today is within the planned stay dates (aligned with live link invitation states).';
+
   return (
     <div className="space-y-8">
       {introText && <p className="text-slate-500 text-sm">{introText}</p>}
 
-      {/* Pending (within 72h window) */}
+      {/* Pending */}
       <Card className="overflow-hidden">
         <div className="p-6 border-b border-slate-200 bg-amber-50">
           <h3 className="text-xl font-bold text-slate-800">Pending</h3>
-          <p className="text-xs text-slate-500 mt-1">Invites not yet accepted (within 72-hour window)</p>
+          <p className="text-xs text-slate-500 mt-1">{pendingCardBlurb}</p>
         </div>
         <div className="overflow-x-auto">
           {invitations.filter((i) => invitationDisplayStatus(i) === 'pending').length === 0 ? (
@@ -169,8 +186,8 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
       {/* Expired */}
       <Card className="overflow-hidden">
         <div className="p-6 border-b border-slate-200 bg-slate-100">
-          <h3 className="text-xl font-bold text-slate-800">Expired invites</h3>
-          <p className="text-xs text-slate-500 mt-1">Pending guest invites whose 72-hour window was exceeded (not accepted in time). Tenant invitations are not expired by DocuStay.</p>
+          <h3 className="text-xl font-bold text-slate-800">{expiredCardTitle}</h3>
+          <p className="text-xs text-slate-500 mt-1">{expiredCardBlurb}</p>
         </div>
         <div className="overflow-x-auto">
           {invitations.filter((i) => invitationDisplayStatus(i) === 'expired').length === 0 ? (
@@ -233,10 +250,7 @@ export const InvitationsTabContent: React.FC<InvitationsTabContentProps> = ({
       <Card className="overflow-hidden">
         <div className="p-6 border-b border-slate-200 bg-emerald-50">
           <h3 className="text-xl font-bold text-slate-800">Accepted / Active</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Invites accepted (invite used / stay created). Accepted = lease start is still in the future; Active = today is
-            within the planned stay dates (aligned with live link invitation states).
-          </p>
+          <p className="text-xs text-slate-500 mt-1">{acceptedActiveBlurb}</p>
         </div>
         <div className="overflow-x-auto">
           {invitations.filter((i) => {

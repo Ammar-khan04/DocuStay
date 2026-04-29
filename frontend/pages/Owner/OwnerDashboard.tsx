@@ -912,7 +912,12 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
               window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
             }}
             onResendInvitation={contextMode === 'personal' ? async (id) => { await dashboardApi.tenantResendInvitation(id); loadData(); } : undefined}
-            introText={contextMode === 'business' ? 'Tenant invitations: pending rows are awaiting tenant registration (links do not expire on a short clock). Guest invitations use a pending window as shown below.' : "Invitations you've sent. Pending invitations are labeled as expired after 72 hours if not accepted."}
+            businessModeTenantInvitationCopy={contextMode === 'business'}
+            introText={
+              contextMode === 'business'
+                ? 'Tenant lease invitations: pending rows await tenant registration (links are not tied to a short acceptance clock).'
+                : "Invitations you've sent. Pending invitations are labeled as expired after 72 hours if not accepted."
+            }
           />
         ) : activeTab === 'pending-tenants' && contextMode !== 'personal' ? (
           <div className="space-y-8">

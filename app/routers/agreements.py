@@ -34,6 +34,7 @@ from app.services.agreements import (
 )
 from app.services.audit_log import create_log, CATEGORY_GUEST_SIGNATURE, CATEGORY_STATUS_CHANGE, CATEGORY_FAILED_ATTEMPT
 from app.services.invitation_kinds import TENANT_UNIT_LEASE_KINDS, is_property_invited_tenant_signup_kind
+from app.services.guest_stay_email_scope import guest_invite_inviter_user_for_email
 from app.services.event_ledger import create_ledger_event, ACTION_AGREEMENT_SIGNED, ACTION_MASTER_POA_SIGNED, ACTION_AGREEMENT_SIGN_FAILED
 from app.services.notifications import send_email
 from app.services.dropbox_sign import send_signature_request, get_signed_pdf, get_embedded_sign_url
@@ -375,8 +376,12 @@ def sign_invitation_agreement(
     )
     db.commit()
 
-    owner = db.query(User).filter(User.id == inv.owner_id).first()
-    owner_email = (owner.email if owner else None) or None
+    if is_tenant_inv:
+        owner = db.query(User).filter(User.id == inv.owner_id).first()
+        owner_email = (owner.email if owner else None) or None
+    else:
+        host = guest_invite_inviter_user_for_email(db, inv)
+        owner_email = (host.email or "").strip() if host and (host.email or "").strip() else None
     subject = f"[DocuStay] Agreement signed for invitation {code}"
 
     text = (

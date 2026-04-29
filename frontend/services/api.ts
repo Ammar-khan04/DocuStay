@@ -817,6 +817,7 @@ export interface LivePropertyInfo {
   invitation_accepted_count?: number | null;
   invitation_active_count?: number | null;
   invitation_cancelled_count?: number | null;
+  unit_statuses?: Array<{ unit_label: string; occupancy_status: string }>;
 }
 
 export interface LiveOwnerInfo {
@@ -937,6 +938,8 @@ export interface LivePropertyPagePayload {
   current_tenant_assignments?: LiveTenantAssignmentInfo[];
   tenant_summary_assignee?: string | null;
   tenant_summary_assignment_period?: string | null;
+  link_audience?: string;
+  scoped_unit_labels?: string[];
 }
 
 /** Public portfolio page (owner): basic info + properties list. */

@@ -87,8 +87,16 @@ def filter_invitations_for_live_property_evidence(
 ) -> list[Invitation]:
     """Same visibility rules as invitation rows on GET /public/live/{slug} (before the 50-row cap)."""
     from app.models.user import UserRole
+    from app.services.privacy_lanes import (
+        filter_property_lane_invitations_for_manager,
+        filter_property_lane_invitations_for_owner,
+    )
 
     invs = db.query(Invitation).filter(Invitation.property_id == property_id).all()
+    if viewer is not None and getattr(viewer, "role", None) == UserRole.owner:
+        invs = filter_property_lane_invitations_for_owner(db, invs, viewer.id)
+    if viewer is not None and getattr(viewer, "role", None) == UserRole.property_manager:
+        invs = filter_property_lane_invitations_for_manager(db, invs, viewer.id)
     if viewer is not None and getattr(viewer, "role", None) == UserRole.tenant:
         invs = [
             inv

@@ -162,6 +162,10 @@ from app.services.notifications import (
     send_email,
 )
 from app.services.privacy_lanes import is_tenant_lane_stay
+from app.services.guest_stay_email_scope import (
+    guest_stay_inviter_user_for_email,
+    owner_email_and_manager_emails_for_guest_stay_dms,
+)
 from app.services.dashboard_alerts import create_alert_for_owner_and_managers, create_alert_for_user
 from app.schemas.jle import JLEInput
 from app.dependencies import get_current_user, require_owner, require_owner_onboarding_complete, require_guest, require_tenant, require_guest_or_tenant, require_owner_or_manager, require_property_manager, require_property_manager_identity_verified, get_context_mode
@@ -3582,30 +3586,24 @@ def guest_end_stay(
         meta=checkout_meta,
     )
     db.commit()
-    # Notify owner and guest about checkout; stay reminders off when stay ends
-    owner = db.query(User).filter(User.id == stay.owner_id).first()
+    # Guest-stay emails: only the inviter (owner or manager) who hosts on a personal-scope unit — not portfolio owner/managers.
     property_obj = db.query(Property).filter(Property.id == stay.property_id).first()
     guest_name = (current_user.full_name or "").strip() or (current_user.email or "").strip() or "Unknown invitee"
     property_name = (property_obj.name if property_obj else None) or "your property"
     if getattr(stay, "dead_mans_switch_enabled", 0) == 1 and property_obj:
-        owner_profile = db.query(OwnerProfile).filter(OwnerProfile.id == property_obj.owner_profile_id).first()
-        owner_user = db.query(User).filter(User.id == owner_profile.user_id).first() if owner_profile else None
-        owner_email = (owner_user.email or "").strip() if owner_user else ""
-        manager_emails = [
-            (u.email or "").strip()
-            for a in db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.property_id == stay.property_id).all()
-            for u in [db.query(User).filter(User.id == a.user_id).first()]
-            if u and (u.email or "").strip()
-        ]
+        dms_owner_email, dms_manager_emails = owner_email_and_manager_emails_for_guest_stay_dms(db, stay)
         prop_name = (property_obj.name or "").strip() or (f"{property_obj.city}, {property_obj.state}".strip(", ") if property_obj and (property_obj.city or property_obj.state) else "Property")
-        try:
-            send_dms_turned_off_notification(owner_email, manager_emails, prop_name, guest_name, today.isoformat(), reason="guest checked out")
-        except Exception:
-            pass
-    # Email to owner
-    if owner and owner.email:
+        if dms_owner_email or dms_manager_emails:
+            try:
+                send_dms_turned_off_notification(
+                    dms_owner_email, dms_manager_emails, prop_name, guest_name, today.isoformat(), reason="guest checked out"
+                )
+            except Exception:
+                pass
+    inviter_host = guest_stay_inviter_user_for_email(db, stay)
+    if inviter_host and (inviter_host.email or "").strip():
         send_owner_guest_checkout_email(
-            owner.email,
+            (inviter_host.email or "").strip(),
             guest_name,
             property_name,
             today.isoformat(),
@@ -3704,14 +3702,13 @@ def guest_cancel_stay(
         meta=log_meta,
     )
     db.commit()
-    # Notify owner that guest cancelled
-    owner = db.query(User).filter(User.id == stay.owner_id).first()
     property_obj = db.query(Property).filter(Property.id == stay.property_id).first()
-    if owner and owner.email:
+    inviter_host = guest_stay_inviter_user_for_email(db, stay)
+    if inviter_host and (inviter_host.email or "").strip():
         guest_name = (current_user.full_name or "").strip() or (current_user.email or "").strip() or "Unknown invitee"
         property_name = (property_obj.name if property_obj else None) or "your property"
         send_owner_guest_cancelled_stay_email(
-            owner.email,
+            (inviter_host.email or "").strip(),
             guest_name,
             property_name,
             original_start.isoformat(),
@@ -4270,6 +4267,7 @@ def _tenant_unit_item(
     """Build one unit item for tenant_unit response. Use invitation accepted by THIS user (match guest_email) to avoid showing another tenant's dates."""
     unit = db.query(Unit).filter(Unit.id == ta.unit_id).first()
     from app.services.state_resolver import resolve_tenant_lease_state_fields
+    from app.services.tenant_live_slug import issue_tenant_live_slug
 
     if not unit:
         state = resolve_tenant_lease_state_fields(
@@ -4306,7 +4304,15 @@ def _tenant_unit_item(
     token_state = getattr(tenant_inv, "token_state", None) if tenant_inv else None
     stay_start = (tenant_inv.stay_start_date if tenant_inv else ta.start_date)
     stay_end = (tenant_inv.stay_end_date if tenant_inv else ta.end_date)
-    live_slug = getattr(prop, "live_slug", None) if prop else None
+    live_slug = None
+    if prop:
+        from app.services.tenant_live_slug import issue_tenant_live_slug
+
+        live_slug = issue_tenant_live_slug(
+            db,
+            property_id=prop.id,
+            tenant_user_id=current_user.id,
+        )
     region_code = getattr(prop, "region_code", None) if prop else None
     jurisdiction_state_name = None
     jurisdiction_statutes = []
@@ -4383,6 +4389,7 @@ def _tenant_unit_item_from_invitation(
     if not inv.unit_id:
         return None
     from app.services.state_resolver import resolve_tenant_lease_state_fields
+    from app.services.tenant_live_slug import issue_tenant_live_slug
     unit = db.query(Unit).filter(Unit.id == inv.unit_id).first()
     if not unit:
         return None
@@ -4408,7 +4415,15 @@ def _tenant_unit_item_from_invitation(
         "token_state": getattr(inv, "token_state", None) or "STAGED",
         "stay_start_date": inv.stay_start_date.isoformat() if inv.stay_start_date else None,
         "stay_end_date": inv.stay_end_date.isoformat() if inv.stay_end_date else None,
-        "live_slug": getattr(prop, "live_slug", None),
+        "live_slug": (
+            issue_tenant_live_slug(
+                db,
+                property_id=prop.id,
+                tenant_user_id=current_user.id,
+            )
+            if prop
+            else None
+        ),
         "region_code": region_code,
         "jurisdiction_state_name": jinfo.name if jinfo else None,
         "jurisdiction_statutes": jurisdiction_statutes,

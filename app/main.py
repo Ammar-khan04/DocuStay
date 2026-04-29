@@ -25,6 +25,7 @@ from app.models import (  # noqa: F401
     ManagerInvitation, PropertyTransferInvitation, DashboardAlert, NotificationAttempt,
     BulkUploadJob, GuestExtensionRequest,
     DemoAccount,
+    TenantLiveSlug,
 )
 from app.routers import auth, identity, owners, guests, stays, region_rules, jle, dashboard, notifications, agreements, billing_webhook, public, admin, managers
 

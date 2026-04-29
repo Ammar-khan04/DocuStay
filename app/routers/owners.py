@@ -110,6 +110,7 @@ from app.services.notifications import (
 from app.services.dropbox_sign import get_signed_pdf
 from app.services.billing import on_onboarding_properties_completed, ensure_subscription, sync_subscription_quantities
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON, persisted_shield_row_int
+from app.services.guest_stay_email_scope import owner_email_and_manager_emails_for_guest_invite_dms
 from app.services.permissions import (
     can_perform_action,
     can_assign_property_manager,
@@ -1127,12 +1128,8 @@ def bulk_upload_properties(
             # Primary residence: from primary_residence column, or when primary_unit_val is set for multi-unit
             owner_occ = primary_residence or (primary_unit_val is not None and primary_unit_val >= 1)
             has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
-            # CSV-imported tenant rows are staged invites; keep property occupancy vacant until acceptance materializes.
-            occ_status = (
-                OccupancyStatus.vacant.value
-                if has_pending_tenant_invite
-                else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
-            )
+            # Bulk upload always starts properties as vacant; occupancy moves only after explicit in-app acceptance flow.
+            occ_status = OccupancyStatus.vacant.value
             prop = Property(
                 owner_profile_id=profile.id,
                 name=prop_name,
@@ -1324,11 +1321,8 @@ def bulk_upload_properties(
             # Keep CSV tenant-import rows vacant while invitation is still staged/pending.
             owner_occ = primary_residence
             has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
-            new_occ_status = (
-                OccupancyStatus.vacant.value
-                if has_pending_tenant_invite
-                else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
-            )
+            # Bulk upload always starts properties as vacant; occupancy moves only after explicit in-app acceptance flow.
+            new_occ_status = OccupancyStatus.vacant.value
             updates: dict[str, object] = {}
             if (existing_match.name or "").strip() != address_as_name:
                 # Preserve provided name; only fall back to address_as_name when CSV provides none.
@@ -1834,11 +1828,8 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
             if existing_match is None:
                 owner_occ = primary_residence
                 has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
-                occ_status = (
-                    OccupancyStatus.vacant.value
-                    if has_pending_tenant_invite
-                    else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
-                )
+                # Bulk upload always starts properties as vacant; occupancy moves only after explicit in-app acceptance flow.
+                occ_status = OccupancyStatus.vacant.value
                 prop = Property(
                     owner_profile_id=profile.id,
                     name=prop_name,
@@ -2010,11 +2001,8 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                 # Update existing property fields (same logic as sync bulk upload)
                 owner_occ = primary_residence
                 has_pending_tenant_invite = bool((tenant_name or "").strip() and lease_start and lease_end)
-                new_occ_status = (
-                    OccupancyStatus.vacant.value
-                    if has_pending_tenant_invite
-                    else (OccupancyStatus.occupied.value if owner_occ else OccupancyStatus.vacant.value)
-                )
+                # Bulk upload always starts properties as vacant; occupancy moves only after explicit in-app acceptance flow.
+                new_occ_status = OccupancyStatus.vacant.value
                 updates: dict[str, object] = {}
                 if (existing_match.name or "").strip() != prop_name:
                     updates["name"] = prop_name
@@ -4324,20 +4312,13 @@ def create_invitation(
     )
     if dms == 1:
         property_name = (prop.name or "").strip() or f"{getattr(prop, 'city', '')}, {getattr(prop, 'state', '')}".strip(", ") or f"Property {prop.id}"
-        owner_profile = db.query(OwnerProfile).filter(OwnerProfile.id == prop.owner_profile_id).first()
-        owner_user = db.query(User).filter(User.id == owner_profile.user_id).first() if owner_profile else None
-        owner_email = (owner_user.email or "").strip() if owner_user else ""
-        manager_emails = [
-            (u.email or "").strip()
-            for a in db.query(PropertyManagerAssignment).filter(PropertyManagerAssignment.property_id == prop.id).all()
-            for u in [db.query(User).filter(User.id == a.user_id).first()]
-            if u and (u.email or "").strip()
-        ]
+        dms_owner_email, dms_manager_emails = owner_email_and_manager_emails_for_guest_invite_dms(db, inv)
         guest_name = (data.guest_name or "").strip() or guest_email_norm or "Unknown invitee"
-        try:
-            send_dead_mans_switch_enabled_notification(owner_email, manager_emails, property_name, guest_name, str(end))
-        except Exception as e:
-            print(f"[Owners] Stay end reminders enabled notification failed: {e}", flush=True)
+        if dms_owner_email or dms_manager_emails:
+            try:
+                send_dead_mans_switch_enabled_notification(dms_owner_email, dms_manager_emails, property_name, guest_name, str(end))
+            except Exception as e:
+                print(f"[Owners] Stay end reminders enabled notification failed: {e}", flush=True)
     db.commit()
     return {"invitation_code": code}
 
