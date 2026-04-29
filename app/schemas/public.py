@@ -136,6 +136,11 @@ class LiveInvitationSummary(BaseModel):
     signed_agreement_available: bool = False
     signed_agreement_url: str | None = None  # GET /public/verify/{invite_id}/signed-agreement
     invitation_kind: str = "guest"  # guest | tenant
+    invited_by_role: str | None = None  # owner | property_manager | tenant | system | unknown
+    invited_by_name: str | None = None
+    invited_by_email: str | None = None
+    # Unit label from Invitation.unit_id when set (per-unit evidence on live page).
+    unit_label: str | None = None
 
 
 class LiveLogEntry(BaseModel):
@@ -197,8 +202,8 @@ class LivePropertyPagePayload(BaseModel):
     current_tenant_assignments: list[LiveTenantAssignmentInfo] = []
     tenant_summary_assignee: str | None = None
     tenant_summary_assignment_period: str | None = None
-    link_audience: str = "property"  # property | tenant
-    scoped_unit_labels: list[str] = []  # unit labels explicitly scoped by link audience (tenant links)
+    link_audience: str = "property"  # property | tenant | guest
+    scoped_unit_labels: list[str] = []  # unit labels explicitly scoped by link audience (tenant/guest links)
 
 
 # --- Verify portal (token = Invitation ID, no auth) ---
@@ -260,3 +265,4 @@ class VerifyResponse(BaseModel):
     verification_source: str = "DocuStay Verification Portal"
     # Authorization archive (all authorizations for this unit, numbered)
     authorization_history: list[VerifyGuestAuthorization] = []
+    verification_subject: str | None = None  # tenant_invite | guest_stay

@@ -885,6 +885,11 @@ export interface LiveInvitationSummary {
   signed_agreement_url?: string | null;
   /** guest | tenant */
   invitation_kind?: string;
+  invited_by_role?: string | null;
+  invited_by_name?: string | null;
+  invited_by_email?: string | null;
+  /** When set, invitation targets this unit (matches live assignment / unit cards). */
+  unit_label?: string | null;
 }
 
 export interface LiveLogEntry {
@@ -1019,6 +1024,7 @@ export interface VerifyResponse {
   verified_at?: string | null;
   verification_source?: string;
   authorization_history?: VerifyGuestAuthorization[];
+  verification_subject?: 'tenant_invite' | 'guest_stay' | null;
 }
 
 export interface BillingResponse {

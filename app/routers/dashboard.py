@@ -1132,6 +1132,12 @@ def _invitations_to_owner_views(
         show_guest_pii = viewer_is_relationship_owner_for_invitation(inv, viewer_user_id)
         guest_name_out = inv.guest_name if show_guest_pii else REDACTED_GUEST_AUTHORIZATION_LABEL
         guest_email_out = inv.guest_email if show_guest_pii else None
+        unit_label_out: str | None = None
+        uid = getattr(inv, "unit_id", None)
+        if uid is not None:
+            unit_row = db.query(Unit).filter(Unit.id == uid).first()
+            if unit_row and (unit_row.unit_label or "").strip():
+                unit_label_out = (unit_row.unit_label or "").strip()
         out.append(
             OwnerInvitationView(
                 id=inv.id,
@@ -1139,6 +1145,7 @@ def _invitations_to_owner_views(
                 property_id=inv.property_id,
                 property_name=property_name,
                 property_deleted_at=getattr(prop, "deleted_at", None) if prop else None,
+                unit_label=unit_label_out,
                 guest_name=guest_name_out,
                 guest_email=guest_email_out,
                 stay_start_date=inv.stay_start_date,
@@ -2737,6 +2744,8 @@ def _guest_agreement_archive_stay_views(
     calendar_today: date | None = None,
 ) -> list[GuestStayView]:
     """Signed guest agreements with no Stay row (e.g. pending invite expired before accept-invite). Keeps permanent history + PDF access."""
+    from app.services.guest_live_slug import issue_guest_live_slug
+
     if current_user.role != UserRole.guest:
         return []
     guest_email = (current_user.email or "").strip().lower()
@@ -2811,7 +2820,16 @@ def _guest_agreement_archive_stay_views(
                 agreement_signature_id=sig.id,
                 invite_id=inv.invitation_code,
                 token_state=getattr(inv, "token_state", None) or "EXPIRED",
-                property_live_slug=prop.live_slug if prop else None,
+                property_live_slug=(
+                    issue_guest_live_slug(
+                        db,
+                        property_id=prop.id,
+                        guest_user_id=current_user.id,
+                        unit_id=getattr(inv, "unit_id", None),
+                    )
+                    if prop
+                    else None
+                ),
                 property_name=property_name,
                 unit_label=unit_label_val,
                 approved_stay_start_date=inv.stay_start_date,
@@ -2935,6 +2953,7 @@ def guest_stays(
             current_user.id,
             _parse_guest_client_calendar_date_header(x_client_calendar_date),
         )
+    from app.services.guest_live_slug import issue_guest_live_slug
     stays = db.query(Stay).filter(Stay.guest_id == current_user.id).order_by(Stay.stay_start_date.desc()).limit(_GUEST_STAYS_LIMIT).all()
     out = []
     for s in stays:
@@ -3006,7 +3025,16 @@ def guest_stays(
                 agreement_signature_id=None,
                 invite_id=invite_id_val,
                 token_state=token_state_val,
-                property_live_slug=prop.live_slug if prop else None,
+                property_live_slug=(
+                    issue_guest_live_slug(
+                        db,
+                        property_id=prop.id,
+                        guest_user_id=current_user.id,
+                        unit_id=getattr(s, "unit_id", None),
+                    )
+                    if prop
+                    else None
+                ),
                 property_name=property_name,
                 unit_label=unit_label_val,
                 approved_stay_start_date=s.stay_start_date,

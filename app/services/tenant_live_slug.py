@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.tenant_live_slug import TenantLiveSlug
 
-TENANT_LIVE_SLUG_TTL_HOURS = 1 / 6  # 10 minutes (temporary test setting)
+TENANT_LIVE_SLUG_TTL_HOURS = 24.0  # hours — tenant-scoped live link validity from slug creation
 
 
 def _tenant_slug_min_created_at(now: datetime, ttl_hours: float = TENANT_LIVE_SLUG_TTL_HOURS) -> datetime:

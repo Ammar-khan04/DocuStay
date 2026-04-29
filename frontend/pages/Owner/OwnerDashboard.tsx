@@ -1428,27 +1428,32 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                       <div className="mt-6 pt-6 border-t border-slate-200 rounded-xl bg-slate-50/80 p-4">
                         <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Occupancy status</p>
                         <div className="flex items-center gap-3 flex-wrap">
-                          {(() => {
-                            const displayStatus = isOccupied ? (prop.is_multi_unit ? statusSummary.badgeText : 'OCCUPIED') : statusSummary.badgeText;
-                            return (
-                          <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
-                            statusSummary.badgeTone === 'occupied' ? 'bg-emerald-100 text-emerald-800' :
-                            statusSummary.badgeTone === 'vacant' ? 'bg-slate-200 text-slate-700' :
-                            statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-100 text-amber-800' :
-                            'bg-slate-100 text-slate-600'
-                          }`}>
-                            <span className={`w-2 h-2 rounded-full ${
-                              statusSummary.badgeTone === 'occupied' ? 'bg-emerald-500' :
-                              statusSummary.badgeTone === 'vacant' ? 'bg-slate-400' :
-                              statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-500' : 'bg-slate-400'
-                            }`} />
-                            {displayStatus}
-                          </span>
-                            );
-                          })()}
-                          {prop.is_multi_unit && statusSummary.detailText ? (
-                            <span className="text-sm text-slate-600">{statusSummary.detailText}</span>
-                          ) : null}
+                          {prop.is_multi_unit ? (
+                            <>
+                              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-100 text-emerald-800">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                {(prop.occupied_unit_count ?? 0)} occupied
+                              </span>
+                              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-200 text-slate-700">
+                                <span className="w-2 h-2 rounded-full bg-slate-400" />
+                                {(prop.vacant_unit_count ?? 0)} vacant
+                              </span>
+                            </>
+                          ) : (
+                            <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
+                              statusSummary.badgeTone === 'occupied' ? 'bg-emerald-100 text-emerald-800' :
+                              statusSummary.badgeTone === 'vacant' ? 'bg-slate-200 text-slate-700' :
+                              statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-100 text-amber-800' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>
+                              <span className={`w-2 h-2 rounded-full ${
+                                statusSummary.badgeTone === 'occupied' ? 'bg-emerald-500' :
+                                statusSummary.badgeTone === 'vacant' ? 'bg-slate-400' :
+                                statusSummary.badgeTone === 'unconfirmed' ? 'bg-amber-500' : 'bg-slate-400'
+                              }`} />
+                              {isOccupied ? 'OCCUPIED' : statusSummary.badgeText}
+                            </span>
+                          )}
                           {contextMode === 'personal' && isOccupied && activeStayForProp && (
                             <span className="text-sm text-slate-600">
                               Current guest: <span className="font-medium text-slate-800">{activeStayForProp.guest_name}</span>

@@ -99,6 +99,10 @@ export const VerifyPage: React.FC = () => {
   };
 
   const inputClass = 'w-full px-4 py-2.5 rounded-lg border border-gray-300 text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors';
+  const isTenantVerification = (result?.verification_subject || '').toLowerCase() === 'tenant_invite';
+  const subjectAuthorizationTitle = isTenantVerification ? 'Tenant authorization' : 'Guest authorization';
+  const subjectPersonLabel = isTenantVerification ? 'Tenant' : 'Guest';
+  const subjectDatesLabel = isTenantVerification ? 'Assignment period' : 'Authorized';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-100/60 via-blue-50/30 to-sky-50/50 text-gray-800 print:bg-white print:min-h-0">
@@ -201,13 +205,13 @@ export const VerifyPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Guest authorization */}
+                  {/* Subject authorization */}
                   {result.guest_name && (
                     <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4 print:bg-white print:border-gray-300">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Guest authorization</h3>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">{subjectAuthorizationTitle}</h3>
                       <div className="space-y-3 text-sm">
                         <div className="flex justify-between gap-4">
-                          <span className="text-gray-500">Guest</span>
+                          <span className="text-gray-500">{subjectPersonLabel}</span>
                           <span className="text-gray-900 font-medium">{result.guest_name}</span>
                         </div>
                         {result.status && (
@@ -218,7 +222,7 @@ export const VerifyPage: React.FC = () => {
                         )}
                         {result.stay_start_date && (
                           <div className="flex justify-between gap-4">
-                            <span className="text-gray-500">Authorized</span>
+                            <span className="text-gray-500">{subjectDatesLabel}</span>
                             <span className="text-gray-900 font-medium">
                               {formatCalendarDate(result.stay_start_date)}{result.stay_end_date ? ` – ${formatCalendarDate(result.stay_end_date)}` : ''}
                             </span>
@@ -259,7 +263,7 @@ export const VerifyPage: React.FC = () => {
                   )}
 
                   {/* Authorization history (archived records) */}
-                  {result.authorization_history && result.authorization_history.length > 1 && (
+                  {!isTenantVerification && result.authorization_history && result.authorization_history.length > 1 && (
                     <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4 print:bg-white print:border-gray-300">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Authorization history</h3>
                       <div className="space-y-2">

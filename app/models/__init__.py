@@ -31,6 +31,7 @@ from app.models.bulk_upload_job import BulkUploadJob
 from app.models.guest_extension_request import GuestExtensionRequest
 from app.models.demo_account import DemoAccount
 from app.models.tenant_live_slug import TenantLiveSlug
+from app.models.guest_live_slug import GuestLiveSlug
 
 __all__ = [
     "User",
@@ -67,4 +68,5 @@ __all__ = [
     "GuestExtensionRequest",
     "DemoAccount",
     "TenantLiveSlug",
+    "GuestLiveSlug",
 ]

@@ -287,8 +287,7 @@ function buildTenantGuestAuthRows(
   const invitesForProperty = invitations.filter(
     (inv) =>
       inv.property_id === propertyId &&
-      (inv.status === 'pending' || inv.status === 'ongoing' || inv.status === 'active' || inv.status === 'accepted') &&
-      !inv.is_expired
+      (inv.status === 'pending' || inv.status === 'active' || inv.status === 'accepted')
   );
   const openRealStays = filterOpenGuestStaysForDashboard(historyForProperty).filter(
     (h) => !h.invitation_only && h.stay_id > 0
@@ -2130,15 +2129,13 @@ const TenantDashboard: React.FC<{
                       <span className="text-slate-500 text-sm shrink-0 min-w-0 truncate">
                         {selected.property_address || selected.property_name}{selected.unit_label ? ` — Unit ${selected.unit_label}` : ''}{selectedUnitData.region_code ? ` (${selectedUnitData.region_code})` : ''}
                       </span>
-                      {selectedUnitData.invite_id && (
-                        <>
-                          <span className="text-slate-400 shrink-0">·</span>
-                          <span className="text-slate-500 text-sm shrink-0">
-                            <span className="text-slate-500">Invite ID: </span>
-                            <span className="text-slate-600 font-medium font-mono">{selectedUnitData.invite_id}</span>
-                          </span>
-                        </>
-                      )}
+                      <>
+                        <span className="text-slate-400 shrink-0">·</span>
+                        <span className="text-slate-500 text-sm shrink-0">
+                          <span className="text-slate-500">Invite ID: </span>
+                          <span className="text-slate-600 font-medium font-mono">{selectedUnitData.invite_id || '—'}</span>
+                        </span>
+                      </>
                     </div>
                     <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
                       {selectedUnitData.assigned_by_name != null || selectedUnitData.accepted_by_name != null

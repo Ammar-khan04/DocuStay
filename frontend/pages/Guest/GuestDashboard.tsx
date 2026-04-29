@@ -1385,37 +1385,73 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
       })()}
 
       {/* Authorization status */}
+      {(() => {
+        const life = (stay.lifecycle_state || '').trim().toUpperCase();
+        const invite = (stay.invite_status || '').trim().toLowerCase();
+        const stayState = (stay.stay_status || '').trim().toLowerCase();
+        const authState =
+          life === 'ACTIVE' || stayState === 'checked_in'
+            ? 'active'
+            : life === 'ACCEPTED' || invite === 'accepted'
+              ? 'accepted'
+              : life === 'CANCELLED' || invite === 'cancelled' || invite === 'revoked'
+                ? 'cancelled'
+                : life === 'EXPIRED' || invite === 'expired' || stayState === 'ended' || stayState === 'checked_out'
+                  ? 'expired'
+                  : 'pending';
+        const cardTone =
+          authState === 'active'
+            ? 'border-emerald-200 bg-emerald-50/50'
+            : authState === 'cancelled'
+              ? 'border-red-200 bg-red-50/50'
+              : authState === 'expired'
+                ? 'border-slate-200 bg-slate-50/50'
+                : authState === 'accepted'
+                  ? 'border-sky-200 bg-sky-50/50'
+                  : 'border-slate-200 bg-white';
+        const pillTone =
+          authState === 'active'
+            ? 'bg-emerald-100 text-emerald-800'
+            : authState === 'cancelled'
+              ? 'bg-red-100 text-red-800'
+              : authState === 'expired'
+                ? 'bg-slate-200 text-slate-700'
+                : authState === 'accepted'
+                  ? 'bg-sky-100 text-sky-800'
+                  : 'bg-blue-100 text-blue-800';
+        const dotTone =
+          authState === 'active'
+            ? 'bg-emerald-500'
+            : authState === 'cancelled'
+              ? 'bg-red-500'
+              : authState === 'expired'
+                ? 'bg-slate-400'
+                : authState === 'accepted'
+                  ? 'bg-sky-500'
+                  : 'bg-blue-500';
+        const authLabel =
+          authState === 'active'
+            ? 'Active'
+            : authState === 'accepted'
+              ? 'Accepted'
+              : authState === 'cancelled'
+                ? 'Cancelled'
+                : authState === 'expired'
+                  ? 'Expired'
+                  : 'Pending';
+        return (
       <section className={`rounded-2xl border p-6 shadow-sm ${
-        stay.token_state === 'BURNED' ? 'border-emerald-200 bg-emerald-50/50' :
-        stay.token_state === 'REVOKED' ? 'border-red-200 bg-red-50/50' :
-        stay.token_state === 'EXPIRED' ? 'border-slate-200 bg-slate-50/50' :
-        stay.token_state === 'CANCELLED' ? 'border-amber-200 bg-amber-50/50' :
-        'border-slate-200 bg-white'
+        cardTone
       }`}>
         <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700 mb-3">AUTHORIZATION STATUS</h3>
         <div className="flex items-center gap-4">
           <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold ${
-            stay.token_state === 'BURNED' ? 'bg-emerald-100 text-emerald-800' :
-            stay.token_state === 'REVOKED' ? 'bg-red-100 text-red-800' :
-            stay.token_state === 'EXPIRED' ? 'bg-slate-200 text-slate-700' :
-            stay.token_state === 'CANCELLED' ? 'bg-amber-100 text-amber-800' :
-            stay.token_state === 'STAGED' ? 'bg-blue-100 text-blue-800' :
-            'bg-slate-200 text-slate-700'
+            pillTone
           }`}>
             <span className={`w-2.5 h-2.5 rounded-full ${
-              stay.token_state === 'BURNED' ? 'bg-emerald-500' :
-              stay.token_state === 'REVOKED' ? 'bg-red-500' :
-              stay.token_state === 'EXPIRED' ? 'bg-slate-400' :
-              stay.token_state === 'CANCELLED' ? 'bg-amber-500' :
-              stay.token_state === 'STAGED' ? 'bg-blue-500' :
-              'bg-slate-400'
+              dotTone
             }`} />
-            {stay.token_state === 'BURNED' ? 'Invitation confirmed' :
-             stay.token_state === 'REVOKED' ? 'Revoked' :
-             stay.token_state === 'EXPIRED' ? 'Expired' :
-             stay.token_state === 'CANCELLED' ? 'Cancelled' :
-             stay.token_state === 'STAGED' ? 'Pending' :
-             stay.token_state ?? 'Unknown'}
+            {authLabel}
           </span>
           {stay.invite_id && (
             <span className="text-sm text-slate-500 font-mono">Token: {stay.invite_id}</span>
@@ -1450,6 +1486,8 @@ export const GuestDashboard: React.FC<{ user: UserSession; navigate: (v: string)
           )}
         </div>
       </section>
+        );
+      })()}
 
       {!isAgreementArchive(stay) && stay.can_request_extension && (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

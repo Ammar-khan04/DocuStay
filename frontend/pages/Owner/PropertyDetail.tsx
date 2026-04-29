@@ -4,7 +4,7 @@ import { Card, Button, Input, Modal, ErrorModal } from '../../components/UI';
 import { InviteGuestModal } from '../../components/InviteGuestModal';
 import { UserSession } from '../../types';
 import { JURISDICTION_RULES } from '../../services/jleService';
-import { propertiesApi, dashboardApi, APP_ORIGIN, buildGuestInviteUrl, emitPropertiesChanged, onPropertiesChanged, getContextMode, setContextMode, type Property, type OwnerStayView, type OwnerTenantView, type OwnerAuditLogEntry, type BillingResponse } from '../../services/api';
+import { propertiesApi, dashboardApi, APP_ORIGIN, buildGuestInviteUrl, emitPropertiesChanged, onPropertiesChanged, getContextMode, setContextMode, type Property, type OwnerStayView, type OwnerTenantView, type OwnerInvitationView, type OwnerAuditLogEntry, type BillingResponse } from '../../services/api';
 import { ModeSwitcher } from '../../components/ModeSwitcher';
 import { DASHBOARD_ALERTS_REFRESH_EVENT } from '../../components/DashboardAlertsPanel';
 import { InactivePropertyBanner } from '../../components/InactivePropertyBanner';
@@ -187,6 +187,36 @@ function stayMatchesUnit(s: OwnerStayView, unit: { unit_label: string }, isMulti
   return sLabel === uLabel;
 }
 
+function invitationMatchesUnit(
+  inv: OwnerInvitationView,
+  unit: { unit_label: string },
+  isMultiUnit: boolean,
+): boolean {
+  const uLabel = String(unit.unit_label ?? '1').trim();
+  const iLabel = (inv.unit_label || '').trim();
+  if (!isMultiUnit) {
+    if (!iLabel) return true;
+    return iLabel === uLabel;
+  }
+  return iLabel === uLabel;
+}
+
+function unitInvitationCounts(
+  invitations: OwnerInvitationView[],
+  unit: { unit_label: string },
+  isMultiUnit: boolean,
+): { pending: number; accepted: number; active: number } {
+  const out = { pending: 0, accepted: 0, active: 0 };
+  for (const inv of invitations) {
+    if (!invitationMatchesUnit(inv, unit, isMultiUnit)) continue;
+    const st = (inv.status || '').toLowerCase();
+    if (st === 'pending') out.pending += 1;
+    else if (st === 'accepted') out.accepted += 1;
+    else if (st === 'active') out.active += 1;
+  }
+  return out;
+}
+
 function humanizeInviteTokenState(ts: string | null | undefined): string {
   if (!ts) return '—';
   return ts.replace(/_/g, ' ');
@@ -359,6 +389,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
     }>
   >([]);
   const [ownerTenantsRows, setOwnerTenantsRows] = useState<OwnerTenantView[]>([]);
+  const [ownerInvitationsRows, setOwnerInvitationsRows] = useState<OwnerInvitationView[]>([]);
   const [propertyUnits, setPropertyUnits] = useState<Array<{ id: number; unit_label: string; occupancy_status?: string; is_primary_residence?: boolean; occupied_by?: string | null; invite_id?: string | null }>>([]);
   const [addResidentModeForManager, setAddResidentModeForManager] = useState<Record<number, number | 'all'>>({});
   const [addResidentModeSaving, setAddResidentModeSaving] = useState(false);
@@ -404,6 +435,11 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
   const tenantsForThisProperty = useMemo(
     () => ownerTenantsRows.filter((t) => t.property_id != null && t.property_id === property?.id),
     [ownerTenantsRows, property?.id],
+  );
+
+  const ownerInvitationsForProperty = useMemo(
+    () => ownerInvitationsRows.filter((inv) => inv.property_id === property?.id),
+    [ownerInvitationsRows, property?.id],
   );
 
   const hasActiveLeaseForProperty = useMemo(
@@ -486,12 +522,14 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
       propertiesApi.get(id),
       dashboardApi.ownerStays(),
       dashboardApi.ownerTenants().catch(() => [] as OwnerTenantView[]),
+      dashboardApi.ownerInvitations().catch(() => [] as OwnerInvitationView[]),
       dashboardApi.ownerPersonalModeUnits().catch(() => ({ unit_ids: [] })),
     ])
-      .then(([prop, staysData, tenantsData, pmUnits]) => {
+      .then(([prop, staysData, tenantsData, invitationsData, pmUnits]) => {
         setProperty(prop);
         setStays(staysData);
         setOwnerTenantsRows(Array.isArray(tenantsData) ? tenantsData : []);
+        setOwnerInvitationsRows(Array.isArray(invitationsData) ? invitationsData : []);
         setPersonalModeUnits((pmUnits as { unit_ids: number[] }).unit_ids || []);
       })
       .catch((e) => {
@@ -1190,6 +1228,21 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                             >
                               <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
                               <span className={`px-2 py-0.5 rounded text-xs font-medium w-fit ${statusCls}`}>{label}</span>
+                              {(() => {
+                                const ic = unitInvitationCounts(
+                                  ownerInvitationsForProperty,
+                                  u,
+                                  !!property.is_multi_unit,
+                                );
+                                return (
+                                  <p className="text-xs text-slate-600">
+                                    Invites:{' '}
+                                    <span className="font-medium text-slate-800">{ic.pending}</span> pending ·{' '}
+                                    <span className="font-medium text-slate-800">{ic.accepted}</span> accepted ·{' '}
+                                    <span className="font-medium text-slate-800">{ic.active}</span> active
+                                  </p>
+                                );
+                              })()}
                               {managersLine && (
                                 <p className="text-xs text-slate-600">
                                   Managed by: <span className="font-medium text-slate-800">{managersLine}</span>
@@ -1296,6 +1349,21 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                                   >
                                     <p className="font-medium text-slate-900">Unit {u.unit_label}</p>
                                     <span className={`px-2 py-0.5 rounded text-xs font-medium w-fit ${statusCls}`}>{label}</span>
+                                    {(() => {
+                                      const ic = unitInvitationCounts(
+                                        ownerInvitationsForProperty,
+                                        u,
+                                        !!property.is_multi_unit,
+                                      );
+                                      return (
+                                        <p className="text-xs text-slate-600">
+                                          Invites:{' '}
+                                          <span className="font-medium text-slate-800">{ic.pending}</span> pending ·{' '}
+                                          <span className="font-medium text-slate-800">{ic.accepted}</span> accepted ·{' '}
+                                          <span className="font-medium text-slate-800">{ic.active}</span> active
+                                        </p>
+                                      );
+                                    })()}
                                     {managersLine && (
                                       <p className="text-xs text-slate-600">
                                         Managed by: <span className="font-medium text-slate-800">{managersLine}</span>
