@@ -39,6 +39,7 @@ from app.services.event_ledger import (
     ACTION_VERIFY_ATTEMPT_FAILED,
 )
 from app.services.property_live_ledger import merged_public_property_ledger_rows
+from app.services.owner_live_slug import resolve_owner_live_slug_row
 from app.services.tenant_live_slug import resolve_tenant_live_slug_row
 from app.services.guest_live_slug import resolve_guest_live_slug_row
 from app.services.ledger_actor_attribution import audit_actor_attribution
@@ -139,9 +140,14 @@ def _tenant_live_log_mentions_units(entry: LiveLogEntry, unit_labels_lower: set[
 
 def _resolve_live_slug_context(db: Session, slug: str) -> tuple[Property | None, int | None, int | None, int | None]:
     """Resolve slug to (property, tenant_user_id_for_tenant_slug, guest_user_id_for_guest_slug, guest_unit_id)."""
-    prop = db.query(Property).filter(Property.live_slug == slug, Property.deleted_at.is_(None)).first()
-    if prop:
-        return prop, None, None, None
+    owner_row = resolve_owner_live_slug_row(db, slug)
+    if owner_row:
+        prop_owner = db.query(Property).filter(
+            Property.id == owner_row.property_id,
+            Property.deleted_at.is_(None),
+        ).first()
+        if prop_owner:
+            return prop_owner, None, None, None
     tenant_row = resolve_tenant_live_slug_row(db, slug)
     if tenant_row:
         prop2 = db.query(Property).filter(Property.id == tenant_row.property_id, Property.deleted_at.is_(None)).first()
@@ -1161,8 +1167,8 @@ def _build_verify_record(
 
     # POA URL
     poa_url: str | None = None
-    if prop.live_slug and poa_signed_at:
-        poa_url = f"/public/live/{prop.live_slug}/poa"
+    if poa_signed_at:
+        poa_url = f"/public/live/{slug}/poa"
 
     # Event ledger entries (same full-property scope as GET /public/live/{slug})
     ledger_rows = merged_public_property_ledger_rows(db, prop.id, limit=500)

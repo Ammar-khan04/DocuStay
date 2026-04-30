@@ -32,6 +32,7 @@ from app.models.guest_extension_request import GuestExtensionRequest
 from app.models.demo_account import DemoAccount
 from app.models.tenant_live_slug import TenantLiveSlug
 from app.models.guest_live_slug import GuestLiveSlug
+from app.models.owner_live_slug import OwnerLiveSlug
 
 __all__ = [
     "User",
@@ -69,4 +70,5 @@ __all__ = [
     "DemoAccount",
     "TenantLiveSlug",
     "GuestLiveSlug",
+    "OwnerLiveSlug",
 ]

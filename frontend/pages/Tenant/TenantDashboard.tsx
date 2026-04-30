@@ -921,6 +921,8 @@ const TenantDashboard: React.FC<{
   const unitCards: TenantUnitCard[] = visibleTenantUnitRows
     .map((u) => tenantDashboardRowToUnitCard(u)!);
   const selectedUnitData = selectedUnit ? unitsData.find((u) => buildTenantLeaseKey(u) === selectedUnit.lease_key) : null;
+  const tenantLeaseIsActive = (selectedUnitData?.assignment_status || '').toLowerCase() === 'active';
+  const canTenantManagePresenceOrInvites = tenantLeaseIsActive;
   const unitDetailGuestAuthBundle =
     selectedUnitData?.property?.id != null
       ? buildTenantGuestAuthRows(invitations, guestHistory, selectedUnitData.property.id)
@@ -1338,7 +1340,17 @@ const TenantDashboard: React.FC<{
                 <p className="text-sm text-slate-600 mb-4">
                   Generate an invitation link for a guest to sign and stay at this property. A new invite for the same guest supersedes the old one once they accept.
                 </p>
-                <Button variant="primary" className="rounded-lg font-medium" onClick={() => setInviteModalOpen(true)}>
+                {!canTenantManagePresenceOrInvites && (
+                  <p className="text-xs text-amber-700 mb-3">
+                    Guest invites are enabled only when your lease is active.
+                  </p>
+                )}
+                <Button
+                  variant="primary"
+                  className="rounded-lg font-medium"
+                  onClick={() => setInviteModalOpen(true)}
+                  disabled={!canTenantManagePresenceOrInvites}
+                >
                   Invite guest to this property
                 </Button>
               </div>
@@ -2448,6 +2460,11 @@ const TenantDashboard: React.FC<{
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h4 className="font-semibold text-slate-900 mb-3">Presence at this property</h4>
                 <p className="text-sm text-slate-600 mb-4">Let your host know if you are at the property or away.</p>
+                {!canTenantManagePresenceOrInvites && (
+                  <p className="text-xs text-amber-700 mb-3">
+                    Presence switches are enabled only when your lease is active.
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center gap-4">
                   <div className={`px-4 py-2 rounded-lg ${presence === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                     {presence === 'present' ? 'You are here' : awayStartedAt ? `Away since ${formatDateTimeLocal(awayStartedAt)}` : 'Away'}
@@ -2455,7 +2472,12 @@ const TenantDashboard: React.FC<{
                   {presence === 'away' && guestsAuthorizedDuringAway && (
                     <span className="text-sm text-slate-600">Guests authorized during this period</span>
                   )}
-                  <Button variant="outline" onClick={handlePresenceToggle} disabled={presenceUpdating} className="rounded-lg">
+                  <Button
+                    variant="outline"
+                    onClick={handlePresenceToggle}
+                    disabled={presenceUpdating || !canTenantManagePresenceOrInvites}
+                    className="rounded-lg"
+                  >
                     Set to {presence === 'present' ? 'Away' : 'Present'}
                   </Button>
                 </div>
@@ -2466,7 +2488,12 @@ const TenantDashboard: React.FC<{
                       <span className="text-sm text-slate-700">Guests authorized during this period</span>
                     </label>
                     <div className="flex gap-2 mt-3">
-                      <Button onClick={() => doSetPresence('away', awayGuestsAuthorized)} disabled={presenceUpdating}>Confirm Away</Button>
+                      <Button
+                        onClick={() => doSetPresence('away', awayGuestsAuthorized)}
+                        disabled={presenceUpdating || !canTenantManagePresenceOrInvites}
+                      >
+                        Confirm Away
+                      </Button>
                       <Button variant="outline" onClick={() => setShowAwayConfirm(false)}>Cancel</Button>
                     </div>
                   </div>
@@ -2479,7 +2506,17 @@ const TenantDashboard: React.FC<{
                 <p className="text-sm text-slate-600 mb-4">
                   Generate an invitation link for a guest to sign and stay at this property. A new invite for the same guest supersedes the old one once they accept.
                 </p>
-                <Button variant="primary" className="rounded-lg font-medium" onClick={() => setInviteModalOpen(true)}>
+                {!canTenantManagePresenceOrInvites && (
+                  <p className="text-xs text-amber-700 mb-3">
+                    Guest invites are enabled only when your lease is active.
+                  </p>
+                )}
+                <Button
+                  variant="primary"
+                  className="rounded-lg font-medium"
+                  onClick={() => setInviteModalOpen(true)}
+                  disabled={!canTenantManagePresenceOrInvites}
+                >
                   Invite guest to this property
                 </Button>
               </div>

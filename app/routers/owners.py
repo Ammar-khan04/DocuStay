@@ -111,6 +111,7 @@ from app.services.dropbox_sign import get_signed_pdf
 from app.services.billing import on_onboarding_properties_completed, ensure_subscription, sync_subscription_quantities
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON, persisted_shield_row_int
 from app.services.guest_stay_email_scope import owner_email_and_manager_emails_for_guest_invite_dms
+from app.services.owner_live_slug import issue_owner_live_slug
 from app.services.permissions import (
     can_perform_action,
     can_assign_property_manager,
@@ -387,6 +388,11 @@ def list_my_properties(
     out = []
     for p in props:
         data = PropertyResponse.model_validate(p).model_dump()
+        data["live_slug"] = issue_owner_live_slug(
+            db,
+            property_id=p.id,
+            owner_user_id=current_user.id,
+        )
         units = units_by_property_id.get(p.id, [])
         data["unit_count"] = unit_count_map.get(p.id) or (len(units) if units else 1)
         # Use effective occupancy for display (includes tenant assignments + on-site manager resident).
@@ -589,7 +595,13 @@ def add_property(
     except Exception as e:
         print(f"[PropertyFlow] Subscription sync failed: {e}", flush=True)
     print(f"[PropertyFlow] add_property: created property_id={prop.id}")
-    return PropertyResponse.model_validate(prop)
+    payload = PropertyResponse.model_validate(prop).model_dump()
+    payload["live_slug"] = issue_owner_live_slug(
+        db,
+        property_id=prop.id,
+        owner_user_id=current_user.id,
+    )
+    return PropertyResponse(**payload)
 
 
 def _apply_smarty_address(prop: Property, street: str, city: str, state: str, zip_code: str | None) -> None:
@@ -2405,6 +2417,11 @@ def get_property(
     from app.schemas.owner import PropertyJurisdictionDocumentation
     from app.services.jurisdiction_sot import get_jurisdiction_for_property
     payload = PropertyResponse.model_validate(prop).model_dump()
+    payload["live_slug"] = issue_owner_live_slug(
+        db,
+        property_id=prop.id,
+        owner_user_id=current_user.id,
+    )
     # Use effective occupancy (includes units with on-site manager) for display
     from app.services.unit_display_order import query_units_for_property_ordered
 

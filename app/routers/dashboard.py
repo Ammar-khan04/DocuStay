@@ -4857,6 +4857,19 @@ def tenant_create_invitation(
         tenant_inv = find_invitation_matching_tenant_assignment(
             db, ta, user_email_lower=(current_user.email or "").strip().lower() or None
         )
+        from app.services.state_resolver import resolve_tenant_lease_state_fields
+
+        tenant_state = resolve_tenant_lease_state_fields(
+            db,
+            tenant_assignment=ta,
+            tenant_invitation=tenant_inv,
+            today=date.today(),
+        )
+        if tenant_state.get("assignment_status") != "active":
+            raise HTTPException(
+                status_code=403,
+                detail="Guest invites are available only during an active lease window.",
+            )
         effective_start = tenant_inv.stay_start_date if tenant_inv else ta.start_date
         effective_end = tenant_inv.stay_end_date if tenant_inv else ta.end_date
         if start < effective_start:
@@ -5409,6 +5422,35 @@ def set_presence(
     if not unit:
         raise HTTPException(status_code=404, detail="Unit not found")
     property_id = unit.property_id
+    ta = (
+        db.query(TenantAssignment)
+        .filter(
+            TenantAssignment.unit_id == unit_id,
+            TenantAssignment.user_id == current_user.id,
+        )
+        .order_by(TenantAssignment.start_date.desc())
+        .first()
+    )
+    if not ta:
+        raise HTTPException(status_code=403, detail="You are not assigned to this unit")
+    tenant_inv = find_invitation_matching_tenant_assignment(
+        db,
+        ta,
+        user_email_lower=(current_user.email or "").strip().lower() or None,
+    )
+    from app.services.state_resolver import resolve_tenant_lease_state_fields
+
+    tenant_state = resolve_tenant_lease_state_fields(
+        db,
+        tenant_assignment=ta,
+        tenant_invitation=tenant_inv,
+        today=date.today(),
+    )
+    if tenant_state.get("assignment_status") != "active":
+        raise HTTPException(
+            status_code=403,
+            detail="Presence updates are available only during an active lease window.",
+        )
 
     pres = db.query(ResidentPresence).filter(
         ResidentPresence.user_id == current_user.id,

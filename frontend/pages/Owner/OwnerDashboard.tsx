@@ -1430,10 +1430,24 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                         <div className="flex items-center gap-3 flex-wrap">
                           {prop.is_multi_unit ? (
                             <>
-                              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-100 text-emerald-800">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                                {(prop.occupied_unit_count ?? 0)} occupied
-                              </span>
+                              {(() => {
+                                const occupiedCount = prop.occupied_unit_count ?? 0;
+                                const occupiedZero = occupiedCount === 0;
+                                return (
+                                  <span
+                                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
+                                      occupiedZero ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`w-2 h-2 rounded-full ${
+                                        occupiedZero ? 'bg-slate-400' : 'bg-emerald-500'
+                                      }`}
+                                    />
+                                    {occupiedCount} occupied
+                                  </span>
+                                );
+                              })()}
                               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-200 text-slate-700">
                                 <span className="w-2 h-2 rounded-full bg-slate-400" />
                                 {(prop.vacant_unit_count ?? 0)} vacant
