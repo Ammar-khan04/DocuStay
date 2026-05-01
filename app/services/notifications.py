@@ -335,6 +335,56 @@ def send_tenant_invite_email(
     return send_email(to_email, subject, html, text_content=text)
 
 
+def build_invitation_app_url(invitation_code: str, *, is_demo: bool) -> str:
+    """Frontend deep link for accepting an invitation (demo uses #demo/invite/…)."""
+    base_url = (
+        (get_settings().stripe_identity_return_url or get_settings().frontend_base_url or "http://localhost:5173")
+        .strip()
+        .split("#")[0]
+        .rstrip("/")
+    )
+    code = (invitation_code or "").strip().upper()
+    return f"{base_url}/#demo/invite/{code}" if is_demo else f"{base_url}/#invite/{code}"
+
+
+def send_guest_invite_email(
+    to_email: str,
+    invite_link: str,
+    guest_name: str,
+    property_name: str,
+    stay_start_date: str,
+    stay_end_date: str,
+    *,
+    invited_by_tenant: bool = False,
+) -> bool:
+    """Email a guest the invitation link to open DocuStay and accept the short-term authorization (owner or tenant lane)."""
+    safe_name = html.escape((guest_name or "there").strip() or "there")
+    safe_prop = html.escape((property_name or "the property").strip() or "the property")
+    host_line = (
+        "A tenant at this property has invited you to be an authorized guest on DocuStay."
+        if invited_by_tenant
+        else "You have been invited to be an authorized guest on DocuStay."
+    )
+    subject_plain = (property_name or "the property").strip() or "the property"
+    subject = f"[DocuStay] Guest invitation — {subject_plain[:180]}"
+    link_disp = html.escape(invite_link, quote=False)
+    html_body = f"""
+    <p>Hi {safe_name},</p>
+    <p>{host_line}</p>
+    <p><strong>Property:</strong> {safe_prop}</p>
+    <p><strong>Authorized dates:</strong> {html.escape(stay_start_date)} to {html.escape(stay_end_date)}</p>
+    <p>Open the link below to review and accept the invitation (sign in or create a guest account with this email if needed):</p>
+    <p><a href="{invite_link}" style="background:#2563eb;color:white;padding:10px 16px;text-decoration:none;border-radius:6px;display:inline-block;">View invitation</a></p>
+    <p>Or copy this link:<br/><span style="word-break:break-all;">{link_disp}</span></p>
+    <p>— DocuStay</p>
+    """
+    text = (
+        f"Hi {(guest_name or 'there').strip() or 'there'}, {host_line} Property: {subject_plain}. "
+        f"Dates: {stay_start_date} to {stay_end_date}. Open: {invite_link} — DocuStay"
+    )
+    return send_email(to_email, subject, html_body, text_content=text)
+
+
 def send_tenant_lease_extension_email(
     to_email: str,
     invite_link: str,

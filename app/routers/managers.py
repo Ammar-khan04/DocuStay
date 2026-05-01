@@ -27,6 +27,7 @@ from app.services.manager_resident import add_manager_onsite_resident, remove_ma
 from app.services.jle import validate_stay_duration_for_property
 from app.services.audit_log import create_log, CATEGORY_STATUS_CHANGE
 from app.services.event_ledger import create_ledger_event, ACTION_TENANT_INVITED
+from app.services.invite_auto_email import auto_email_tenant_invitation_if_addressed
 from app.services.invitation_kinds import TENANT_COTENANT_INVITE_KIND, TENANT_INVITE_KIND, TENANT_UNIT_LEASE_KINDS
 from app.services.tenant_lease_window import assert_unit_available_for_new_tenant_invite_or_raise
 from app.services.shield_mode_policy import effective_shield_mode_enabled
@@ -351,7 +352,7 @@ def list_property_units(
     ) -> tuple[str | None, str | None, str | None, str | None, int | None]:
         """
         Prefer an in-window TenantAssignment, then a future assignment, then a tenant Invitation on the unit
-        (CSV / pending signup often have invitation + unit occupancy but no assignment row yet).
+        (CSV uploads and pending-record invitations often have invitation + unit occupancy but no assignment row yet).
         """
         tas_active = (
             db.query(TenantAssignment)
@@ -603,6 +604,16 @@ def invite_tenant(
         },
         ip_address=ip,
         user_agent=ua,
+    )
+    auto_email_tenant_invitation_if_addressed(
+        db,
+        inv,
+        prop,
+        tenant_display_name=tenant_name,
+        ip=ip,
+        ua=ua,
+        actor_user_id=current_user.id,
+        actor_email=current_user.email,
     )
     db.commit()
     return {"invitation_code": code, "status": "success", "message": "Tenant invitation created. Share the invite link with the tenant."}

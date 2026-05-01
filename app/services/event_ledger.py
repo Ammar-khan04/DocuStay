@@ -158,6 +158,16 @@ _CSV_IMPORT_ACTIONS: frozenset[str] = frozenset(
     }
 )
 
+# Tenant-facing live property page (tenant slug or signed-in tenant): hide owner/manager portfolio onboarding.
+TENANT_LIVE_PAGE_EXCLUDED_OWNER_ACTIONS: frozenset[str] = frozenset(_CSV_IMPORT_ACTIONS) | frozenset(
+    {
+        ACTION_TENANT_INVITED,
+        ACTION_OWNERSHIP_PROOF_UPLOADED,
+        ACTION_TENANT_PENDING_INVITE_EMAIL_SENT,
+        ACTION_TENANT_LEASE_EXTENSION_OFFERED,
+    }
+)
+
 # Scheduled / automated platform paths (no interactive user actor at write time).
 _BACKGROUND_JOB_ACTIONS: frozenset[str] = frozenset(
     {

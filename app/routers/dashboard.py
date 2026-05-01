@@ -161,6 +161,7 @@ from app.services.notifications import (
     send_guest_extension_declined_email,
     send_email,
 )
+from app.services.invite_auto_email import auto_email_guest_invitation_if_addressed
 from app.services.privacy_lanes import is_tenant_lane_stay
 from app.services.guest_stay_email_scope import (
     guest_stay_inviter_user_for_email,
@@ -4957,6 +4958,19 @@ def tenant_create_invitation(
             },
             ip_address=ip,
             user_agent=ua,
+        )
+        auto_email_guest_invitation_if_addressed(
+            db,
+            inv,
+            prop,
+            guest_display_name=guest_name,
+            stay_start=start,
+            stay_end=end,
+            invited_by_tenant=True,
+            ip=ip,
+            ua=ua,
+            actor_user_id=current_user.id,
+            actor_email=current_user.email,
         )
         db.commit()
         return {"invitation_code": code}

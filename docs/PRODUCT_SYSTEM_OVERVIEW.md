@@ -334,7 +334,7 @@ No manual override: all quantity and proration behavior is driven by actual unit
 - **Address:** Required; Unit No is appended to address if provided.
 - **Occupied:**
   - **NO:** Property occupancy status = **VACANT**. USAT token state = **STAGED**. No stay or invitation created for that row.
-  - **YES:** Property occupancy status = **OCCUPIED**. USAT token state = **RELEASED**. The system creates an **invitation** with token_state **BURNED** for the tenant name and lease start/end dates. No **Stay** or guest account exists until the tenant uses the invite link to sign up and sign the agreement. Until then, that invitation appears in the **Invitations** list and also in the **Stays** section of the property (and in the owner's stays list) as a documented occupancy, shown as **Pending sign-up**. Status Confirmation is enabled for the resulting stay once the tenant signs; the owner can cancel the invitation from the Invitations tab if needed.
+  - **YES:** Property occupancy status = **OCCUPIED**. USAT token state = **RELEASED**. The system creates an **invitation** with token_state **BURNED** for the tenant name and lease start/end dates. No **Stay** or guest account exists until the tenant uses the invite link to sign up and sign the agreement. Until then, that invitation appears in the **Invitations** list and also in the **Stays** section of the property (and in the owner's stays list) as a documented occupancy, shown as **Pending Record**. Status Confirmation is enabled for the resulting stay once the tenant signs; the owner can cancel the invitation from the Invitations tab if needed.
 - **Shield Mode:** If YES, the property is created or updated with Shield on (independent of Occupied). Shield can also be toggled anytime in the dashboard.
 - **Tax ID / APN:** Stored when provided.
 
@@ -580,7 +580,7 @@ The **Guest Acknowledgment** document is the agreement the guest must sign to ac
 | **Subscription** | Created after onboarding invoice paid; $1/unit + $10/Shield unit; quantities synced on property/Shield changes; Stripe prorates. |
 | **Live link / QR** | Per-property slug → public page with jurisdiction wrap and evidence; QR encodes same URL. |
 | **Verify portal** | Public no-login page (nav "Verify"). Token = Invitation ID; valid if BURNED + active stay; optional address match. All attempts logged. Valid result: authority summary, live link; invalid: reason only. See §9. |
-| **CSV upload** | Required: Address, City, State, Zip, Occupied; if Occupied=YES: Tenant, Lease Start/End. Creates/updates properties; for Occupied=YES creates BURNED invitation (no Stay until tenant signs up); invitation appears in Invitations and Stays as "Pending sign-up." Billing as for single add. See §11. |
+| **CSV upload** | Required: Address, City, State, Zip, Occupied; if Occupied=YES: Tenant, Lease Start/End. Creates/updates properties; for Occupied=YES creates BURNED invitation (no Stay until tenant signs up); invitation appears in Invitations and Stays as "Pending Record." Billing as for single add. See §11. |
 | **Property edit** | Owner can update name, address, city, state, zip, region, owner_occupied, property_type, bedrooms, Shield, vacant_monitoring_enabled (vacant only), tax_id, apn. |
 | **USAT token** | Per property; STAGED vs RELEASED; released when occupied (e.g. bulk YES); revoked on vacated/checkout/removal/Status Confirmation. |
 | **Occupancy confirm** | Owner chooses Vacated / Renewed / Holdover after lease end; no response → Status Confirmation runs → UNCONFIRMED. |

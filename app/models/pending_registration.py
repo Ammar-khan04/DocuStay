@@ -1,4 +1,4 @@
-"""Pending signup data: user is created only after email verification."""
+"""Pre-account registration hold; user row is created only after email verification."""
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB

@@ -29,6 +29,11 @@ import { DashboardAlertsPanel, DASHBOARD_ALERTS_REFRESH_EVENT } from '../../comp
 import { SUPPORT_EMAIL, supportMailtoHref } from '../../constants/supportContact';
 import { groupOwnerTenantsByLeaseCohort, isSharedLeaseGroup } from '../../utils/leaseCohortGroups';
 import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../../utils/propertyInvitationSummary';
+import {
+  invitationsListAfterOptimisticCancel,
+  ownerInvitationDisplayBucket,
+  propertyRowAfterOptimisticInviteCancel,
+} from '../../utils/optimisticInvitationCancel';
 
 function canOfferLeaseExtension(t: OwnerTenantView): boolean {
   return t.id > 0 && (ownerLeaseState(t) === 'active' || ownerLeaseState(t) === 'accepted');
@@ -182,9 +187,12 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
     loadData();
   };
 
-  const loadData = () => {
-    setLoadingWrapper(true);
-    setError(null);
+  const loadData = (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      setLoadingWrapper(true);
+      setError(null);
+    }
     // allSettled: one failed request (e.g. 503 under pool pressure) must not wipe the whole dashboard or
     // fire a global error when other calls already returned 200 — Promise.all did that.
     Promise.allSettled([
@@ -212,17 +220,19 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
 
       const staysFailed = r0.status === 'rejected';
       const listFailed = r2.status === 'rejected';
-      if (staysFailed && listFailed) {
+      if (!silent && staysFailed && listFailed) {
         const msg =
           (r0.reason instanceof Error ? r0.reason.message : null) ||
           (r2.reason instanceof Error ? r2.reason.message : null) ||
           'Failed to load dashboard.';
         setError(msg);
         notify('error', msg);
-      } else {
+      } else if (!silent) {
         setError(null);
       }
-    }).finally(() => setLoadingWrapper(false));
+    }).finally(() => {
+      if (!silent) setLoadingWrapper(false);
+    });
   };
 
   /** Keep ref in sync so alert-refresh listener always calls the latest loadData (avoids stale closures). */
@@ -850,7 +860,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
                                 stay.invitation_only ? 'bg-amber-50 text-amber-700 border border-amber-200' : completed ? 'bg-slate-100 text-slate-600 border border-slate-200' : cancelled ? 'bg-slate-100 text-slate-500 border border-slate-200' : revoked ? 'bg-amber-50 text-amber-700 border border-amber-500/20' : overstay ? 'bg-red-50 text-red-600 border border-red-500/20' : 'bg-green-50 text-green-700 border border-green-200'
                               }`}>
-                                {stay.invitation_only ? 'Pending sign-up' : completed ? 'Completed' : cancelled ? 'Cancelled' : revoked ? 'Revoked' : overstay ? 'Overstayed' : 'Active'}
+                                {stay.invitation_only ? 'Pending Record' : completed ? 'Completed' : cancelled ? 'Cancelled' : revoked ? 'Revoked' : overstay ? 'Overstayed' : 'Active'}
                               </span>
                             </td>
                             <td className="px-6 py-5 text-right space-x-2">
@@ -906,10 +916,42 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
             showVerifyQR={true}
             onVerifyQR={(code) => { setVerifyQRInviteId(code); setShowVerifyQRModal(true); }}
             onCancelInvitation={async (id) => {
-              const res = await dashboardApi.cancelInvitation(id);
-              notify('success', res.message ?? 'Invitation cancelled.');
-              loadData();
-              window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+              const inv = invitations.find((i) => i.id === id);
+              const snapshot =
+                inv != null
+                  ? {
+                      invitations: invitations.map((i) => ({ ...i })),
+                      properties: properties.map((p) => ({ ...p })),
+                      inactiveProperties: inactiveProperties.map((p) => ({ ...p })),
+                    }
+                  : null;
+              if (inv != null && snapshot != null) {
+                const bucket = ownerInvitationDisplayBucket(inv);
+                setInvitations((prev) => invitationsListAfterOptimisticCancel(prev, id));
+                setProperties((prev) =>
+                  prev.map((p) =>
+                    p.id === inv.property_id ? propertyRowAfterOptimisticInviteCancel(p, bucket) : p
+                  )
+                );
+                setInactiveProperties((prev) =>
+                  prev.map((p) =>
+                    p.id === inv.property_id ? propertyRowAfterOptimisticInviteCancel(p, bucket) : p
+                  )
+                );
+              }
+              try {
+                const res = await dashboardApi.cancelInvitation(id);
+                notify('success', res.message ?? 'Invitation cancelled.');
+                loadData({ silent: true });
+                window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+              } catch (e) {
+                if (snapshot) {
+                  setInvitations(snapshot.invitations);
+                  setProperties(snapshot.properties);
+                  setInactiveProperties(snapshot.inactiveProperties);
+                }
+                throw e;
+              }
             }}
             onResendInvitation={contextMode === 'personal' ? async (id) => { await dashboardApi.tenantResendInvitation(id); loadData(); } : undefined}
             businessModeTenantInvitationCopy={contextMode === 'business'}
@@ -923,7 +965,7 @@ const OwnerDashboard: React.FC<{ user: UserSession; navigate: (v: string) => voi
           <div className="space-y-8">
             {pendingTenantCount === 0 ? (
               <Card className="p-12 text-center">
-                <p className="text-slate-600 mb-6">No pending tenant signups. Tenants from a CSV bulk upload (occupied rows) or invites without a completed registration appear here.</p>
+                <p className="text-slate-600 mb-6">No pending tenant records. Tenants from a CSV bulk upload (occupied rows) or invites without a completed registration appear here.</p>
                 <Button variant="outline" onClick={() => { setActiveTab('dashboard'); navigate('dashboard'); }}>Back to overview</Button>
               </Card>
             ) : (

@@ -209,7 +209,7 @@ class VerifyEmailRequest(BaseModel):
 
 
 class ResendVerificationRequest(BaseModel):
-    """Request a new verification code for pending signup."""
+    """Request a new verification code for a pending registration (pre-account)."""
     user_id: int
 
 

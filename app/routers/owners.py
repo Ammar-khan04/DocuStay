@@ -99,6 +99,7 @@ logger = logging.getLogger(__name__)
 from app.services.authority_letter_email import send_authority_letter_to_provider
 from app.services.dashboard_alerts import create_alert_for_user
 from app.services.notifications import (
+    build_invitation_app_url,
     send_manager_invite_email,
     send_property_transfer_invite_email,
     send_shield_mode_turned_on_notification,
@@ -107,6 +108,7 @@ from app.services.notifications import (
     send_tenant_invite_email,
     send_tenant_lease_extension_email,
 )
+from app.services.invite_auto_email import auto_email_guest_invitation_if_addressed, auto_email_tenant_invitation_if_addressed
 from app.services.dropbox_sign import get_signed_pdf
 from app.services.billing import on_onboarding_properties_completed, ensure_subscription, sync_subscription_quantities
 from app.services.shield_mode_policy import SHIELD_MODE_ALWAYS_ON, persisted_shield_row_int
@@ -853,7 +855,7 @@ def _bulk_csv_append_co_tenant_invitations(
             db,
             CATEGORY_STATUS_CHANGE,
             "Invitation created (CSV co-tenant)",
-            f"Invite ID {inv_code} (co-tenant, shared lease, pending signup) for property {prop.id}, tenant {cot_name}, lease {lease_start}–{lease_end}.",
+            f"Invite ID {inv_code} (co-tenant, shared lease, pending record) for property {prop.id}, tenant {cot_name}, lease {lease_start}–{lease_end}.",
             property_id=prop.id,
             invitation_id=inv.id,
             actor_user_id=current_user.id,
@@ -890,6 +892,16 @@ def _bulk_csv_append_co_tenant_invitations(
             ),
             ip_address=ip,
             user_agent=ua,
+        )
+        auto_email_tenant_invitation_if_addressed(
+            db,
+            inv,
+            prop,
+            tenant_display_name=cot_name,
+            ip=ip,
+            ua=ua,
+            actor_user_id=current_user.id,
+            actor_email=current_user.email,
         )
 
 
@@ -1274,7 +1286,7 @@ def bulk_upload_properties(
                     db,
                     CATEGORY_STATUS_CHANGE,
                     "Invitation created (CSV occupied)",
-                    f"Invite ID {inv_code} created (token_state=STAGED, pending signup) for property {prop.id}, tenant {tenant_name}, lease {lease_start}–{lease_end}. Tenant can use invite link to sign up.",
+                    f"Invite ID {inv_code} created (token_state=STAGED, pending record) for property {prop.id}, tenant {tenant_name}, lease {lease_start}–{lease_end}. Tenant can use invite link to sign up.",
                     property_id=prop.id,
                     invitation_id=inv.id,
                     actor_user_id=current_user.id,
@@ -1309,6 +1321,16 @@ def bulk_upload_properties(
                     ),
                     ip_address=request.client.host if request.client else None,
                     user_agent=(request.headers.get("user-agent") or "").strip() or None,
+                )
+                auto_email_tenant_invitation_if_addressed(
+                    db,
+                    inv,
+                    prop,
+                    tenant_display_name=(tenant_name or "").strip(),
+                    ip=request.client.host if request.client else None,
+                    ua=(request.headers.get("user-agent") or "").strip() or None,
+                    actor_user_id=current_user.id,
+                    actor_email=current_user.email,
                 )
                 if inv_unit_id is not None:
                     _bulk_csv_append_co_tenant_invitations(
@@ -1496,7 +1518,7 @@ def bulk_upload_properties(
                         db,
                         CATEGORY_STATUS_CHANGE,
                         "Invitation created (CSV occupied, update)",
-                        f"Invite ID {inv_code} created (token_state=STAGED, pending signup) for property {existing_match.id}, tenant {tenant_name}, lease {lease_start}–{lease_end}.",
+                        f"Invite ID {inv_code} created (token_state=STAGED, pending record) for property {existing_match.id}, tenant {tenant_name}, lease {lease_start}–{lease_end}.",
                         property_id=existing_match.id,
                         invitation_id=inv.id,
                         actor_user_id=current_user.id,
@@ -1958,7 +1980,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                         db,
                         CATEGORY_STATUS_CHANGE,
                         "Invitation created (async CSV occupied)",
-                        f"Invite ID {inv_code} created (token_state=STAGED, pending signup) for property {prop.id}, tenant {tenant_name}, lease {lease_start}\u2013{lease_end}. Tenant can use invite link to sign up.",
+                        f"Invite ID {inv_code} created (token_state=STAGED, pending record) for property {prop.id}, tenant {tenant_name}, lease {lease_start}\u2013{lease_end}. Tenant can use invite link to sign up.",
                         property_id=prop.id,
                         invitation_id=inv.id,
                         actor_user_id=current_user.id,
@@ -1989,6 +2011,16 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                             lease_end=lease_end,
                             csv_row=row_num,
                         ),
+                    )
+                    auto_email_tenant_invitation_if_addressed(
+                        db,
+                        inv,
+                        prop,
+                        tenant_display_name=(tenant_name or "").strip(),
+                        ip=None,
+                        ua=None,
+                        actor_user_id=current_user.id,
+                        actor_email=current_user.email,
                     )
                     if inv_unit_id is not None:
                         _bulk_csv_append_co_tenant_invitations(
@@ -2166,7 +2198,7 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                             db,
                             CATEGORY_STATUS_CHANGE,
                             "Invitation created (async CSV occupied, update)",
-                            f"Invite ID {inv_code} created (token_state=STAGED, pending signup) for property {existing_match.id}, tenant {tenant_name}, lease {lease_start}\u2013{lease_end}.",
+                            f"Invite ID {inv_code} created (token_state=STAGED, pending record) for property {existing_match.id}, tenant {tenant_name}, lease {lease_start}\u2013{lease_end}.",
                             property_id=existing_match.id,
                             invitation_id=inv.id,
                             actor_user_id=current_user.id,
@@ -2199,6 +2231,16 @@ def _process_bulk_upload_background(job_key: str, csv_text: str, user_id: int):
                                 lease_end=lease_end,
                                 csv_row=row_num,
                             ),
+                        )
+                        auto_email_tenant_invitation_if_addressed(
+                            db,
+                            inv,
+                            existing_match,
+                            tenant_display_name=(tenant_name or "").strip(),
+                            ip=None,
+                            ua=None,
+                            actor_user_id=current_user.id,
+                            actor_email=current_user.email,
                         )
                         if inv_unit_id_upd is not None:
                             _bulk_csv_append_co_tenant_invitations(
@@ -4327,6 +4369,19 @@ def create_invitation(
         ip_address=ip,
         user_agent=ua,
     )
+    auto_email_guest_invitation_if_addressed(
+        db,
+        inv,
+        prop,
+        guest_display_name=(data.guest_name or "").strip() or guest_email_norm,
+        stay_start=start,
+        stay_end=end,
+        invited_by_tenant=(current_user.role == UserRole.tenant),
+        ip=ip,
+        ua=ua,
+        actor_user_id=current_user.id,
+        actor_email=current_user.email,
+    )
     if dms == 1:
         property_name = (prop.name or "").strip() or f"{getattr(prop, 'city', '')}, {getattr(prop, 'state', '')}".strip(", ") or f"Property {prop.id}"
         dms_owner_email, dms_manager_emails = owner_email_and_manager_emails_for_guest_invite_dms(db, inv)
@@ -4463,8 +4518,7 @@ def owner_create_tenant_lease_extension(
         ip_address=ip,
         user_agent=ua,
     )
-    base_url = (get_settings().stripe_identity_return_url or get_settings().frontend_base_url or "http://localhost:5173").strip().split("#")[0].rstrip("/")
-    invite_link = f"{base_url}/#demo/invite/{code}" if is_demo_user_id(db, current_user.id) else f"{base_url}/#invite/{code}"
+    invite_link = build_invitation_app_url(code, is_demo=is_demo_user_id(db, current_user.id))
     email_sent = False
     if data.send_email:
         try:
@@ -4608,6 +4662,16 @@ def owner_invite_tenant_by_property(
         ip_address=ip,
         user_agent=ua,
     )
+    auto_email_tenant_invitation_if_addressed(
+        db,
+        inv,
+        prop,
+        tenant_display_name=tenant_name,
+        ip=ip,
+        ua=ua,
+        actor_user_id=current_user.id,
+        actor_email=current_user.email,
+    )
     db.commit()
     return {"invitation_code": code, "status": "success", "message": "Tenant invitation created. Share the invite link with the tenant."}
 
@@ -4714,6 +4778,16 @@ def owner_invite_tenant(
         ip_address=ip,
         user_agent=ua,
     )
+    auto_email_tenant_invitation_if_addressed(
+        db,
+        inv,
+        prop,
+        tenant_display_name=tenant_name,
+        ip=ip,
+        ua=ua,
+        actor_user_id=current_user.id,
+        actor_email=current_user.email,
+    )
     db.commit()
     return {"invitation_code": code, "status": "success", "message": "Tenant invitation created. Share the invite link with the tenant."}
 
@@ -4733,7 +4807,7 @@ def owner_send_tenant_invite_email(
     if not is_property_invited_tenant_signup_kind(getattr(inv, "invitation_kind", None)):
         raise HTTPException(status_code=400, detail="Not a tenant invitation")
     if inv.status not in ("pending", "ongoing", "accepted"):
-        raise HTTPException(status_code=400, detail="Invitation is no longer pending signup")
+        raise HTTPException(status_code=400, detail="Invitation is no longer a pending record.")
     if (
         is_standard_tenant_invite_kind(getattr(inv, "invitation_kind", None))
         and inv.unit_id
@@ -4756,9 +4830,8 @@ def owner_send_tenant_invite_email(
     prop = db.query(Property).filter(Property.id == inv.property_id).first()
     property_name = (prop.name if prop else None) or (f"{prop.street}, {prop.city}" if prop else None) or "Property"
     tenant_name = tenant_name_in
-    base_url = (get_settings().stripe_identity_return_url or get_settings().frontend_base_url or "http://localhost:5173").strip().split("#")[0].rstrip("/")
     code = (inv.invitation_code or "").strip().upper()
-    invite_link = f"{base_url}/#demo/invite/{code}" if is_demo_user_id(db, inv.invited_by_user_id or inv.owner_id) else f"{base_url}/#invite/{code}"
+    invite_link = build_invitation_app_url(code, is_demo=is_demo_user_id(db, inv.invited_by_user_id or inv.owner_id))
     sent = send_tenant_invite_email(email, invite_link, tenant_name, property_name)
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "").strip() or None

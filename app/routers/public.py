@@ -30,6 +30,10 @@ from app.services.dropbox_sign import get_signed_pdf
 from app.services.invitation_agreement_ledger import emit_invitation_agreement_signed_if_dropbox_complete
 from app.services.audit_log import create_log, CATEGORY_VERIFY_ATTEMPT, CATEGORY_FAILED_ATTEMPT
 from app.services.event_ledger import (
+    ACTION_AWAY_ACTIVATED,
+    ACTION_AWAY_ENDED,
+    ACTION_PRESENCE_STATUS_CHANGED,
+    TENANT_LIVE_PAGE_EXCLUDED_OWNER_ACTIONS,
     build_ledger_display_resolution_context,
     create_ledger_event,
     ledger_event_to_display,
@@ -87,6 +91,33 @@ from app.schemas.public import (
 )
 router = APIRouter(prefix="/public", tags=["public"])
 
+_PRESENCE_LEDGER_ACTIONS: frozenset[str] = frozenset(
+    {
+        ACTION_AWAY_ACTIVATED,
+        ACTION_AWAY_ENDED,
+        ACTION_PRESENCE_STATUS_CHANGED,
+    }
+)
+
+
+def _presence_ledger_row_actor_is_tenant_or_guest_user(db: Session, row: EventLedger) -> bool:
+    """Tenant/guest scoped live: only presence rows from resident tenant or guest accounts (not owner/manager)."""
+    at = (row.action_type or "").strip()
+    if at not in _PRESENCE_LEDGER_ACTIONS:
+        return True
+    aid = getattr(row, "actor_user_id", None)
+    if not aid:
+        return False
+    u = db.query(User).filter(User.id == aid).first()
+    if not u or getattr(u, "role", None) is None:
+        return False
+    return u.role in (UserRole.tenant, UserRole.guest)
+
+
+def _ledger_row_hidden_from_tenant_live_timeline(row: EventLedger) -> bool:
+    """Owner/manager portfolio, CSV bulk import, and owner-issued tenant lease pipeline — not tenant live evidence."""
+    return (row.action_type or "").strip() in TENANT_LIVE_PAGE_EXCLUDED_OWNER_ACTIONS
+
 
 def _allowed_unit_labels_active_or_accepted_for_tenant(
     db: Session, property_id: int, tenant_user_id: int, today: date
@@ -131,11 +162,53 @@ def _invitation_matches_tenant_live_slug(inv: Invitation, email_lower: str, tena
     return False
 
 
-def _tenant_live_log_mentions_units(entry: LiveLogEntry, unit_labels_lower: set[str]) -> bool:
-    if not unit_labels_lower:
+def _unit_ids_matching_labels(units: list[Unit], labels_lower: set[str]) -> set[int]:
+    if not labels_lower:
+        return set()
+    return {
+        u.id
+        for u in units
+        if ((getattr(u, "unit_label", None) or "").strip().lower() in labels_lower)
+    }
+
+
+def _scoped_live_ledger_row_matches_unit_scope(
+    db: Session,
+    row: EventLedger,
+    *,
+    property_id: int,
+    allowed_unit_ids: set[int],
+    allowed_labels_lower: set[str],
+) -> bool:
+    """Ledger row belongs to an allowed unit (tenant/guest scoped live links).
+
+    Uses ``unit_id`` / stay / invitation linkage so presence and other rows stay visible when
+    display text uses a unit label without the literal word ``Unit`` (matches live-page UI filter).
+    """
+    if not allowed_labels_lower:
         return False
-    blob = f"{entry.title or ''} {entry.message or ''}".lower()
-    return any(label in blob for label in unit_labels_lower)
+    uid = getattr(row, "unit_id", None)
+    if uid is not None and uid in allowed_unit_ids:
+        return True
+    sid = getattr(row, "stay_id", None)
+    if sid is not None:
+        st = db.query(Stay).filter(Stay.id == sid, Stay.property_id == property_id).first()
+        if st and getattr(st, "unit_id", None) in allowed_unit_ids:
+            return True
+    iid = getattr(row, "invitation_id", None)
+    if iid is not None:
+        inv = db.query(Invitation).filter(Invitation.id == iid, Invitation.property_id == property_id).first()
+        if inv and getattr(inv, "unit_id", None) in allowed_unit_ids:
+            return True
+    meta = row.meta if isinstance(row.meta, dict) else {}
+    blob = " ".join(
+        [
+            str(getattr(row, "action_type", "") or ""),
+            str(meta.get("message") or ""),
+            str(meta.get("unit_label") or ""),
+        ]
+    ).lower()
+    return any(lab and lab in blob for lab in allowed_labels_lower)
 
 
 def _resolve_live_slug_context(db: Session, slug: str) -> tuple[Property | None, int | None, int | None, int | None]:
@@ -428,6 +501,9 @@ def _live_tenant_summary_for_logged_in_tenant(
     """
     When the viewer is a tenant user with tenant_assignments on this property (active or accepted/future lease),
     return their row(s) and summary strings for the live page tenant card (personalized view).
+
+    Includes overlapping **co-tenant** assignments on the same unit(s) with matching lease-cohort keys and
+    per-row ``lease_invite_resolved_status`` so shared-lease state matches ``_live_occupying_tenants_for_property``.
     """
     if not viewer or viewer.role != UserRole.tenant:
         return None
@@ -446,9 +522,66 @@ def _live_tenant_summary_for_logged_in_tenant(
     )
     if not rows:
         return None
-    unit_ids = {ta.unit_id for ta in rows}
-    units_by_id = {u.id: u for u in db.query(Unit).filter(Unit.id.in_(unit_ids)).all()}
-    out = [_ta_to_live_tenant_row(db, ta, units_by_id.get(ta.unit_id), now, today) for ta in rows]
+    unit_ids_list = list({ta.unit_id for ta in rows if ta.unit_id})
+    if not unit_ids_list:
+        return None
+    # Same overlap pool as property-wide live assignments so cohort keys / sizes align.
+    siblings = (
+        db.query(TenantAssignment)
+        .join(Unit, TenantAssignment.unit_id == Unit.id)
+        .filter(
+            Unit.property_id == property_id,
+            TenantAssignment.unit_id.in_(unit_ids_list),
+            TenantAssignment.start_date.isnot(None),
+            or_(TenantAssignment.end_date.is_(None), TenantAssignment.end_date >= today),
+        )
+        .all()
+    )
+    cohort_map = map_assignment_id_to_cohort_key(siblings)
+    cohort_sizes: dict[str, int] = {}
+    for _ta in siblings:
+        ck = cohort_map.get(_ta.id)
+        if ck:
+            cohort_sizes[ck] = cohort_sizes.get(ck, 0) + 1
+
+    units_by_id = {u.id: u for u in db.query(Unit).filter(Unit.id.in_(unit_ids_list)).all()}
+    viewer_row_ids = {ta.id for ta in rows}
+    viewer_cohort_keys = {cohort_map.get(ta.id) for ta in rows if cohort_map.get(ta.id)}
+
+    out: list[LiveTenantAssignmentInfo] = []
+    seen_ta_ids: set[int] = set()
+
+    def append_row(ta: TenantAssignment) -> None:
+        if ta.id in seen_ta_ids:
+            return
+        seen_ta_ids.add(ta.id)
+        ck = cohort_map.get(ta.id)
+        cnt = cohort_sizes.get(ck, 1) if ck else 1
+        out.append(
+            _ta_to_live_tenant_row(
+                db,
+                ta,
+                units_by_id.get(ta.unit_id),
+                now,
+                today,
+                cohort_id=ck,
+                cohort_member_count=cnt if ck else 1,
+            )
+        )
+
+    for ta in sorted(rows, key=lambda t: (t.unit_id or 0, t.created_at or now, t.id)):
+        append_row(ta)
+
+    for ta in sorted(siblings, key=lambda t: (t.unit_id or 0, t.user_id or 0, t.id)):
+        if ta.user_id == viewer.id:
+            continue
+        ck = cohort_map.get(ta.id)
+        if not ck or cohort_sizes.get(ck, 0) < 2:
+            continue
+        if ck not in viewer_cohort_keys:
+            continue
+        append_row(ta)
+
     assignee_s, period_s = _tenant_summary_strip(out)
     return out, assignee_s, period_s
 
@@ -752,6 +885,13 @@ def get_live_property_page(
         if lab and lab != "—":
             allowed_guest_live_units = [lab]
     current_stays_live = _current_active_stays_for_live(db, prop.id)
+    # Invitation rows can lag the physical stay (token/status still STAGED/pending). Align with
+    # ``resolve_public_tenant_stay_invitation_row_label`` / verify: checked-in stay ⇒ display active.
+    invitation_ids_with_checked_in_stay = {
+        int(s.invitation_id)
+        for s in current_stays_live
+        if getattr(s, "invitation_id", None) is not None
+    }
     if tenant_slug_user_id is not None:
         current_stays_live = []
 
@@ -765,6 +905,54 @@ def get_live_property_page(
         limit=500,
         exclude_guest_stay_actions=(personalized is None),
     )
+    tenant_slug_scoped = tenant_slug_user_id is not None
+    labels_for_tenant_live: set[str] | None = None
+    if tenant_slug_scoped:
+        labels_for_tenant_live = {x.strip().lower() for x in allowed_tenant_live_units if x.strip()}
+    bearer_tenant_scoped = (
+        not tenant_slug_scoped
+        and guest_slug_user_id is None
+        and personalized is not None
+        and effective_viewer is not None
+        and getattr(effective_viewer, "role", None) == UserRole.tenant
+    )
+    if bearer_tenant_scoped:
+        labs = _allowed_unit_labels_active_or_accepted_for_tenant(db, prop.id, effective_viewer.id, today)
+        labels_for_tenant_live = {x.strip().lower() for x in labs if x.strip()}
+
+    if tenant_slug_scoped or bearer_tenant_scoped:
+        if not labels_for_tenant_live:
+            log_rows = []
+        else:
+            aid = _unit_ids_matching_labels(list(units_for_live), labels_for_tenant_live)
+            log_rows = [
+                r
+                for r in log_rows
+                if _scoped_live_ledger_row_matches_unit_scope(
+                    db,
+                    r,
+                    property_id=prop.id,
+                    allowed_unit_ids=aid,
+                    allowed_labels_lower=labels_for_tenant_live,
+                )
+                and _presence_ledger_row_actor_is_tenant_or_guest_user(db, r)
+                and not _ledger_row_hidden_from_tenant_live_timeline(r)
+            ]
+    elif guest_slug_user_id is not None:
+        uset = {x.strip().lower() for x in allowed_guest_live_units if x.strip()}
+        if uset:
+            aid = _unit_ids_matching_labels(list(units_for_live), uset)
+            log_rows = [
+                r
+                for r in log_rows
+                if _scoped_live_ledger_row_matches_unit_scope(
+                    db, r, property_id=prop.id, allowed_unit_ids=aid, allowed_labels_lower=uset
+                )
+                and _presence_ledger_row_actor_is_tenant_or_guest_user(db, r)
+                and not _ledger_row_hidden_from_tenant_live_timeline(r)
+            ]
+        else:
+            log_rows = []
     ledger_ctx = build_ledger_display_resolution_context(db, log_rows)
     logs = []
     for r in log_rows:
@@ -788,18 +976,7 @@ def get_live_property_page(
                 state_change_on_record=disc.get("state_change_on_record"),
             )
         )
-    if tenant_slug_user_id is not None:
-        uset = {x.strip().lower() for x in allowed_tenant_live_units if x.strip()}
-        if uset:
-            logs = [lg for lg in logs if _tenant_live_log_mentions_units(lg, uset)]
-        else:
-            logs = []
     if guest_slug_user_id is not None:
-        uset = {x.strip().lower() for x in allowed_guest_live_units if x.strip()}
-        if uset:
-            logs = [lg for lg in logs if _tenant_live_log_mentions_units(lg, uset)]
-        else:
-            logs = []
         logs = [lg for lg in logs if _safe_guest_audit_log_entry(lg)]
 
     # Invitations for this property – invite states indicate stay status (STAGED→pending, BURNED→accepted/stay, EXPIRED→ended, REVOKED→cancelled)
@@ -862,7 +1039,12 @@ def get_live_property_page(
                 guest_label=guest_label,
                 stay_start_date=inv.stay_start_date,
                 stay_end_date=inv.stay_end_date,
-                status=resolve_invitation_display_status(inv, today=today, db=db),
+                status=resolve_invitation_display_status(
+                    inv,
+                    today=today,
+                    has_live_stay=bool(getattr(inv, "id", None) in invitation_ids_with_checked_in_stay),
+                    db=db,
+                ),
                 token_state=getattr(inv, "token_state", None) or "STAGED",
                 signed_agreement_available=agr_avail,
                 signed_agreement_url=agr_url,

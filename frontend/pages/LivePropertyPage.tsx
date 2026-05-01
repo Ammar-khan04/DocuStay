@@ -18,7 +18,7 @@ import {
   type UserSession,
   isPropertyTenantInviteKind,
 } from '../services/api';
-import { groupLiveTenantRowsByCohort } from '../utils/leaseCohortGroups';
+import { formatCoTenantPeerLine, groupLiveTenantRowsByCohort } from '../utils/leaseCohortGroups';
 import { formatCalendarDate, formatDateTimeLocal, getTodayLocal, parseForDisplay } from '../utils/dateUtils';
 import { scrubAuditLogStateChangeParagraph } from '../utils/auditLogMessage';
 import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../utils/propertyInvitationSummary';
@@ -236,6 +236,25 @@ function leaseInviteResolvedIsActiveOrAccepted(row: LiveTenantAssignmentInfo): b
   return key === 'active' || key === 'accepted';
 }
 
+/**
+ * Tenant live page: show every shared-lease cohort row in summary / record trail when at least one
+ * member is active or accepted (peers may still be pending registration).
+ */
+function includeTenantSummaryCohortPeerRow(
+  row: LiveTenantAssignmentInfo,
+  scoped: LiveTenantAssignmentInfo[],
+  viewerIsTenant: boolean,
+): boolean {
+  if (leaseInviteResolvedIsActiveOrAccepted(row)) return true;
+  if (!viewerIsTenant) return false;
+  const cid = (row.lease_cohort_id ?? '').trim();
+  const n = row.lease_cohort_member_count ?? 1;
+  if (!cid || n < 2) return false;
+  const cohortRows = scoped.filter((r) => (r.lease_cohort_id ?? '').trim() === cid);
+  if (cohortRows.length < 2) return false;
+  return cohortRows.some((r) => leaseInviteResolvedIsActiveOrAccepted(r));
+}
+
 function leaseStatusBadgeForRow(row: LiveTenantAssignmentInfo): { label: 'Active' | 'Accepted' | 'Pending'; className: string } {
   const key = resolvedLeaseStatusKey(row);
   if (key === 'active') {
@@ -252,8 +271,8 @@ function leaseInviteResolvedStatusFromOwnerTenantView(row: OwnerTenantView): str
   const inv = row.invite_status;
   const asg = row.assignment_status;
   const overall = row.status;
-  if (inv === 'pending' || asg === 'pending') return 'Pending invitation';
-  if (overall === 'pending' || overall === 'pending_signup') return 'Pending invitation';
+  if (inv === 'pending' || asg === 'pending') return 'Pending Record';
+  if (overall === 'pending' || overall === 'pending_signup') return 'Pending Record';
   return undefined;
 }
 
@@ -329,8 +348,41 @@ function logEntryMentionsAnyUnitLabel(entry: LiveLogEntry, unitLabels: Set<strin
   while ((m = unitRe.exec(haystack)) !== null) {
     mentions.push((m[1] || '').trim().toLowerCase());
   }
-  if (mentions.length === 0) return false;
-  return mentions.some((mLabel) => labels.has(mLabel));
+  if (mentions.some((mLabel) => labels.has(mLabel))) return true;
+  // Plain labels (e.g. "for 101") — presence and other copy often omit the word "Unit".
+  for (const lab of labels) {
+    if (!lab) continue;
+    if (lab.length >= 3) {
+      if (haystack.includes(lab)) return true;
+    } else {
+      try {
+        const re = new RegExp(`(?:^|[^a-z0-9])${lab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^a-z0-9]|$)`, 'i');
+        if (re.test(haystack)) return true;
+      } catch {
+        /* ignore invalid pattern */
+      }
+    }
+  }
+  return false;
+}
+
+/** Tenant/guest scoped views: presence timeline lines must be tenant or guest lane (never owner/manager). */
+function presenceEntryAllowedForResidentScopedView(entry: LiveLogEntry): boolean {
+  if ((entry.category || '').toLowerCase().trim() !== 'presence') return true;
+  const r = (entry.actor_role || '').toLowerCase().trim();
+  return r === 'tenant' || r === 'guest';
+}
+
+/** Strip owner portfolio / CSV bulk copy if it appears on cached or edge payloads (API filters ledger by action_type). */
+function tenantLiveTimelineEntryIsOwnerBulkOrPortfolioLeak(entry: LiveLogEntry): boolean {
+  const src = (entry.event_source || '').trim().toLowerCase();
+  if (src === 'import (csv)') return true;
+  const blob = `${entry.title || ''} ${entry.message || ''} ${entry.business_meaning_on_record || ''}`.toLowerCase();
+  if (/\bcsv\s+bulk\b/.test(blob) || /\bbulk\s+upload\b/.test(blob)) return true;
+  if (blob.includes('ownership proof')) return true;
+  if (blob.includes('pending tenant:') && blob.includes('invitation email')) return true;
+  if (blob.includes('lease extension offered')) return true;
+  return false;
 }
 
 function ownerLiveShouldHidePresenceTimelineEntry(entry: LiveLogEntry): boolean {
@@ -623,11 +675,13 @@ function collectGuestOpenStayInvitationCodes(stays: LiveCurrentGuestInfo[]): Set
 function resolveInvitationDisplayStatus(
   inv: LiveInvitationSummary,
   _todayYmd: string,
-  _guestOpenStayInviteCodes?: Set<string>,
+  guestOpenStayInviteCodes?: Set<string>,
 ): 'pending' | 'accepted' | 'active' | 'expired' | 'cancelled' {
-  // Source of truth is backend runtime resolver (`state_resolver.resolve_invitation_display_status`).
+  // Source of truth is backend `resolve_invitation_display_status` (plus current-stay linkage).
   const st = (inv.status || 'pending').trim().toLowerCase();
   if (st === 'active' || st === 'accepted' || st === 'expired' || st === 'cancelled') return st;
+  const code = (inv.invitation_code ?? '').trim().toUpperCase();
+  if (code && guestOpenStayInviteCodes?.has(code)) return 'active';
   return 'pending';
 }
 
@@ -1444,17 +1498,12 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
           ? displayTenantAssignments.filter((r) => tenantLeaseUnitLabels.has((r.unit_label || '').trim()))
           : [])
       : displayTenantAssignments;
-  const tenantAssignmentsForTenantSummary = dedupeLiveTenantAssignments(displayTenantAssignmentsScoped).filter(
-    leaseInviteResolvedIsActiveOrAccepted,
+  const tenantAssignmentsForTenantSummary = dedupeLiveTenantAssignments(displayTenantAssignmentsScoped).filter((r) =>
+    includeTenantSummaryCohortPeerRow(r, displayTenantAssignmentsScoped, viewerIsTenant),
   );
   const apiOccupancySummaryDetail = (prop.occupancy_summary_detail || '').trim();
   const occupancyContextDetail = ownerViewingOwnLivePage
-    ? buildOwnerOwnLiveOccupancyContext(
-        prop.occupancy_status,
-        prop.owner_occupied,
-        activeTenants.length,
-        tenantAssignmentsForTenantSummary.length,
-      )
+    ? `${statusLabel} on this snapshot. Invitation status: ${prop.invitation_pending_count ?? 0} pending, ${prop.invitation_accepted_count ?? 0} accepted, ${prop.invitation_active_count ?? 0} active.`
     : tenantScopeEnabled
       ? tenantLeaseUnitLabels.size > 0
         ? guestLinkAudience
@@ -1513,7 +1562,10 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const logsForLivePage =
     tenantScopeEnabled
       ? (tenantLeaseUnitLabels.size > 0
-          ? logs.filter((entry) => logEntryMentionsAnyUnitLabel(entry, tenantLeaseUnitLabels))
+          ? logs
+              .filter((entry) => logEntryMentionsAnyUnitLabel(entry, tenantLeaseUnitLabels))
+              .filter(presenceEntryAllowedForResidentScopedView)
+              .filter((entry) => !tenantLiveTimelineEntryIsOwnerBulkOrPortfolioLeak(entry))
           : [])
       : logs;
   const tenantPresenceVisible = viewerIsTenant || tenantLinkAudience;
@@ -1526,8 +1578,11 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
   const statusChangeLogs = logsForAuditTimeline.filter(
     (e) =>
       e.category === 'status_change' ||
-      /status|vacant|occupancy|confirmed|vacated|check.?in|checkout/i.test(e.title || '') ||
-      /status|vacant|occupancy|confirmed|vacated/i.test(e.message || '')
+      (e.category || '').toLowerCase() === 'presence' ||
+      /status|vacant|occupancy|confirmed|vacated|check.?in|checkout|presence|away|resident|absent|returned/i.test(
+        e.title || '',
+      ) ||
+      /status|vacant|occupancy|confirmed|vacated|presence|away|resident|absent|returned/i.test(e.message || ''),
   );
   const tokenEventLogs = logsForAuditTimeline.filter(
     (e) =>
@@ -1535,8 +1590,8 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
       /invitation|invite|stay|token|burn|expire|revoke|signed|agreement|checkout|check.?in/i.test(e.title || '')
   );
   const authorityTenantAssignmentsUnique = dedupeLiveTenantAssignments(displayTenantAssignmentsScoped);
-  const authorityTenantAssignmentsForRecordTrail = authorityTenantAssignmentsUnique.filter(
-    leaseInviteResolvedIsActiveOrAccepted,
+  const authorityTenantAssignmentsForRecordTrail = authorityTenantAssignmentsUnique.filter((r) =>
+    includeTenantSummaryCohortPeerRow(r, authorityTenantAssignmentsUnique, viewerIsTenant),
   );
   const authorityTenantAssignmentGroups = groupLiveTenantRowsByCohort(authorityTenantAssignmentsForRecordTrail);
   const tenantClientGroups = groupLiveTenantRowsByCohort(tenantAssignmentsForTenantSummary);
@@ -1725,7 +1780,6 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                         : 'Your lease context'
                       : 'Current property status'}
                 </p>
-                <p className="text-sm text-slate-700 mb-2 max-w-2xl leading-relaxed">{occupancyRecordAssertion}</p>
                 {tenantScopeEnabled && tenantLeaseUnitLabels.size === 0 ? (
                   <p className="text-xs text-slate-600">
                     {guestLinkAudience ? (
@@ -2445,6 +2499,16 @@ export const LivePropertyPage: React.FC<{ slug: string }> = ({ slug }) => {
                     <span className="text-slate-600 break-all"> · {ownerEmailNormalized}</span>
                   ) : null}
                 </li>
+                {viewerIsTenant &&
+                (tenantDashboardLeaseRow?.co_tenants ?? []).filter((p) => (p.name || p.email || '').trim()).length >
+                  0 ? (
+                  <li className="text-slate-600">
+                    <span className="font-medium text-slate-800">Co-tenants (lease record):</span>{' '}
+                    {formatCoTenantPeerLine(
+                      (tenantDashboardLeaseRow?.co_tenants ?? []).filter((p) => (p.name || p.email || '').trim()),
+                    )}
+                  </li>
+                ) : null}
                 {activeTenantAssignmentsInSummaryWindow.length > 0 ? (
                   <li className="text-slate-600">
                     Active tenant(s) in lease window: {activeTenantAssignmentsInSummaryWindow.length} — see{' '}

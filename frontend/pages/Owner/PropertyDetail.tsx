@@ -1265,9 +1265,9 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                                   )}
                                   {pool.some((t) => ownerLeaseState(t) === 'pending') &&
                                     (unitPoolHasActiveLease(poolRaw) ? (
-                                      <p className="text-amber-700">Co-tenant pending signup</p>
+                                      <p className="text-amber-700">Co-tenant: Pending Record</p>
                                     ) : (
-                                      <p className="text-amber-700">Pending signup</p>
+                                      <p className="text-amber-700">Pending Record</p>
                                     ))}
                                 </div>
                               )}
@@ -1386,9 +1386,9 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                                         )}
                                         {pool.some((t) => ownerLeaseState(t) === 'pending') &&
                                           (unitPoolHasActiveLease(poolRaw) ? (
-                                            <p className="text-amber-700">Co-tenant pending signup</p>
+                                            <p className="text-amber-700">Co-tenant: Pending Record</p>
                                           ) : (
-                                            <p className="text-amber-700">Pending signup</p>
+                                            <p className="text-amber-700">Pending Record</p>
                                           ))}
                                       </div>
                                     )}
@@ -1942,7 +1942,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                             {displayLabel}
                           </span>
                           {stay.invitation_only && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">Pending sign-up</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">Pending Record</span>
                           )}
                           {stay.invite_id && (
                             <span className="text-slate-500 text-sm font-mono">Invite ID: {stay.invite_id}</span>
@@ -1965,7 +1965,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                           <div>
                             <dt className="text-slate-500">Status</dt>
                             <dd className="font-medium text-slate-800">
-                              {stay.invitation_only ? 'Pending sign-up' : stay.cancelled_at ? 'Cancelled' : stay.checked_out_at ? 'Completed' : stay.revoked_at ? 'Revoked' : isOverstayed(stay.stay_end_date) ? 'Overstayed' : 'Active'}
+                              {stay.invitation_only ? 'Pending Record' : stay.cancelled_at ? 'Cancelled' : stay.checked_out_at ? 'Completed' : stay.revoked_at ? 'Revoked' : isOverstayed(stay.stay_end_date) ? 'Overstayed' : 'Active'}
                             </dd>
                           </div>
                         </dl>
@@ -2021,7 +2021,7 @@ export const PropertyDetail: React.FC<{ propertyId: string; user: UserSession; n
                         <td className="px-6 py-5 text-sm text-slate-600 font-mono">{stay.stay_end_date}</td>
                         <td className="px-6 py-5">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${stay.invitation_only ? 'bg-amber-50 text-amber-600 border-amber-200' : overstay ? 'bg-red-50 text-red-600 border-red-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
-                            {stay.invitation_only ? 'Pending sign-up' : overstay ? 'Overstayed' : 'Active'}
+                            {stay.invitation_only ? 'Pending Record' : overstay ? 'Overstayed' : 'Active'}
                           </span>
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">

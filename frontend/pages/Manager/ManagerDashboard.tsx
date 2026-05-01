@@ -17,6 +17,11 @@ import { formatStayDuration, formatLedgerTimestamp, formatCalendarDate } from '.
 import { scrubAuditLogStateChangeParagraph } from '../../utils/auditLogMessage';
 import { PROPERTY_INVITATION_COUNTS_FOOTNOTE, propertyInvitationCountsLine } from '../../utils/propertyInvitationSummary';
 import {
+  invitationsListAfterOptimisticCancel,
+  ownerInvitationDisplayBucket,
+  propertyRowAfterOptimisticInviteCancel,
+} from '../../utils/optimisticInvitationCancel';
+import {
   filterOpenGuestStaysForDashboard,
   filterPhysicallyCheckedInOpenStays,
   sortGuestStayDashboardRows,
@@ -470,10 +475,35 @@ const ManagerDashboard: React.FC<{
           notify={notify}
           showVerifyQR={false}
           onCancelInvitation={async (id) => {
-            const res = await dashboardApi.cancelInvitation(id);
-            notify('success', res.message ?? 'Invitation cancelled.');
-            loadInvitationsAndStays();
-            window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+            const inv = invitations.find((i) => i.id === id);
+            const snapshot =
+              inv != null
+                ? {
+                    invitations: invitations.map((i) => ({ ...i })),
+                    properties: properties.map((p) => ({ ...p })),
+                  }
+                : null;
+            if (inv != null && snapshot != null) {
+              const bucket = ownerInvitationDisplayBucket(inv);
+              setInvitations((prev) => invitationsListAfterOptimisticCancel(prev, id));
+              setProperties((prev) =>
+                prev.map((p) =>
+                  p.id === inv.property_id ? propertyRowAfterOptimisticInviteCancel(p, bucket) : p
+                )
+              );
+            }
+            try {
+              const res = await dashboardApi.cancelInvitation(id);
+              notify('success', res.message ?? 'Invitation cancelled.');
+              loadInvitationsAndStays();
+              window.dispatchEvent(new CustomEvent(DASHBOARD_ALERTS_REFRESH_EVENT));
+            } catch (e) {
+              if (snapshot) {
+                setInvitations(snapshot.invitations);
+                setProperties(snapshot.properties);
+              }
+              throw e;
+            }
           }}
           businessModeTenantInvitationCopy={false}
           introText="Pending invitations for properties you manage. Invitations expire if not accepted within the configured window."
