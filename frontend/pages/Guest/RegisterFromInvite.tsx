@@ -36,6 +36,8 @@ const RegisterFromInvite: React.FC<Props> = ({
 }) => {
   const [inviteDetails, setInviteDetails] = useState<InvitationDetails | null>(null);
   const [inviteLoading, setInviteLoading] = useState(true);
+  /** Keeps signup UI hidden until hash navigates away for demo invitations opened on production routes. */
+  const [demoInviteRoutePending, setDemoInviteRoutePending] = useState(false);
   const normalizedCode = invitationId.trim().toUpperCase();
   const isTenantInvite =
     isPropertyTenantInviteKind(inviteDetails?.invitation_kind) || Boolean(inviteDetails?.is_tenant_invite);
@@ -181,6 +183,10 @@ const RegisterFromInvite: React.FC<Props> = ({
   };
 
   useEffect(() => {
+    setDemoInviteRoutePending(false);
+  }, [normalizedCode]);
+
+  useEffect(() => {
     if (!normalizedCode) {
       setInviteLoading(false);
       setInviteDetails({ valid: false });
@@ -189,6 +195,7 @@ const RegisterFromInvite: React.FC<Props> = ({
     invitationsApi.getDetails(normalizedCode)
       .then((d) => {
         if (d.valid && d.is_demo && !sessionIsDemo) {
+          setDemoInviteRoutePending(true);
           navigate(`demo/invite/${normalizedCode}`);
           return;
         }
@@ -207,10 +214,12 @@ const RegisterFromInvite: React.FC<Props> = ({
         const msg = (err as Error)?.message ?? '';
         notify('error', msg || 'Could not verify invitation. Please check the link and try again.');
       })
-      .finally(() => setInviteLoading(false));
+      .finally(() => {
+        setInviteLoading(false);
+      });
   }, [normalizedCode, notify, navigate, sessionIsDemo]);
 
-  if (inviteLoading) {
+  if (inviteLoading || demoInviteRoutePending) {
     return (
       <HeroBackground className="flex-grow">
         <div className="max-w-4xl mx-auto w-full rounded-2xl bg-white/80 backdrop-blur-md border border-slate-200/80 shadow-xl p-10">

@@ -32,9 +32,14 @@ const GuestLogin: React.FC<GuestLoginProps> = ({ inviteCode: inviteCodeFromUrl, 
   const [showPassword, setShowPassword] = useState(false);
   const [errorModal, setErrorModal] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [inviteCheck, setInviteCheck] = useState<{ loading: boolean; valid: boolean; expired?: boolean; used?: boolean; already_accepted?: boolean; revoked?: boolean; cancelled?: boolean; reason?: string; invitation_kind?: string } | null>(null);
+  const [demoInviteRoutePending, setDemoInviteRoutePending] = useState(false);
 
   const inviteCode = inviteCodeFromUrl || parseInviteCode(formData.invitation_link);
   const showError = (message: string) => setErrorModal({ open: true, message });
+
+  useEffect(() => {
+    setDemoInviteRoutePending(false);
+  }, [inviteCode]);
 
   useEffect(() => {
     if (!inviteCode || inviteCode.length < 5) {
@@ -45,6 +50,7 @@ const GuestLogin: React.FC<GuestLoginProps> = ({ inviteCode: inviteCodeFromUrl, 
     invitationsApi.getDetails(inviteCode)
       .then((d) => {
         if (d.valid && d.is_demo && inviteCode) {
+          setDemoInviteRoutePending(true);
           navigate(`demo/invite/${inviteCode}`);
           return;
         }
@@ -57,6 +63,14 @@ const GuestLogin: React.FC<GuestLoginProps> = ({ inviteCode: inviteCodeFromUrl, 
       })
       .catch(() => setInviteCheck({ loading: false, valid: false }));
   }, [inviteCode, navigate]);
+
+  if (demoInviteRoutePending) {
+    return (
+      <HeroBackground className="flex-grow flex items-center justify-center min-h-[320px]">
+        <p className="text-slate-500 text-sm">Opening demo invitation…</p>
+      </HeroBackground>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

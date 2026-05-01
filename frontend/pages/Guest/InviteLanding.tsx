@@ -41,10 +41,12 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
 }) => {
   const [details, setDetails] = useState<InvitationDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(true);
-  const [demoRedirecting, setDemoRedirecting] = useState(false);
   const [demoGuestAutoAccepting, setDemoGuestAutoAccepting] = useState(false);
   const [demoTenantAcceptSubmitting, setDemoTenantAcceptSubmitting] = useState(false);
   const code = (invitationCode || '').trim().toUpperCase();
+  const awaitingDemoInviteSignInGate =
+    !loadingDetails &&
+    Boolean(details?.valid && details.is_demo && !sessionIsDemo && code.length >= 5);
 
   useEffect(() => {
     setDemoGuestAutoAccepting(false);
@@ -64,19 +66,19 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
   }, [code]);
 
   useEffect(() => {
-    if (loadingDetails || !details?.valid || !details.is_demo || sessionIsDemo || !code) return;
-    setDemoRedirecting(true);
+    if (!awaitingDemoInviteSignInGate) return;
     navigate(`demo/invite/${code}`);
-  }, [loadingDetails, details, sessionIsDemo, code, navigate]);
+  }, [awaitingDemoInviteSignInGate, code, navigate]);
 
-  // Demo behavior: guest invites should be accepted automatically (no signup/agreement flow).
-  // Backend records the same agreement document + PDF as production typed signing.
+  // Demo-only: guest invites from demo hosts auto-accept (same backend signing as prod).
+  // Requires API ``is_demo`` so production invites never use this path—even if the viewer session is demo.
   useEffect(() => {
     if (loadingDetails) return;
     if (!sessionIsDemo) return;
-    if (!details?.valid) return;
-    const tenantInvite = isPropertyTenantInviteKind(details.invitation_kind) || Boolean(details.is_tenant_invite);
-    if (tenantInvite) return;
+    if (!details?.valid || !details.is_demo) return;
+    const tenantInv =
+      isPropertyTenantInviteKind(details.invitation_kind) || Boolean(details.is_tenant_invite);
+    if (tenantInv) return;
     if (!code) return;
     if (demoGuestAutoAccepting) return;
     setDemoGuestAutoAccepting(true);
@@ -114,7 +116,7 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
     );
   }
 
-  if (demoRedirecting) {
+  if (awaitingDemoInviteSignInGate) {
     return (
       <div className="flex-grow flex items-center justify-center min-h-[320px]">
         <p className="text-slate-500 text-sm">Redirecting to demo sign-in…</p>
@@ -122,9 +124,11 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
     );
   }
 
-  const isTenantInvite = isPropertyTenantInviteKind(details?.invitation_kind) || Boolean(details?.is_tenant_invite);
+  const resolvedTenantInvite =
+    Boolean(details?.valid) &&
+    (isPropertyTenantInviteKind(details.invitation_kind) || Boolean(details.is_tenant_invite));
 
-  if (sessionIsDemo && demoTenantSession && details?.valid && isTenantInvite && code) {
+  if (sessionIsDemo && demoTenantSession && details?.valid && resolvedTenantInvite && code) {
     const handleDemoTenantAccept = () => {
       setDemoTenantAcceptSubmitting(true);
       setLoading(true);
@@ -183,15 +187,17 @@ const InviteLanding: React.FC<InviteLandingProps> = ({
     );
   }
 
-  if (demoGuestAutoAccepting) {
+  if (sessionIsDemo && Boolean(details?.is_demo) && details?.valid && code && !resolvedTenantInvite) {
     return (
       <div className="flex-grow flex items-center justify-center min-h-[320px]">
-        <p className="text-slate-500 text-sm">Accepting demo invitation…</p>
+        <p className="text-slate-500 text-sm">
+          {demoGuestAutoAccepting ? 'Accepting demo invitation…' : 'Preparing demo invitation…'}
+        </p>
       </div>
     );
   }
 
-  if (isTenantInvite) {
+  if (resolvedTenantInvite) {
     return (
       <RegisterFromInvite
         invitationId={code}
